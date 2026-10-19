@@ -220,8 +220,7 @@ export default function Sidebar({
         </button>
         <div className="row">
           <button
-            className="btn btn-ghost btn-sm"
-            style={{ flex: 1 }}
+            className="btn btn-ghost btn-sm flex-1"
             onClick={onClear}
             title="Görünümü temizle"
             aria-label="Görünümü temizle"
@@ -229,8 +228,7 @@ export default function Sidebar({
             <Icon name="x" size="sm" />
           </button>
           <button
-            className="btn btn-ghost btn-sm"
-            style={{ flex: 1 }}
+            className="btn btn-ghost btn-sm flex-1"
             onClick={onExportJson}
             title="aktif oturumu JSON olarak indir"
             aria-label="JSON dışa aktar"
@@ -238,8 +236,7 @@ export default function Sidebar({
             <Icon name="download" size="sm" />
           </button>
           <button
-            className="btn btn-ghost btn-sm"
-            style={{ flex: 1 }}
+            className="btn btn-ghost btn-sm flex-1"
             onClick={() => fileRef.current?.click()}
             title="JSON yedeğini içe aktar"
             aria-label="JSON içe aktar"
@@ -247,8 +244,7 @@ export default function Sidebar({
             <Icon name="upload" size="sm" />
           </button>
           <button
-            className="btn btn-ghost btn-sm"
-            style={{ flex: 1 }}
+            className="btn btn-ghost btn-sm flex-1"
             onClick={() => setSidebarCollapsed(!collapsed)}
             title={collapsed ? "Sidebar'ı genişlet" : "Sidebarı daralt"}
             aria-label="Sidebarı daralt / genişlet"
@@ -276,7 +272,6 @@ export default function Sidebar({
         aria-orientation="vertical"
         aria-label="Sidebar genişliğini ayarla"
         onPointerDown={onResizeDown}
-        style={{ display: collapsed ? 'none' : undefined }}
       />
     </aside>
   );

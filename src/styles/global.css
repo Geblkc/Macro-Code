@@ -123,6 +123,15 @@
 
 button { font-family: inherit; color: inherit; }
 
+/* Native form kontrolleri temayla eşleşsin (varsayılan mavi kutu kalmasın). */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

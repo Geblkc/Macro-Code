@@ -210,15 +210,14 @@ export default function ModelsTab(props: Props) {
           Modeller
           <span className="chip on">{filteredAll.length} / {visible.length}</span>
         </div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         API anahtarı olmayan sağlayıcının modelleri listelenmez. Aramak için yazın ya da
         sağlayıcıya göre süzün.
       </div>
-      <span className="field-row" style={{ marginBottom: 10 }}>
+      <span className="field-row mb-3">
         <input
           type="text"
-          className="input"
-          style={{ flex: 2 }}
+          className="input flex-2"
           placeholder="model ara (id, ad, aile)…"
           value={listQuery}
           spellCheck={false}
@@ -226,8 +225,7 @@ export default function ModelsTab(props: Props) {
           onChange={(e) => setListQuery(e.target.value)}
         />
         <select
-          className="input"
-          style={{ flex: 1 }}
+          className="input flex-1"
           value={listProvider}
           onChange={(e) => setListProvider(e.target.value)}
         >
@@ -240,10 +238,10 @@ export default function ModelsTab(props: Props) {
         </select>
       </span>
       {locked.length > 0 ? (
-        <div style={{ marginBottom: 10 }}>
+        <div className="mb-3">
           {locked.map((p) => (
-            <span key={p} className="field-row" style={{ marginBottom: 4 }}>
-              <span className="field-label" style={{ flex: 1, margin: 0 }}>
+            <span key={p} className="field-row mb-1">
+              <span className="field-label flex-1 m-0">
                 <Icon name="key" size="sm" /> {PROVIDER_DEFS[p]?.label ?? p} — anahtar girilmedi
               </span>
               <button className="mini-btn" onClick={props.onOpenProviders}>
@@ -314,7 +312,7 @@ export default function ModelsTab(props: Props) {
 
       <div className="modal-section-title">Varsayılan model</div>
       {draft.activeEndpointId ? (
-        <div className="field-note" style={{ marginBottom: 8 }}>
+        <div className="field-note mb-2">
           Özel uç aktif — aşağıdaki liste yerleşik modeller içindir. Uç modelini
           Sağlayıcılar sekmesinden seç.
         </div>
@@ -350,24 +348,22 @@ export default function ModelsTab(props: Props) {
       {props.foundErr ? <div className="form-err">{props.foundErr}</div> : null}
       {props.found ? (
         isCatalog ? (
-          <div style={{ marginTop: 8 }}>
-            <div className="field-note" style={{ marginBottom: 6 }}>
+          <div className="mt-2">
+            <div className="field-note mb-1">
               models.dev kataloğu ({catalogRows.length} model) — arama, filtrele ve
               listeye ekle:
             </div>
             <span className="field-row">
               <input
                 type="text"
-                className="field-input"
-                style={{ flex: 2 }}
+                className="input flex-2"
                 placeholder="id, ad, açıklama veya aile ara…"
                 value={query}
                 spellCheck={false}
                 onChange={(e) => setQuery(e.target.value)}
               />
               <select
-                className="field-input"
-                style={{ flex: 1 }}
+                className="input flex-1"
                 value={providerFilter}
                 onChange={(e) => setProviderFilter(e.target.value)}
               >
@@ -379,7 +375,7 @@ export default function ModelsTab(props: Props) {
                 ))}
               </select>
             </span>
-            <div className="field-note" style={{ margin: '4px 0' }}>
+            <div className="field-note my-1">
               {filteredCatalog.length} sonuç
               {filteredCatalog.length > 60 ? ' (ilk 60 gösteriliyor)' : ''}
             </div>
@@ -411,11 +407,10 @@ export default function ModelsTab(props: Props) {
                 return (
                   <span
                     key={`${m.source}:${m.id}`}
-                    className="field-row"
-                    style={{ marginBottom: 4 }}
+                    className="field-row mb-1"
                     title={title}
                   >
-                    <span className="field-label" style={{ flex: 2, margin: 0 }}>
+                    <span className="field-label flex-2 m-0">
                       {m.id} {badges}
                       {c?.family ? (
                         <span className="status-dim"> ({c.family})</span>
@@ -434,16 +429,16 @@ export default function ModelsTab(props: Props) {
             )}
           </div>
         ) : (
-          <div style={{ marginTop: 8 }}>
-            <div className="field-note" style={{ marginBottom: 4 }}>
+          <div className="mt-2">
+            <div className="field-note mb-1">
               bulunanlar ({props.found.length}) — ekle ile listeye alınır:
             </div>
             {props.found.length === 0 ? (
               <div className="field-note">—</div>
             ) : (
               props.found.slice(0, 30).map((m) => (
-                <span key={`${m.source}:${m.id}`} className="field-row" style={{ marginBottom: 4 }}>
-                  <span className="field-label" style={{ flex: 1, margin: 0 }}>
+                <span key={`${m.source}:${m.id}`} className="field-row mb-1">
+                  <span className="field-label flex-1 m-0">
                     {m.id} <span className="status-dim">({m.source})</span>
                   </span>
                   <button
@@ -465,7 +460,7 @@ export default function ModelsTab(props: Props) {
         <span className="field-label">Model id</span>
         <input
           type="text"
-          className="field-input"
+          className="input"
           value={newId}
           spellCheck={false}
           autoComplete="off"
@@ -475,7 +470,7 @@ export default function ModelsTab(props: Props) {
       </label>
       <span className="field-row">
         <select
-          className="field-input"
+          className="input"
           value={newProvider}
           onChange={(e) => setNewProvider(e.target.value as Provider)}
         >
@@ -501,10 +496,10 @@ export default function ModelsTab(props: Props) {
       </span>
       {localErr ? <div className="form-err">{localErr}</div> : null}
       {draft.customModels.length > 0 ? (
-        <div style={{ marginTop: 8 }}>
+        <div className="mt-2">
           {draft.customModels.map((c) => (
-            <span key={c.id} className="field-row" style={{ marginBottom: 4 }}>
-              <span className="field-label" style={{ flex: 1, margin: 0 }}>
+            <span key={c.id} className="field-row mb-1">
+              <span className="field-label flex-1 m-0">
                 {c.id} <span className="status-dim">({c.provider}, özel)</span>
               </span>
               <button className="mini-btn danger" onClick={() => props.onRemoveCustom(c.id)}>
@@ -517,16 +512,16 @@ export default function ModelsTab(props: Props) {
       {props.formError ? <div className="form-err">{props.formError}</div> : null}
 
       <div className="modal-section-title">Model parametreleri</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         Seçili varsayılan model için (<code>{draft.currentModel || '—'}</code>). Boş = sağlayıcı
         varsayılanı gönderilir.
       </div>
       <span className="field-row">
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field flex-1">
           <span className="field-label">temperature (0–2)</span>
           <input
             type="number"
-            className="field-input"
+            className="input"
             min={0}
             max={2}
             step={0.1}
@@ -534,11 +529,11 @@ export default function ModelsTab(props: Props) {
             onChange={(e) => setParam('temperature', e.target.value)}
           />
         </label>
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field flex-1">
           <span className="field-label">top_p (0–1)</span>
           <input
             type="number"
-            className="field-input"
+            className="input"
             min={0}
             max={1}
             step={0.05}
@@ -550,11 +545,11 @@ export default function ModelsTab(props: Props) {
         </label>
       </span>
       <span className="field-row">
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field flex-1">
           <span className="field-label">max çıktı token</span>
           <input
             type="number"
-            className="field-input"
+            className="input"
             min={1}
             step={1}
             value={numText(params.maxTokens)}
@@ -562,11 +557,11 @@ export default function ModelsTab(props: Props) {
             onChange={(e) => setParam('maxTokens', e.target.value)}
           />
         </label>
-        <label className="field" style={{ flex: 1 }}>
+        <label className="field flex-1">
           <span className="field-label">düşünme bütçesi</span>
           <input
             type="number"
-            className="field-input"
+            className="input"
             min={1024}
             step={1024}
             value={numText(params.thinkingBudget)}
@@ -583,7 +578,7 @@ export default function ModelsTab(props: Props) {
       </span>
 
       <div className="modal-section-title">Yedek model</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         Asıl model hata verirse sohbette bir kez denenir. Ajan ve özel uç akışında
         çalışmaz. Farklı bir sağlayıcıdan da seçebilirsin — istek o sağlayıcının
         uçuna, kendi anahtarıyla gider; anahtarı yoksa yedek atlanır.
@@ -591,7 +586,7 @@ export default function ModelsTab(props: Props) {
       <label className="field">
         <span className="field-label">Yedek</span>
         <select
-          className="field-input"
+          className="input"
           value={draft.fallbackModel}
           onChange={(e) => patch({ fallbackModel: e.target.value })}
         >
@@ -615,14 +610,14 @@ export default function ModelsTab(props: Props) {
       </label>
 
       <div className="modal-section-title">Fiyat tablosu (1M token/USD)</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         <code>/tokens</code> maliyeti buradan hesaplar. Boş satırlar sayılmaz.
         models.dev kataloğu yüklüyse fiyatlar otomatik dolar; elle girdiğin
         değerler korunur. <strong>cache</strong> sütunu önbellek okuma fiyatıdır
         (boş = girdi fiyatı).
       </div>
       {props.catalogLoaded ? (
-        <div className="field-row" style={{ marginBottom: 8 }}>
+        <div className="field-row mb-2">
           <button className="mini-btn" onClick={props.onApplyCatalogPrices}>
             eksik fiyatları katalogdan doldur
           </button>
@@ -632,17 +627,16 @@ export default function ModelsTab(props: Props) {
       {filteredAll.slice(0, 120).map((m) => {
         const row = draft.prices[m.id];
         return (
-          <span key={m.id} className="field-row" style={{ marginBottom: 4 }}>
-            <span className="field-label" style={{ flex: 2, margin: 0 }}>
+          <span key={m.id} className="field-row mb-1">
+            <span className="field-label flex-2 m-0">
               {m.id}
               {m.catalogPrice ? <span className="status-dim"> (katalog)</span> : null}
             </span>
             <input
               type="number"
-              className="field-input"
+              className="input flex-1"
               min={0}
               step={0.01}
-              style={{ flex: 1 }}
               title="girdi / 1M"
               placeholder="girdi"
               value={row ? String(row.input) : ''}
@@ -650,10 +644,9 @@ export default function ModelsTab(props: Props) {
             />
             <input
               type="number"
-              className="field-input"
+              className="input flex-1"
               min={0}
               step={0.01}
-              style={{ flex: 1 }}
               title="çıktı / 1M"
               placeholder="çıktı"
               value={row ? String(row.output) : ''}
@@ -661,10 +654,9 @@ export default function ModelsTab(props: Props) {
             />
             <input
               type="number"
-              className="field-input"
+              className="input flex-1"
               min={0}
               step={0.01}
-              style={{ flex: 1 }}
               title="cache okuma / 1M (boş = girdi fiyatı)"
               placeholder="cache"
               value={row && row.cacheRead !== undefined ? String(row.cacheRead) : ''}
@@ -675,13 +667,13 @@ export default function ModelsTab(props: Props) {
       })}
 
       {filteredAll.length > 120 ? (
-        <div className="field-note" style={{ marginBottom: 4 }}>
+        <div className="field-note mb-1">
           ilk 120 satır gösteriliyor — daraltmak için ara/sağlayıcı seç.
         </div>
       ) : null}
 
       <div className="modal-section-title">Modeller (açık/kapalı)</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         Kapalı modeller açılır listelerde gizlenir; seçili rozet korunur.
       </div>
       {filteredAll.slice(0, 120).map((m) => {
@@ -696,8 +688,8 @@ export default function ModelsTab(props: Props) {
           .filter(Boolean)
           .join(' · ');
         return (
-          <span key={m.id} className="field-row" style={{ marginBottom: 4 }} title={meta}>
-            <span className="field-label" style={{ flex: 1, margin: 0 }}>
+          <span key={m.id} className="field-row mb-1" title={meta}>
+            <span className="field-label flex-1 m-0">
               {m.id}
               {isCustom ? ' (özel)' : ''}
               {m.family && !isCustom ? <span className="status-dim"> ({m.family})</span> : null}

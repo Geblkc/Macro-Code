@@ -17,7 +17,7 @@ export default function McpTab(props: Props) {
   return (
     <div>
       <div className="modal-section-title">MCP sunucuları</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         Araçlar <span className="status-dim">mcp:sunucu:araç</span> adıyla agent&apos;a girer ve her
         zaman onay ister. Secret&apos;lar bu cihazda saklanır (keys.json).
       </div>
@@ -28,19 +28,19 @@ export default function McpTab(props: Props) {
           <div key={c.key} className="endpoint-card">
             <span className="field-row">
               <input
-                className="field-input"
+                className="input"
                 value={c.name}
                 spellCheck={false}
                 placeholder="sunucu adı"
                 onChange={(e) => props.onPatchMcp(c.key, { name: e.target.value })}
               />
-              <label className="field-row" style={{ gap: 4 }} title="aktif">
+              <label className="field-row gap-1" title="aktif">
                 <input
                   type="checkbox"
                   checked={c.enabled}
                   onChange={(e) => props.onPatchMcp(c.key, { enabled: e.target.checked })}
                 />
-                <span className="field-label" style={{ margin: 0 }}>açık</span>
+                <span className="field-label m-0">açık</span>
               </label>
               <button className="mini-btn" onClick={() => props.onRemoveMcp(c.key)}>
                 kaldır
@@ -48,7 +48,7 @@ export default function McpTab(props: Props) {
             </span>
             <span className="field-row">
               <select
-                className="field-input"
+                className="input"
                 value={c.transport}
                 onChange={(e) =>
                   props.onPatchMcp(c.key, { transport: e.target.value as McpDraft['transport'] })
@@ -70,7 +70,7 @@ export default function McpTab(props: Props) {
               <label className="field">
                 <span className="field-label">URL</span>
                 <input
-                  className="field-input"
+                  className="input"
                   value={c.url}
                   spellCheck={false}
                   placeholder="https://…/mcp"
@@ -82,7 +82,7 @@ export default function McpTab(props: Props) {
                 <label className="field">
                   <span className="field-label">Komut</span>
                   <input
-                    className="field-input"
+                    className="input"
                     value={c.command}
                     spellCheck={false}
                     placeholder="npx — örn: mcp-server-dosya"
@@ -92,7 +92,7 @@ export default function McpTab(props: Props) {
                 <label className="field">
                   <span className="field-label">Argümanlar (satır başına bir)</span>
                   <textarea
-                    className="field-input field-area"
+                    className="input input-area"
                     value={c.argsText}
                     spellCheck={false}
                     rows={2}
@@ -103,7 +103,7 @@ export default function McpTab(props: Props) {
                 <label className="field">
                   <span className="field-label">Ortam (ANAHTAR=değer, satır başına bir)</span>
                   <textarea
-                    className="field-input field-area"
+                    className="input input-area"
                     value={c.envText}
                     spellCheck={false}
                     rows={2}
@@ -116,7 +116,7 @@ export default function McpTab(props: Props) {
             <label className="field">
               <span className="field-label">İzinli araçlar (virgüllü, boş = tümü)</span>
               <input
-                className="field-input"
+                className="input"
                 value={c.allowedText}
                 spellCheck={false}
                 placeholder="oku, yaz"
@@ -131,7 +131,7 @@ export default function McpTab(props: Props) {
           </div>
         );
       })}
-      <span className="field-row" style={{ marginTop: 8 }}>
+      <span className="field-row mt-2">
         <button className="mini-btn" onClick={props.onAddMcp}>
           + sunucu ekle
         </button>

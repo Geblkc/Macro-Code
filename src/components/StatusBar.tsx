@@ -122,10 +122,9 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
         <>
           <span className="sb-sep" aria-hidden="true" />
           <button
-            className="sb-item"
+            className="sb-item btn-reset"
             onClick={onPendingClick}
             title="Bekleyen onay var — tıkla"
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
             <span className="sb-badge">
               <Icon name="alert-triangle" size="sm" />

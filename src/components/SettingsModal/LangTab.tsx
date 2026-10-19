@@ -27,15 +27,13 @@ export default function LangTab({ draft, patch }: Props) {
           <label className="field-label">Saat biçimi</label>
           <div className="row">
             <button
-              className={`btn btn-sm${draft.clockFormat === '24h' ? ' btn-primary' : ''}`}
-              style={{ flex: 1 }}
+              className={`btn btn-sm flex-1${draft.clockFormat === '24h' ? ' btn-primary' : ''}`}
               onClick={() => patch({ clockFormat: '24h' })}
             >
               24 saat
             </button>
             <button
-              className={`btn btn-sm${draft.clockFormat === '12h' ? ' btn-primary' : ''}`}
-              style={{ flex: 1 }}
+              className={`btn btn-sm flex-1${draft.clockFormat === '12h' ? ' btn-primary' : ''}`}
               onClick={() => patch({ clockFormat: '12h' })}
             >
               12 saat
@@ -46,10 +44,10 @@ export default function LangTab({ draft, patch }: Props) {
         <div className="field">
           <label className="field-label">Sayı biçimi</label>
           <div className="row">
-            <button className="btn btn-sm" style={{ flex: 1 }} disabled>
+            <button className="btn btn-sm flex-1" disabled>
               1.234,56
             </button>
-            <button className="btn btn-sm" style={{ flex: 1 }} disabled>
+            <button className="btn btn-sm flex-1" disabled>
               1,234.56
             </button>
           </div>

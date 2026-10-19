@@ -233,6 +233,8 @@
 
 .model-dropdown-list { overflow-y: auto; padding: var(--sp-2); }
 
+.model-group { display: block; }
+
 .model-group-title {
   font-family: var(--font-ui);
   font-size: var(--fs-2xs);
@@ -364,6 +366,13 @@
 
 .side-list { flex: 1; overflow-y: auto; padding: 0 var(--sp-2); min-height: 0; }
 
+.sidebar-empty {
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3) var(--sp-2);
+  text-align: center;
+}
+
 .group-head {
   position: sticky;
   top: 0;
@@ -484,6 +493,7 @@
 .sidebar.collapsed .session-item { justify-content: center; padding: 8px 0; }
 .sidebar.collapsed .side-foot { align-items: center; }
 .sidebar.collapsed .side-btn-new { display: none; }  /* + başlıkta zaten var */
+.sidebar.collapsed .side-resize { display: none; }
 .sidebar.collapsed .side-foot .row { flex-direction: column; width: 100%; }
 .sidebar.collapsed .side-foot .btn { width: 100%; padding: 0; flex: none; }
 
@@ -644,6 +654,8 @@
   gap: var(--sp-4);
 }
 .inputbar-meta .keys { display: flex; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.warn-text { color: var(--col-warn); }
+
 .inputbar-meta kbd {
   font-family: var(--font-mono);
   border: 1px solid var(--border-default);

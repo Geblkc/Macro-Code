@@ -93,17 +93,16 @@ function SecretCard(p: SecretRowProps) {
         ) : null}
       </div>
       <div className="row">
-        <button className="btn btn-sm" style={{ flex: 1 }} onClick={p.onTest}>
+        <button className="btn btn-sm flex-1" onClick={p.onTest}>
           {state === 'testing' ? 'test ediliyor…' : 'Test et'}
         </button>
         {p.secret.deleted ? (
-          <button className="btn btn-sm" style={{ flex: 1 }} onClick={p.onClear}>
+          <button className="btn btn-sm flex-1" onClick={p.onClear}>
             Geri al
           </button>
         ) : (
           <button
-            className="btn btn-danger btn-sm"
-            style={{ flex: 1 }}
+            className="btn btn-danger btn-sm flex-1"
             title={p.clearTitle}
             disabled={!hasKey}
             onClick={p.onClear}
@@ -160,12 +159,11 @@ export default function ProvidersTab(props: Props) {
                 />
               </div>
               <div className="row">
-                <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => props.onTest(p)}>
+                <button className="btn btn-sm flex-1" onClick={() => props.onTest(p)}>
                   Test et
                 </button>
                 <button
-                  className="btn btn-sm"
-                  style={{ flex: 1 }}
+                  className="btn btn-sm flex-1"
                   disabled={props.ollamaBusy}
                   onClick={props.onDiscoverOllama}
                 >
@@ -209,7 +207,7 @@ export default function ProvidersTab(props: Props) {
 
       <div className="sec">
         <div className="sec-title">Özel taban URL</div>
-      <div className="field-note" style={{ marginBottom: 8 }}>
+      <div className="field-note mb-2">
         Proxy / OpenRouter / LM Studio gibi uçlar için. Boş = varsayılan uç.
       </div>
       {OVERRIDABLE.map((p) => (
@@ -217,7 +215,7 @@ export default function ProvidersTab(props: Props) {
           <span className="field-label">{PROVIDER_DEFS[p].label} base URL</span>
           <input
             type="text"
-            className="field-input"
+            className="input"
             value={draft.baseUrlOverride[p] ?? ''}
             spellCheck={false}
             autoComplete="off"
@@ -233,7 +231,7 @@ export default function ProvidersTab(props: Props) {
       <div className="sec">
         <div className="sec-title">Özel sağlayıcılar</div>
       {activeEp ? (
-        <div className="field-note" style={{ marginBottom: 8 }}>
+        <div className="field-note mb-2">
           <span className="status-ok">özel uç aktif: {activeEp.name} · {draft.currentModel}</span>{' '}
           <button className="mini-btn" onClick={props.onBackToBuiltin}>
             yerleşik akışa dön
@@ -250,7 +248,7 @@ export default function ProvidersTab(props: Props) {
                 <span className="field-label">Ad</span>
                 <input
                   type="text"
-                  className="field-input"
+                  className="input"
                   value={c.name}
                   disabled={!c.isNew}
                   title={c.isNew ? undefined : 'ad sonradan değişmez (keystore adı sabittir)'}
@@ -264,7 +262,7 @@ export default function ProvidersTab(props: Props) {
                 <span className="field-label">Base URL</span>
                 <input
                   type="text"
-                  className="field-input"
+                  className="input"
                   value={c.baseUrl}
                   spellCheck={false}
                   autoComplete="off"
@@ -275,7 +273,7 @@ export default function ProvidersTab(props: Props) {
               <label className="field">
                 <span className="field-label">Modeller (satır başına bir id)</span>
                 <textarea
-                  className="field-input field-area"
+                  className="input input-area"
                   rows={2}
                   value={c.modelsText}
                   spellCheck={false}
@@ -301,7 +299,7 @@ export default function ProvidersTab(props: Props) {
               />
               <span className="field-row">
                 <select
-                  className="field-input"
+                  className="input"
                   value={models.includes(draft.currentModel) && draft.activeEndpointId === c.id ? draft.currentModel : ''}
                   onChange={(e) => {
                     if (e.target.value) props.onUseEndpointModel(c.id, e.target.value);
@@ -321,14 +319,14 @@ export default function ProvidersTab(props: Props) {
             </div>
           );
         })}
-      <div className="field-row" style={{ marginTop: 8 }}>
+      <div className="field-row mt-2">
         <button className="mini-btn" onClick={props.onAddEndpoint}>
           + özel sağlayıcı ekle
         </button>
       </div>
       {props.formError ? <div className="form-err">{props.formError}</div> : null}
 
-      <div className="field-note" style={{ marginTop: 12 }}>
+      <div className="field-note mt-3">
         Anahtarlar bu cihazda saklanır (keys.json), cihazdan çıkmaz. Kaydedilen
         anahtar bir daha tam gösterilmez, yalnızca son 4 karakter (••••a1b2).
       </div>

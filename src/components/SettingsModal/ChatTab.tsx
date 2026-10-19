@@ -105,8 +105,7 @@ export default function ChatTab({ draft, patch }: Props) {
         <div className="field">
           <label className="field-label">System prompt</label>
           <textarea
-            className="input"
-            style={{ minHeight: 72 }}
+            className="input input-area-lg"
             value={draft.systemPrompt}
             spellCheck={false}
             rows={3}
@@ -168,8 +167,7 @@ export default function ChatTab({ draft, patch }: Props) {
         <div className="field">
           <label className="field-label">Ek shell komutları (satır başına bir, örn: docker ps)</label>
           <textarea
-            className="input"
-            style={{ minHeight: 56 }}
+            className="input input-area-md"
             value={draft.customAllowList.join('\n')}
             spellCheck={false}
             rows={2}

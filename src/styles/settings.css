@@ -53,6 +53,8 @@
   color: var(--text-primary);
 }
 
+.modal-head .head-icon { color: var(--accent); }
+
 .modal-head .dirty {
   margin-left: auto;
   font-size: var(--fs-xs);
@@ -201,7 +203,7 @@
 .input-group { display: flex; gap: var(--sp-2); }
 .input-group .input { flex: 1; min-width: 0; }
 
-textarea.input, select.input {
+textarea.input, select.input, textarea.input-area {
   height: auto;
   min-height: 30px;
   padding: 7px 9px;
@@ -408,3 +410,17 @@ select.input option { background: var(--bg-raised); color: var(--text-primary); 
 .mini-btn.test-fail { color: var(--col-err); border-color: var(--col-err); }
 
 input[type='range'].slider { width: 100%; }
+
+/* Sayı girişleri: tarayıcı artı/eksi okları koyu temada okunmuyor → gizlenir
+   (değer yine klavyeyle / kaydırarak değişir). */
+input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type='number'] { -moz-appearance: textfield; }

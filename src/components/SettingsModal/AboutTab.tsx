@@ -11,9 +11,9 @@ export default function AboutTab() {
   return (
     <div>
       <div className="sec">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+        <div className="about-row">
           <svg
-            style={{ width: 48, height: 48, borderRadius: 10, flexShrink: 0 }}
+            className="about-logo"
             viewBox="0 0 512 512"
             aria-hidden="true"
           >
@@ -31,10 +31,10 @@ export default function AboutTab() {
             </g>
           </svg>
           <div>
-            <div style={{ fontFamily: 'var(--font-ui)', fontSize: 16, fontWeight: 600 }}>
-              MacroCode <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>v{APP_VERSION}</span>
+            <div className="about-name">
+              MacroCode <span className="about-ver">v{APP_VERSION}</span>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+            <div className="about-sub">
               MIT lisansı · BYOK · Windows / macOS / Linux
             </div>
           </div>
@@ -53,7 +53,7 @@ export default function AboutTab() {
             Güncelleme yok
           </button>
         </div>
-        <span className="field-note" style={{ marginTop: 10 }}>
+        <span className="field-note mt-2">
           Otomatik güncelleme altyapısı kurulmadı; sürümler elle dağıtılır.
         </span>
       </div>

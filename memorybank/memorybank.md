@@ -223,7 +223,8 @@ MacroCode/
 │       ├── message.css          # 3 kolonlu mesaj grid'i, kartlar, log satirlari, karşılama
 │       ├── markdown.css         # Markdown blokları, kod bloğu, sözdizimi renklendirme
 │       ├── agent.css            # Araç kartları, onay kartı, görev paneli
-│       └── settings.css         # Modal kabuğu, sekme rayı, form kontrolleri, tablolar
+│       ├── settings.css         # Modal kabuğu, sekme rayı, form kontrolleri, tablolar
+│       └── utilities.css        # Yardımcı sınıflar (boşluk/flex/görünürlük)
 │
 └── src-tauri/                   # ─── RUST BACKEND ───
     ├── Cargo.toml
@@ -1190,8 +1191,18 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
     elle yazılmıştır; ikon seti elle yazılmıştır). `package.json` dependencies değişmez.
 31. **Görsel yeniden tasarım:** Onay kartındaki "her zaman çalıştır" kutusu yalnızca `exec`
     için görünür ve `customAllowList`'e yazar; `rm` kuralları gevşemez (K3 korunur).
-32. **Görsel yeniden tasarım:** Ayarlar `partialize`'ına eklenen alanlar (`contrast`, `uiFont`,
+32. **Görvisual yeniden tasarım:** Ayarlar `partialize`'ına eklenen alanlar (`contrast`, `uiFont`,
     `clockFormat`, `sidebarWidth`, `sidebarCollapsed`) secret **içermez**.
+33. **Görsel yeniden tasarım:** Form alanları **tek sınıf standardı** kullanır: `.input`
+    (metin girişi / select), `.input-area` (textarea), `.switch`, `.slider`.
+    Eski `.field-input` / `.field-area` **kullanılmaz** (CSS'ten kaldırıldı).
+34. **Görsel yeniden tasarım:** Bileşenlerde `style={{...}}` **kullanılmaz**. Tek seferlik
+    yerleşim ayarları `styles/utilities.css` yardımcı sınıflarıyla verilir
+    (`.mt-* .mb-* .my-* .m-0 .flex-1 .flex-2 .gap-1 .hidden`). Renk/yazı tipi
+    yardımcı sınıflarda **bulunmaz** — token sınıfları kullanılır.
+35. **Görsel yeniden tasarım:** Native form kontrolleri temayla eşleşir —
+    `accent-color: var(--accent)` (checkbox/radio), `input[type=number]` artı/eksi
+    okları gizlenir (koyu temada okunmuyordu).
 
 ## 16. Geliştirme & Build Komutları
 

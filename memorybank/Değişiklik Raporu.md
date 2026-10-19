@@ -9,6 +9,47 @@
 
 ---
 
+## 2026-10-19 — Görsel Yeniden Tasarım: Tamamlanma (sınıf standardizasyonu + inline style temizliği)
+
+İlk yeniden tasarım commit'inde (`b33dad6`) 5 eski CSS sınıf adı CSS'ten düşürülmüş,
+bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
+
+### K1 — Kopuk sınıflar (31 element)
+
+- `.field-input` (24) → `.input`; `.field-input field-area` (3) → `.input input-area`.
+  Etkilenen: Ayarlar → Sağlayıcılar ("Özel taban URL" + "Özel sağlayıcılar" kartları),
+  Modeller ("Yedek model", "Fiyat tablosu" = 18 sayı girişi, "Model parametreleri",
+  "Elle model ekle"), MCP (sunucu kartları). Bu alanlar tarayıcı varsayılanı **beyaz**
+  görünüyordu → yeni temada kırık.
+- `.warn-text` (2) → InputBar uyarı metni artık `--col-warn`.
+- `.head-icon` (1) → Ayarlar başlığı dişl ikonu artık `--accent`.
+- `.sidebar-empty` (1) → Sidebar boş durum metni artık `--text-tertiary` + ortalı.
+- `.model-group` (5) → Titlebar sağlayıcı grubu sarmalayıcısı.
+
+### K2 — Inline style temizliği
+
+- **70 `style={{...}}` → 0.** `styles/utilities.css` yardımcı sınıfları:
+  `.mt-1/2/3 .mb-1/2/3/4 .my-1 .m-0 .flex-1 .flex-2 .gap-1 .hidden .btn-reset
+  .input-area-lg .input-area-md .about-*`.
+- Yardımcı sınıflarda **renk/yazı tipi yoktur** — yalnız boşluk/flex/görünürlük.
+  Boşluklar `--sp-*` token'ından türetilir.
+
+### K3 — Native form kontrolü
+
+- `input[type=checkbox|radio]` → `accent-color: var(--accent)` (varsayılan mavi kutu
+  temayla çelişiyordu).
+- `input[type=number]` → artı/eksi okları gizlendi (koyu temada okunmuyordu).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 hata |
+| `npm run build` | ✅ yeşil · CSS 44.7 kB (gzip 8.6) · JS 401 kB (gzip 124) |
+| `npm run test` | ✅ 58 dosya / 400 test |
+| Sınıf denetimi (kullanılan ⊆ tanımlı) | ✅ boşluk kalmadı (`.msg-` hariç — şablon ifade) |
+| Tarayıcı | ✅ Sağlayıcılar (özel taban URL) · Modeller (fiyat tablosu) · MCP (sunucu kartı) · Özel sağlayıcı kartı — hepsi yeni temada |
+
 ## 2026-10-19 — Görsel Yeniden Tasarım (Faz G1–G8)
 
 **Kapsam:** Terminal DNA'sı korunarak modern bir ürün arayüzü. Prototip ve faz planı:
