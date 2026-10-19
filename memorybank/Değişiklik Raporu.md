@@ -1,0 +1,634 @@
+# MacroCode — Değişiklik Raporu
+
+> Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
+> Güncel mimari için bkz. `memorybank.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
+> Son güncelleme: 2026-10-19
+
+**Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
+`memorybank.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-10-19 — Faz 11: Prompt Cache (Maliyet)
+
+> Token sayacı ve fiyatlandırma tarafı hazırdı, ancak **istek tarafı** eksikti:
+> hiçbir yerde `cache_control` gönderilmiyordu → önbellek hiç dolmuyor,
+> `cacheRead` her zaman 0 kalıyordu. Sürüm değişmedi (`0.1.0`).
+
+- **Anthropic:** sistem bloğu + son kullanıcı/tool bloğu `cache_control: {type:'ephemeral'}`.
+  - **Kritik koşul:** Anthropic, önek < 1024 token (Haiku 2048) ise `cache_control`'ı
+    **reddeder** (400). Bu yüzden işaret yalnızca tahmin edilen önek eşik + 160 token
+    güvenlik payını aştığında konur (`promptCache.ts` → `cacheableBySize`).
+  - Rust proxy yolu ve fetch yolu aynı gövdeyi kullanır (`buildAnthropicMessages`).
+- **OpenAI-uyumlu:** oturuma bağlı `prompt_cache_key` (FNV-1a hash, ≤ 64 karakter).
+- **Ayar:** `cachePrompts` (varsayılan **açık**) — ⚙ ayarlar → Sohbet. Kapalıyken
+  sağlayıcı tarafında hiçbir önek saklanmaz (gizlilik tercihi).
+- **Görünürlük:** `/tokens` → `önbellek: 12.4k okuma · 3.1k yazma` (önbelleğin
+  gerçekten çalıştığı görülür).
+- **Değerlendirilip yapılmayanlar (gerekçeli):** `tauri::test` mock testi (ACL mock
+  runtime'da uygulanmıyor; gerçek smoke testi daha güçlü kanıt) · `proxy_fetch` host
+  allowlist'i (WebView zaten güven sınırı; metadata reddi asıl riski kapatıyor).
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **347 test / 53 dosya yeşil**
+  (yeni: `promptCache.test.ts` 10 + `promptCacheRequest.test.ts` 5 — istek gövdesi uçtan uca)
+  · `cargo test --lib` 49 yeşil · `clippy -D warnings` ve `cargo fmt` temiz ·
+  `bash scripts/smoke-test.sh` BAŞARILI.
+
+---
+
+## 2026-10-19 — Faz 10: Sertleştirme (O2/D1/D2 + CI + Gözlemlenebilirlik)
+
+> 2026-10-18 güvenlik denetim raporundaki açıklar kapatıldı; CI sıkılaştırıldı;
+> log kanalı eklendi. Sürüm değişmedi (`0.1.0`).
+
+- **O2 — `proxy_fetch` SSRF serbestliği (kapandı):** istek yüzeyi daraltıldı —
+  yalnızca http/https; URL'de kimlik bilgisi reddi; **link-local/metadata IP'leri
+  engellendi** (169.254.0.0/16, fe80::/10, 0.0.0.0/8, 100.64.0.0/10 — alan adı
+  **çözülerek** denetleniyor; LAN `192.168.x`/`10.x` ve `localhost` **serbest**,
+  Ollama'nın meşru kullanımı korunuyor); metot kısıtı (GET/POST/PUT/PATCH/DELETE/
+  HEAD/OPTIONS); başlık kısıtı (`host`, `connection`, `transfer-encoding`,
+  `content-length`, `upgrade`, `proxy-authorization` gönderilmiyor); **120 sn timeout**
+  (istek sonsuza kadar asılı kalabiliyordu); **32 MB yanıt sınırı** (sonsuz akış koruması).
+- **D1 — `keys.json` izinleri (kapandı):** `set_api_key`/`delete_api_key` sonrası dosya
+  Unix'te `0600` → diğer yerel kullanıcılar anahtarları okuyamaz.
+- **D2 (3 bulgu) — tutarlılık:**
+  - *Stale `/apply`*: yama üretildiği workspace kökünü taşıyor (`PendingPatch.root`);
+    `/root` değişmişse yama **reddediliyor** (eskiden aynı göreli yol yeni kökte
+    başka bir dosyayı ezebiliyordu).
+  - *Rust `read_file` uzantı blokajı*: `.pem/.key/.p12/.pfx/.db/.sqlite` artık **tüm**
+    fs araçlarında kapalı (`resolve_rooted`), yalnızca walk/glob'da değil.
+  - *Blok listesi kopyaları*: `policy.ts` / `fs.rs` / `context.ts` → **tek kaynak**
+    `src/lib/engine/blocks.json` (TS import, Rust `include_str!`); sözleşme testi
+    ikisinin de aynı dosyayı kullandığını doğrular.
+- **CI sıkılaştırma:** `cargo clippy --lib -- -D warnings` eklendi — **15 mevcut clippy
+  uyarısı** temizlendi (10'u `cargo clippy --fix`, 5'i elle: doc listesi girintisi,
+  `&PathBuf`→`&Path`, özyinelemede kullanılmayan parametre, boş satır).
+- **Gerçek runtime testi:** `scripts/smoke-test.sh` — uygulamayı derler, **veritabanını
+  yedekler** (veri yok edilmez), uygulamayı çalıştırır, **veritabanına yazıldığını**
+  doğrular (3 tablo + ≥2 satır), yedeği geri yükler. CI'da ayrı `smoke` işi
+  (xvfb + Tauri sistem bağımlılıkları).
+- **Gözlemlenebilirlik:** yeni `src/lib/logger.ts` — halka arabellek (son 200 kayıt) +
+  WebView konsoluna yazma + **redaksiyon** (anahtar/token/JWT alan ve değer kalıpları
+  loglanmaz). Bağlandığı yerler: `stream.start/done/error`, `agent.run.start/done/error`,
+  `db.open.failed`. Terminalde `/log [n]` komutu.
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **347 test / 53 dosya yeşil**
+  (yeni: `logger.test.ts`, `patchRoot.test.ts`, `tauri-config.test.ts` blok-kaynak testleri) ·
+  `cargo test --lib` → **49 test yeşil** (yeni: proxy O2, fs D2b/D2c) ·
+  `cargo clippy -- -D warnings` temiz · `cargo fmt --check` temiz ·
+  `bash scripts/smoke-test.sh` → BAŞARILI (uygulama boot etti, DB'ye 2 satır yazıldı).
+
+---
+
+## 2026-10-19 — Faz 9: Bağlam (Repo Haritası + Kalıcı Hafıza) + Risk Kapama
+
+> Agent bir workspace'e girerken projenin ne olduğunu bilmiyordu; her şeyi tool
+> çağrılarıyla keşfetmek zorundaydı (`buildContext`/`prioritizeFiles` yazılmış ama
+> bağlanmamıştı). Sürüm değişmedi (`0.1.0`).
+
+## Risk kapama (Faz 8'den devralan konular)
+
+1. **CI kırmızıydı — giderildi.** `cargo fmt --check` 6 ihlal veriyordu: 5'i
+   `fs.rs`'te (K1 güvenlik düzeltmesinden, bu oturumdan **önce**) + 1'i `exec.rs`'te
+   (bu oturumda eklenen test helper'ı). `cargo fmt` ile 6'sı da düzeltildi.
+   → CI adımları (`tsc` + `vitest` + `build` + `cargo fmt --check` + `cargo test`) artık yeşil.
+2. **B2 — `auto-edit` modunda yazma yapılmıyordu — giderildi.** `propose_patch`/`edit_file`
+   yalnızca pending patch üretir; asıl yazma `applyPendingPatch` ile **sadece onay
+   akışında** (`resolve()`) oluyordu. `/approval` ile `auto-edit` erişilebilir olunca
+   agent "yazdım" diyordu ama dosya değişmiyordu. Artık onaysız yazma yolunda üretilen
+   pending patch hemen uygulanıyor. Koruma: `src/lib/engine/autoEdit.test.ts`.
+3. **B3 — compaction hafızası kesimi id tabanlı.** Zaman damgası kesiminde "aynı
+   milisaniyede oluşan mesaj" sonraki turda kaybolabiliyordu → `coveredIds` ile kesim.
+
+## Faz 9 — Bağlam
+
+- **Rust (yeni komutlar):** `list_tree(root, max)` → workspace'teki dosyaların **göreli**
+  yolları (mevcut `walk` filtresi: bloklu dizinler/secret/256KB üstü elenir) ·
+  `memory_read(root)` / `memory_append(root, text)` → `.macrocode/context.md` kalıcı not
+  (yol sabit → traversal yok; 64KB sınır).
+- **TS (yeni modül):** `engine/repoContext.ts` → `buildRepoContext()`:
+  - **harita**: `prioritizeFiles` sırasıyla dosya listesi, modelin context penceresine
+    göre ölçekli (pencere × %2, tavan 8k karakter),
+  - **anahtar dosyalar**: `AGENTS.md` / `CLAUDE.md` / `README.md` (başına 2k karakter),
+  - **kalıcı notlar**: son 4k karakter.
+  Önbellek: aynı workspace + aynı dosya imzası → yeniden hazırlanmaz.
+- **Bağlanma:** `useAgent` system prompt'una `[proje]` / `[proje:<dosya>]` / `[notlar]`
+  blokları ekleniyor — agent ilk turda README/AGENTS.md'yi biliyor.
+- **Komutlar:** `/note <not>` (kalıcı not ekler) · `/context` (agent'ın bildiklerini gösterir).
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **318 test / 49 dosya yeşil**
+  (yeni: `autoEdit.test.ts`, `repoContext.test.ts`, `compactionMemo.test.ts` genişletildi) ·
+  `cargo test --lib` → **44 test yeşil** (2 yeni: `list_tree`) · `npm run build` temiz ·
+  `cargo fmt --check` temiz.
+4. **Boot sonrası DB senkronizasyonu yoktu — giderildi.** Yazma yalnızca *state
+   değişince* tetiklenen debounce persister ile yapılıyor; boot'ta state değişmediği
+   için DB boş/eski kalıyordu → "SQLite > localStorage" önceliği bir kullanıcı mesajına
+   kadar uygulanmıyordu. Artık boot sonrası mevcut durum bir kez DB'ye yansıtılıyor.
+- **Gerçek uygulama boot testi (kesin kanıt):** `sessions.db` **silinerek** uygulama
+  14 sn çalıştırıldı (panic/hata yok) → `~/.config/com.macrocode.app/sessions.db`
+  içinde **2 satır** oluştu (session + meta). Bu, Faz 7 A1'in `sql:allow-execute`
+  düzeltmesinin gerçek runtime'da çalıştığını kanıtlar (eskiden `sessions`/`audit_log`
+  hiç yazılmıyordu).
+
+---
+
+## 2026-10-19 — Faz 7 Denetimi + Faz 8: Kalıntıların Bağlanması (L1–L8)
+
+> Faz 7'de yazılan kod denetimden geçirildi; denetimde **iki gerçek hata** bulundu
+> ve düzeltildi. Ardından yol haritasındaki "ölü kod / işlevsiz" kalıntılar bağlandı.
+> Sürüm değişmedi (`0.1.0`).
+
+## Denetimde bulunan hatalar (Faz 7 kodu)
+
+1. **Agent isteğinde kullanıcı mesajı iki kez gönderiliyordu.** `useAgent` hem
+   oturum geçmişinden (kullanıcı mesajı zaten eklenmişti) hem de `historyWithUser`
+   ile aynı mesajı ikinci kez ekliyordu → model her istekte soruyu iki kez görüyordu.
+   - **Düzeltme:** geçmiş kurulumu saf fonksiyona taşındı (`engine/agent.ts` →
+     `buildAgentHistory(messages, assistantId)`), kullanıcı mesajı ikinci kez eklenmiyor.
+   - **Koruma:** `src/lib/engine/agentHistory.test.ts` (yinelenen mesaj + tool çifti + ts/id).
+2. **`rustFetch` abort sinyalini yok sayıyordu.** Proxy üzerindeki isteklerde çağıranın
+   timeout'u işlemiyordu (MCP 15 sn sınırı dahil) → istek Rust tarafında asılı kalabiliyordu.
+   - **Düzeltme:** `init.signal` → `proxy_abort` bağlandı, kuyruk AbortError ile kapanıyor.
+   - **Koruma:** `src/lib/providers/rustFetchAbort.test.ts` (Tauri invoke mock'lu).
+3. **Bağlantı her DB çağrısında yeniden açılıyordu** (agent döngüsünde her tool kararı
+   `appendAudit` çağırıyor → her seferinde `Database.load` + 3 CREATE TABLE).
+   - **Düzeltme:** `db.ts` bağlantı önbelleği; hata halinde önbellek düşürülür (yeniden denenir).
+   - `appendAudit`/`readAuditLog` hataları artık `sqlError()` ile görünür.
+
+## Faz 8 — Tamamlanmamış faz kalıntıları (L1–L8)
+
+| # | İş | Yapılan |
+|---|---|---|
+| L1 | `subagent` aracı | 11. çekirdek tool; salt-okunur alt-agent (kendi bütçesi, `SUBAGENT_BLOCKED_TOOLS` ile yazma/özyineleme kapalı); alt-ajanın metni ana akışa ikinci kez akmıyor |
+| L2 | `plan` → `todo` | Plan adımları `plan-N` görev id'leriyle türetiliyor (`deriveTodoState` + `planStepIds`); agent `todo complete plan-N` ile işaretliyor |
+| L3 | `customAllowList` → Rust | `exec_cmd` `extra_allow` tablosunu kabul ediyor; TS + Rust tabloları **birleşik (OR)**; `rm` kuralları gevşemiyor. Özellik artık uçtan uca çalışıyor |
+| L4 | Terminal'de görev listesi | Mesajların sonunda `[ ]`/`[x]` görev paneli + ilerleme sayacı |
+| L5 | Skill'ler modele ulaşıyor | `skillsPrompt(listSkills()...)` agent system prompt'una ekleniyor |
+| L6 | Araç çıktısı görünürlüğü | Başarılı araç çıktısı da terminale düşüyor (`▸ read_file: …`) |
+| L7 | Onay modu erişilebilir | `/approval manual\|auto-read\|auto-edit` komutu; `auto-edit` seçilince uyarı satırı; `/root` çıktısında mod |
+| L8 | Duplikasyon silindi | Legacy `runAgent` (~200 satır) kaldırıldı; tek döngü: `createAgentRun`. Alt-agent de buna geçti; testler `createAgentRun(...).step()`'e çevrildi |
+
+- **Güvenlik notu (L3):** kullanıcı allowlist'i iki katmanlı kapının (TS karar + Rust savunma)
+  **ikisine de** geçiyor; `rm` için özel kurallar (yalnız `-i`) hiçbir tabloda gevşemiyor.
+- **Güvenlik notu (L7):** `auto-edit` modunda yazma onaysız; bloklu dizinler
+  (`.git`, `node_modules`, …) Rust `resolve_rooted` + TS `isPathSafe` ile kapalı (Y1 düzeltmesi
+  sonrası güvenli). `exec` her modda onaylı.
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **308 test / 47 dosya yeşil**
+  (yeni: `agentHistory.test.ts`, `rustFetchAbort.test.ts`, `subagentTool.test.ts`,
+  `todoPlan.test.ts` + policy/toolspec güncellemeleri) · `cargo test --lib` → **42 test yeşil**
+  (3 yeni: kullanıcı allowlist'i) · `npm run build` (tsc + vite) temiz.
+
+---
+
+## 2026-10-19 — Faz 7: Doğruluk — Çalışmayan Yolların Düzeltilmesi (A1–A5)
+
+> Yol haritasındaki ilk 6 fazın kodu büyük ölçüde yazılmıştı ama bir kısmı
+> **fiilen çalışmıyordu**. Bu faz yeni özellik eklemedi; "yazılmış" ile
+> "çalışıyor" arasındaki boşluğu kapattı. Sürüm değişmedi (`0.1.0`).
+
+- **A1 (KRİTİK) — `sql:allow-execute` capability'si:**
+  - **Bulgu:** `capabilities/default.json` yalnızca `sql:default` veriyordu; plugin'in
+    `default` paketi `allow-execute`'u içermiyor. `db.execute()` sessizce başarısız
+    oluyordu → `audit_log` hiç dolmuyordu, `pending_approvals` DB'ye yazılmıyordu,
+    session'lar SQLite'a yazılmıyordu (kalıcılık localStorage'da kalıyordu).
+  - **Düzeltme:** capability'ye `sql:allow-execute` eklendi. `db.ts` → `sqlError()`
+    (hata artık yutulmuyor) + `openSql()` (paylaşılan bağlantı: db.ts + engine/approvals.ts).
+    `App.tsx` boot'ta `! session veritabanı açılamadı: …` uyarısı gösteriyor.
+  - **Koruma:** `src/lib/tauri-config.test.ts` (capability izinleri + Rust migration sözleşmesi).
+- **A2 (KRİTİK) — Compaction özeti provider'a ulaşmıyordu:**
+  - **Bulgu:** Özet `role: 'system'` üretiliyordu; Anthropic'in `buildAnthropicMessages`
+    fonksiyonunda system dalı yoktu → özet sessizce düşüyordu (compaction fiilen ölüydü).
+    Ollama'da system rolü mesaj dizisine karışıyordu.
+  - **Düzeltme:** `common.ts` → `systemTextOf()` / `withoutSystemMessages()`; Anthropic,
+    OpenAI-uyumlu ve Ollama sistem metnini istek gövdesinin `system` alanına taşıyor.
+  - **Ek (Faz 2'yi canlı hale getirme):** `useAgent` geçmiş kesmesi `-40` → `-200`
+    (sabit kesme bütçeyi aşmadığı için otomatik compaction hiç tetiklenmiyordu);
+    `engine/compactionMemo.ts` ile özet hafızası (her tur yeniden özetleme yapılmıyor).
+- **A3 — Agent cevabı parçalanıyordu:** Tool sonucu kalıcı katmana `role: 'system'`
+  mesajı olarak yazıldığı için sonraki turdaki metin yeni bir assistant mesajına
+  gidiyordu. `store/session.ts` → `appendToMessage(sessionId, messageId, delta)`;
+  `useAgent` tüm yazımlarda `assistantId`'yi hedefliyor.
+- **A4 — Çok turlu maliyet eksik hesaplanıyordu:** `mergeUsage` (max) turlar arasında da
+  kullanılıyordu. `common.ts` → `sumUsage`; tur içi `mergeUsage`, tur arası `sumUsage`.
+- **A5 — Uzak MCP sunucuları CSP'e takılıyordu:** `mcp/transports/http.ts` artık
+  `fetchFor` (Rust `proxy_fetch` köprüsü) kullanıyor — uzak origin'ler için
+  `connect-src` genişletmeye gerek kalmıyor.
+- **Dokümantasyon:** `AI Çekirdek Yol Haritası.md` → Bölüm J sürüm politikası
+  (sürüm sabit `0.1.0`), Bölüm K (Faz 7 kaydı), Bölüm L/M/N (Faz 8/9/10 planı).
+  `memorybank.md` → capability, provider sistem rolü kuralı, akış kontrolü ve kısıtlar güncellendi.
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **289 test / 43 dosya yeşil**
+  (yeni: `tauri-config.test.ts`, `usage.test.ts`, `systemMessages.test.ts`,
+  `compactionMemo.test.ts`, `session.test.ts` A3 testleri, `http.test.ts` A5 testleri) ·
+  `npm run build` (tsc + vite) temiz · `cargo check` temiz (capability geçerli) ·
+  `cargo test --lib` 39 test yeşil.
+- **Not:** Bu faz sırasında kod tabanında eşzamanlı başka bir oturumun değişiklikleri
+  (models.dev kataloğu, prompt-cache token takibi) görüldü; çakışma olmaması için
+  her dosya değiştirilmeden önce yeniden okundu.
+
+---
+
+## 2026-10-19 — Proje Adı Değişikliği: MONOCODE → MacroCode
+
+> Kullanıcı talebi: uygulamanın adı kod tabanının her yerinde `MacroCode` olarak değiştirildi.
+
+- **Kapsam:** marka + kalıcı veri yolları + bundle id dahil (kullanıcı onayıyla tam kapsam).
+- **Marka/etiket:** `index.html` başlığı ve favicon, `package.json` (`name`, `productName`,
+  `description`), `package-lock.json`, `Cargo.toml` (`name`, `lib.name`, `description`,
+  `authors`), `Cargo.lock`, `tauri.conf.json` (`productName`, `identifier`, pencere `title`),
+  `main.rs` (`macrocode_lib::run()`), UI metinleri (`Titlebar`, `AboutTab`, `/help`,
+  oturum dışa aktarım başlıkları), MCP `clientInfo.name`, OpenRouter `X-Title`.
+- **Marka URL:** `https://monocode.app` → `https://macrocode.app` (OpenRouter referer).
+- **Kalıcı veri yolları:**
+  - zustand persist anahtarları: `monocode-sessions` → `macrocode-sessions`,
+    `monocode-settings` → `macrocode-settings`, `monocode-workspace` → `macrocode-workspace`,
+    `monocode-approvals` → `macrocode-approvals`. *(Eski anahtardaki verilere erişim kalmaz;
+    yeni kurulum gibi başlar.)*
+  - gizli çalışma dizini: `.monocode` → `.macrocode` (`fs.rs` ignore listesi + backup yolu,
+    `policy.ts` `BLOCKED_DIRS`, `context.ts` filtre). *(Eski `.monocode/backups` yedekleri
+    yürürlükteki `.macrocode` güvenlik duvarının dışında sayılır.)*
+  - bundle identifier: `com.monocode.app` → `com.macrocode.app`.
+- **Dosya adları:** logo kaynakları `src-tauri/icons/macrocode-logo.svg`,
+  `public/macrocode-logo.svg` yeniden adlandırıldı; dışa aktarım dosya adları
+  `macrocode-session-*.{md,json}`.
+- **Doğrulama:** `npm test` → 215/215 yeşil; `npm run build` (tsc + vite) temiz, `dist/`
+  yeniden üretildi (eski `monocode-logo.svg` artığı temizlendi); `cargo clean` sonrası
+  `cargo test --lib` yeniden derlemeyle yeşil.
+- **Not:** `src-tauri/target` içindeki eski derleme artıkları klasörün eski adını
+  (`MonoCode`) taşıyan bayat yollar içeriyordu; `cargo clean` ile temizlendi.
+
+---
+
+## 2026-10-18 — Faz 1: Güvenlik Denetimi K1 → `undo_patch` Manifest Doğrulaması
+
+> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` K1 (Kritik). 7 fazlık planın 1/7'si.
+
+- **Kök neden:** `undo_patch`, `.macrocode/backups/manifest.json` içindeki `backup_file`
+  alanını doğrulamadan `backup_dir.join(...)` ile çözüyordu. Manifest workspace içinde
+  yaşar (3. taraf repo ile dağıtılabilir); `PathBuf::join` mutlak tarafta tam yolu aldığı
+  için `backup_file: "/home/kurban/.ssh/id_rsa"` yazan bir manifest → özel anahtar hedefe
+  kopyalanıp **gerçek dosya silinebilirdi** (`..` varyantı dahil).
+- **Fix (`fs.rs`):** iki yeni katman —
+  - `safe_backup_name()`: tek bileşenli ad zorunlu (`/`, `\`, `..`, mutlak yol ve
+    `[A-Za-z0-9._-]` dışı karakter reddi).
+  - `resolve_backup_inside()`: `backup_dir` + dosyanın canonical hali workspace altında
+    olmalı (adı güvenli symlink'in dışarıyı göstermesi de engellenir).
+  - `undo_patch` artık `backup_dir.join(&entry.backup_file)` yerine bu doğrulamalı çözümleyiciyi kullanır.
+- **Regresyon testleri (3 yeni):** `kotu_niyetli_manifest_red` (mutlak yol / `../` /
+  dizin ayracı / geçersiz karakter — hedef değişmez, kaynak silinmez),
+  `kotu_niyetli_symlink_yedek_red` (güvenli ad ama dışa symlink),
+  `safe_backup_name_kontrolleri` (saf birim testi).
+- **Doğrulama:** `cargo test --lib commands::fs` → 18/18 yeşil (eski testler de dahil;
+  `apply_patch_ve_undo_calisir` normal akışın bozulmadığını kanıtlar).
+- **Sonraki:** Faz 2 (Y1) — bloklu dizin zorlaması (`resolve_rooted` bileşen bazlı +
+  `policy.isPathSafe`).
+
+---
+
+## 2026-10-18 — Faz 2: Güvenlik Denetimi Y1 → Bloklu Dizin Zorlaması
+
+> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` Y1 (Yüksek). 7 fazlık planın 2/7'si.
+
+- **Kök neden:** `BLOCKED_DIRS` (`.git`, `node_modules`, `dist`, `target`, `.tauri`,
+  `coverage`, `.vite`, `.macrocode`) yalnızca `list_dir`/`walk`/`glob` çocuk filtrelerinde
+  çalışıyordu; `resolve_rooted`'e dizin kontrolü yoktu → `read_file(".git/config")`
+  otomatik onaylıydı (token sızıntısı), `.git/**` yazılabilirdi. TS `policy.ts`'te
+  bloklu dizin listesi hiç yoktu (`isPathSafe` yalnız `..`/mutlak/secret dosya bakıyordu).
+- **Fix (iki katman):**
+  - **Rust `fs.rs` → `resolve_rooted`:** path'in **her bileşeni** `is_blocked_dir`'dan
+    geçirilir → `read_file`/`list_dir`/`grep_files`/`glob_files`/`write_file`/`apply_patch`
+    hepsi aynı kapıdan geçer (`.git/config` okumak da `.git/hooks/pre-commit`'e yazmak da reddedilir).
+    Mevcut `walk`/`glob` filtreleri savunma derinliği olarak duruyor.
+  - **TS `policy.ts`:** `BLOCKED_DIRS` seti (Rust ile senkron) + `isBlockedDir()` yardımcı
+    + `isPathSafe` içine bileşen bazlı ret → `read_file`/`list_dir`/`grep`/`glob` (autoApproved
+    yolu) ve `write_file`/`edit_file`/`propose_patch` (auto-edit dahil) reddi.
+- **Regresyon testleri:** Rust `bloklu_dizin_tum_araclar_reddedilir` +
+  `git_ici_okuma_ve_yazma_reddedilir` (`.git/config` read → "yasaklı dizin", grep/list/
+  apply_patch/write_file hepsi err; normal yol etkilenmez). TS `policy.test.ts`
+  "Y1 (Faz 2)" bloğu (`isPathSafe` + tüm decideTool yolları, auto-edit modu dahil).
+- **Doğrulama:** `cargo test --lib commands::fs` 20/20 · `npm test` 34 dosya / 207 test
+  yeşil (3 yeni) · `tsc --noEmit` 0 hata.
+- **Sonraki:** Faz 3 (Y2) — exec onay akışının `approved` bayrağıyla yeniden kurulması.
+
+---
+
+## 2026-10-18 — Faz 3: Güvenlik Denetimi Y2 → Exec Onay Akışı Yeniden Kuruldu
+
+> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` Y2 (Yüksek). 7 fazlık planın 3/7'si.
+
+- **Kök neden:** `decideTool('exec', …)` her modda `autoApproved: false` döner (O6 bilinçli
+  karar); `toolExec` ise `if (!d.autoApproved) throw` yapıyordu ve `resolve` onaylayınca
+  aynı `defaultRunTool → toolExec` yolunu **aynı `mode`** ile çağırıyordu → onaylansa da
+  komut asla çalışmaz, "onay gerekli" hatası alırdı. `/exec` hatası da HELP'te olmayan
+  bir komuta yönleniyordu.
+- **Fix (3 dosya):**
+  - `tools/shell.ts → toolExec`: yeni `opts?: { approved?: boolean; extraAllow?: Record<string, string[][]> }`.
+    Guard artık `if (!d.autoApproved && !opts?.approved) throw` — yani exec'i çalıştırabilmenin
+    **tek yolu** `approved: true` alan çağrıdır. `decideTool` çağrısına `extraAllow` geçirildi
+    (özel allowlist ilk kez bu katmanda işlemeye başladı). Hata mesajı `/exec` → `/apply`.
+  - `agent.ts → defaultRunTool`: `opts` parametresi eklendi; `exec` dalında `toolExec`'e
+    `approved` + `extraAllow` aktarılıyor. 5 çağrı noktasının 4'ü yalnız `extraAllow`
+    geçer; **`approved: true` yalnız `resolve`'ta** (tek nokta, koddan sabitlendi).
+  - `extraAllow` artık tüm `defaultRunTool` çağrılarına taşınıyor (önceki 5 çağrı
+    noktasının hiçbirinde geçilmiyordu → Faz 6 özel allowlisti ölüydü).
+- **Regresyon testleri (7 yeni):** `shell.test.ts` (onaysız ret / `approved` guard'ı
+  geçer / allowlist dışı `approved` ile bile ret / `extraAllow` iki yönlü) +
+  `agent.test.ts` (resolve(approved:true) → gerçek `toolExec` zinciri "onay gerekli"
+  hatası VERMEZ; resolve(approved:false) → "reddetti" ile devam).
+- **Doğrulama:** `npm test` 35 dosya / 213 test yeşil (7 yeni) · `tsc --noEmit` 0 hata ·
+  `cargo test --lib commands::fs` 20/20 (Rust tarafı etkilenmedi).
+- **Not:** `runToolImpl` enjeksiyonu (test/mock) `approved` bayrağını görmez — bu bilinçli;
+  mock'lar Rust'a gitmez. Gerçek Tauri'de `resolve → toolExec → exec_cmd` uçtan uca
+  entegrasyon testi Faz 7'de (D2 kapsamı) yapılacak.
+- **Sonraki:** Faz 4 (O1) — onay ekranında kırpmasız tam komut + serbest-argüman
+  komutlarının daraltılması.
+
+---
+
+## 2026-10-18 — Faz 4: Güvenlik Denetimi O1 → Exec Dosya Jail'i + Onay Ekranı
+
+> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` O1 (Orta → Y2 sonrası Yüksek). 7 fazlık planın 4/7'si.
+
+- **Kök neden:** `check_cmd` yalnız `\n`/`\0` reddediyordu → `cat /etc/passwd`,
+  `find /`, `cat .env` allowlist'ten geçiyordu (read_file'daki `.env`/secret koruması
+  exec ile deliniyordu). Onay ekranı `JSON.stringify(...).slice(0, 120)` ile uzun
+  argümanları **görünmeden** onaylanabilir kılıyordu.
+- **Fix:**
+  - **Rust `exec.rs`:** `FILE_ARG_CMDS` (cat/head/tail/wc/find/rg/ls/touch/mkdir/prettier)
+    + `rm` → `check_file_arg()`: mutlak yol, `..` segmenti, `BLOCKED_DIRS`/`BLOCKED_FILES`
+    (fs.rs'ten `pub(crate)` paylaşıldı), `.env.` prefix ve `[pem|key|p12|pfx|db|sqlite]`
+    uzantısı argümanlarda reddedilir. Bayraklar (`-la`) ve desenler (`*.ts`) etkilenmez.
+    Kontrol boş liste branch'inden ÖNCE çalışır (cat/find serbest-argüman olduğu için
+    oradan kaçamaz).
+  - **TS `policy.ts`:** `FILE_ARG_CMDS` + `isFileArgSafe` + `execFileArgViolation`
+    (Rust ile senkron) → `decideTool('exec')` içinde çift savunma. `execApprovalWarning`:
+    npm run/test, pip install, cargo build/run/test, git commit/push/add/stash, go test,
+    pytest, prettier/eslint → onay satırında `⚠` uyarısı (bileşen `--col-warn`).
+  - **UI `Terminal.tsx`:** exec onayı artık `exec · cmd arg1 arg2` şeklinde **kırpılmadan**
+    (diğer araç türlerinde kırpmasız JSON, eski 120 sınırı kalktı) + uyarı satırı.
+  - **Dokümantasyon (O1-d):** `allowlist.json` `_note`'una "allowlist 'hangi komut'u
+    kısıtlar, 'ne yaptığını' değil" kararı yazıldı.
+- **Regresyon testleri (3 yeni):** Rust `o1_dosya_argumani_jail` (16 assertion) +
+  `o1_rm_jail`; TS "dosya argümanı jaili decideTool'da" (17 assertion) + "onay uyarısı" (8).
+- **Doğrulama:** `cargo test --lib` 39/39 (3 yeni) · `npm test` 35 dosya / 215 test yeşil
+  (2 yeni) · `tsc --noEmit` 0 hata.
+- **Sonraki:** Faz 5 (O3) — `sql:allow-execute` capability + denetim kaydı kurtarma.
+
+---
+
+## 2026-10-16 — Faz 6: Güvenlik & İzin UX → `v0.1.0` (sürüm sabit)
+
+- **Allowlist uzantısı:** `policy.ts` (`parseCustomLine`/`parseCustomAllowList`, `rm` satırı geçersiz) + `settings.customAllowList` + Sohbet sekmesi textarea; `decideTool`/`isExecAllowed` `extraAllow` parametreli (saf, drift yok); exec hep onaylı (O6).
+- **Denetim logu:** `audit_log` tablosu (frontend DDL + Rust migration v3) + `db.ts` (`appendAudit`/`readAuditLog`, ateşle-bırak) + agent karar noktalarında `denied/allowed-auto/allowed-approval/approved/rejected` + `/audit [n]` + `auditEnabled` ayarı.
+- **Jail rötuşları:** Windows ayırıcı dönüşümü, `.git` içi symlink baskını, glob üst-dizin desenleri (Rust testleriyle sabitlendi; kod değişmedi).
+- **CI + dokümantasyon:** `.github/workflows/ci.yml` (tsc + vitest + build + fmt + cargo test) + `CONTRIBUTING.md` (faz kapanış kuralı + allowlist prosedürü).
+- **Doğrulama:** `tsc` 0 hata · `npm test` 31 dosya / 164 test yeşil · `npm run build` ok · `cargo test --lib` 29/29 (3 yeni) · `cargo fmt` temiz.
+- **Sürüm:** sabit `0.1.0` (kullanıcı isteği; haritadaki `0.7` uygulanmadı).
+
+---
+
+## 2026-10-16 — Faz 5: MCP + Sub-agent/Plan → `v0.1.0` (sürüm sabit)
+
+- **Protokol/istemci:** `mcp/protocol.ts` (JSON-RPC 2.0 + `McpError`, 4KB kırpma) + `client.ts` (initialize/list/call, timeout) + `transports/http.ts` (JSON/SSE, id eşleşmeli) + `transports/stdio.ts` (Rust köprüsü, bildirim satırı atlar).
+- **Registry/havuz:** `mcp:<sunucu>:<araç>` namespace (`makeMcpServerId` TR slug); policy hep onaylı; `pool.ts` (5 dk cache, config değişiminde yeniden bağlanma, düşeni atma + havuzdan düşürme).
+- **Rust:** `mcp_spawn/write/read/kill` (tokio subprocess, `kill_on_drop`, cwd jail); `McpState` + pencere-kapanış hook'u; shell plugin yok.
+- **Ayarlar:** MCP sekmesi (transport, komut/URL, keşif, izinler, env); env değerleri keystore `custom_<id>` blob'unda, metadata persist'te.
+- **Agent:** `extraTools` (MCP registry) + `disallowTools` koruması; `plan` tool (auto, terminalde listelenir); `runSubagent` (salt-okunur, kendi bütçesi, max 4 tur).
+- **Doğrulama:** `tsc` 0 hata · `npm test` 30 dosya / 160 test yeşil · `npm run build` ok · `cargo test --lib` 26/26 · `cargo fmt` temiz.
+- **Sürüm:** sabit `0.1.0` (kullanıcı isteği; haritadaki `0.6` uygulanmadı).
+- **Açık:** gerçek MCP sunucusuyla uçtan uca duman testi; HTTP origin için CSP derleme-anı genişletmesi (README'de); koordinatörün alt-agentı otomatik çağırması (takip).
+
+---
+
+## 2026-10-16 — Faz 4: Provider Sertleştirme → `v0.1.0` (sürüm sabit)
+
+- **Reasoning sözleşmesi:** `StreamChunk.reasoning/thinking` + `ThinkingBlock` + `TokenUsage.reasoning` (output'a dahil değil, maliyete dahil); `mergeUsage` tek birleştirme noktası. DeepSeek `reasoning_content`, o-series `reasoning_tokens`, Anthropic `thinking_delta`/`signature_delta` akıştan çekilir.
+- **Tek Rust yolu (K7):** `buildAnthropicMessages` TS'de saf kurulur (tool_result birleştirme + thinking imzalı taşıma + vision base64); Rust saf proxy (`tools`/`thinking`/`temperature`/`top_p` geçirir, `StreamAcc` ile tool_use + imzalı thinking biriktirir). Tauri'de tüm Anthropic istekleri Rust'tan; invoke hatasında fetch fallback korunur.
+- **UI:** `Message.reasoning/thinking` kalıcı + export dahil; `MessageLine` `⠿ düşünüyor` dim bloğu + `showThinking` ayarı (Sohbet sekmesi).
+- **Cost:** `costForTokens` (reasoning output fiyatından) + `sessionCost` toplam; `/tokens` reasoning satırı + toplam maliyet (reasoning dahil); agent `done` usage'ı son mesaja yazılır.
+- **Doğrulama:** `tsc` 0 hata · `npm test` 23 dosya / 138 test yeşil (yeni: reasoning 4 + pricing 2 + agent 1 + session 1 + commands 1) · `npm run build` ok · `cargo test --lib` 24/24 (3 yeni) · `cargo fmt` temiz.
+- **Sürüm:** sabit `0.1.0` (kullanıcı isteği; haritadaki `0.5` uygulanmadı).
+- **Açık:** gerçek Anthropic anahtarıyla thinking+tool duman testi; `tauri build` (webkit yok).
+
+---
+
+## 2026-10-15 — Faz 3: Tool Seti Genişlemesi → `v0.1.0` (sürüm sabit)
+
+- **Allowlist tek kaynak:** `lib/engine/allowlist.json` (TS import + Rust `include_str!`); geniş tablo (git add/commit/stash/show/push, cargo clippy, pytest/tsc/go test/find/rg/cat/head/tail/wc/which/mkdir/touch, eslint/prettier, pip install, `rm` yalnız `-i`). `rm -i -rf`/`-f`/`--force` reddedilir (TS+Rust aynı kural).
+- **Rust:** `grep_files` regex modu (bozuk regex Türkçe hata), `read_file` offset (1-tabanlı sayfalama), `glob_files` (ignore+secret filtreli, jail), `write_file` O_EXCL (`dosya zaten var · edit_file kullan`). `regex` + `glob` crate. `glob_files`/`write_file` invoke kayıtlı.
+- **TS motor:** 9 tool (`grep.regex`, `glob`, `read_file.offset`, `write_file`, `todo`); policy: okuma/glob/todo auto, `write_file` auto-edit'te auto, exec asla auto (O6). `tools/write.ts` + `tools/todo.ts` (history'den `deriveTodoState`, son 50 mesaj); agent system prompt'a aktif todo bloğu; todo sonucu terminalde listelenir.
+- **Doğrulama:** `tsc` 0 hata · `npm test` 22 dosya / 129 test yeşil (yeni: policy drift+rm+todo/write/toolspec) · `npm run build` ok · `cargo test --lib` 21/21 (4 yeni) · `cargo fmt` temiz.
+- **Sürüm:** sabit `0.1.0` (kullanıcı isteği; haritadaki `0.4` uygulanmadı).
+
+---
+
+## 2026-10-15 — Faz 2: Context Bütçesi & Compaction → `v0.1.0` (sürüm sabit)
+
+- **Token tahmini:** `lib/engine/tokens.ts` (chars/4 + overhead + tool JSON + görsel; `windowFor` registry, bilinmeyende 200_000; `budgetFor` window × 0.6).
+- **Compaction:** `lib/engine/compact.ts` (`COMPACTION_THRESHOLD` 0.75; `shouldCompact`/`splitAtCompactionPoint` + tool-çifti bütünlüğü/`compactHistory`/`compactSessionMessages`; özet `[özet · tarih]` max 2000 karakter, transcript kırpık).
+- **Özetleyici:** `lib/summarize.ts` (`summarizerConfig` + `makeSummarizeFn`, boşsa aktif model); `store/settings` + `SettingsModal/ChatTab` ("Özetleyici model", boş = aktif).
+- **Akış:** `useStream`/`useAgent` gönderim öncesi otomatik compaction (ephemeral + `/// context özetlendi` satırı, hatada özgün geçmişle devam); `/compact` (`App.tsx`) kalıcı (özet başa, yeniler korunur, id/timestamp korunur).
+- **Doğrulama:** `tsc` 0 hata · `npm test` 20 dosya / 117 test yeşil (yeni: tokens 6 + compact 8 + summarize 4 + /compact help) · `npm run build` ok. Rust değişikliği yok.
+- **Sürüm:** sabit `0.1.0` (kullanıcı isteği; haritadaki `0.3` uygulanmadı).
+
+---
+
+## 2026-10-14 — Faz 1: Agent Döngüsü Sağlamlığı + İnteraktif Onay → `v0.1.0` (sürüm sabit)
+
+- **G1 şema:** `Message`'e `toolCalls`/`toolCallId`/`toolName`/`isError` (K5); tool sonuçları `system` rolünde saklanır, `toProviderMessages` `role:'tool'`'a çevirir. `store/session`: `addToolMessages` + `appendToolCalls`. `normalizeSession` roundtrip ile korunur (`commands.test`).
+- **G2 duraklatılabilir döngü:** `createAgentRun` (`step`/`resolve`/`serialize`/`abort`) + `AgentStepResult` (`done`/`needs-approval`); `runAgent` geriye uyumlu durur. `resolve` reddi `isError:true` "kullanıcı reddetti" ile devam eder (K2); `exec` hep onaylı (K3). Patch önizlemesi `tool_preview` olayı (kalıcı değil), apply/reject `tool_result` (kalıcı).
+- **G3 kalıcı kuyruk:** `lib/engine/approvals.ts` (SQLite `pending_approvals` + bellek + localStorage fallback) + `db.ts` DDL + Rust migration v2. Boot'ta `restoreApprovals` → `pendingBySession`.
+- **G4 geçmiş:** `useAgent` history `AgentHistoryItem[]` (tool alanları dahil), `.slice(-40)` + kopan tool çifti geriye taraması. `toProviderMessages` C.6 temizliği (orphan call düşer, sahipsiz sonuç user'a çevrilir).
+- **G5 UI:** `Terminal` satır içi `[ONAYLA ✓ Enter] [REDDET ✗ Esc]` + `InputBar` boşken Enter/Esc + meta bar sayacı. `/apply` aktif run'da `resolve` yolundan devam eder.
+- **G6 retry:** `withRetry` (yalnızca 429/≥500 + `TypeError`; 400/401/abort asla; backoff+jitter tavan 4000ms) — agent `streamOneTurn` + `useStream` tek noktasından; fallback korunur.
+- **Doğrulama:** `tsc` 0 hata · `npm test` 17 dosya / 99 test yeşil (yeni: retry 4 + approvals 2 + session 3 + agent 3 + commands 1) · `npm run build` 93→~286kB · `cargo test --lib` 17/17.
+- **Sürüm:** sabit `0.1.0` (`package.json` + `tauri.conf.json` + boot satırı oynamadı).
+
+---
+
+## 2026-10-06 — Çekirdek Motor Faz A–G + Rust `stream_anthropic` aktif
+
+- **Faz A (tool-calling):** `common.ts` → `tools?: ToolDefinition[]`, `toolCalls?: ToolCall[]`, `usage?: TokenUsage`. OpenAI/Anthropic/Gemini tool streaming; `engine/toolspec.ts` kanonik 5 tool + `toAnthropicTools` / `safeParseArgs`; `engine/providers.ts` (`supportsTools`, toolsuz modelde sessiz düşüş).
+- **Faz B (context):** `engine/context.ts` — ignore/secret/budget/prioritize + `summarizeWorkspace`.
+- **Faz C (fs):** Rust `list_dir` / `read_file` / `grep_files` (root jail, secret blok) + `engine/tools/fs.ts` + `policy.ts` client jail.
+- **Faz D (patch):** Rust `apply_patch` (backup + atomic) + `engine/tools/patch.ts` (diff önizleme, `propose → /apply → apply`, tek kullanımlık id).
+- **Faz E (shell):** Rust `exec_cmd` (allowlist, timeout 15sn, 8k truncate) + `engine/tools/shell.ts`.
+- **Faz F (agent):** `engine/agent.ts` (`runAgent`, maxSteps 8, onay-bekleyenlerde durur) + `hooks/useAgent.ts` (history son 20 mesaj, workspace etiketi systemPrompt'a eklenir, `tool_call`/`tool_result` eventleri extras'a). Workspace seçiliyse chat yerine agent çalışır.
+- **Faz G (skills):** `engine/skills.ts` registry (`repo-guide` yerleşik) + `/skill`.
+- **UI:** `store/workspace.ts` (root/label/approvalMode, persist `macrocode-workspace`), `App.tsx` → `/root` `/files` `/apply` `/skill` `/compact`, `/help` 16 satır. `setProvider`/`setModel` artık `updateSessionModel` ile aktif session'ı da günceller.
+- **Rust kayıtları:** `lib.rs` → list_dir/read_file/grep_files/apply_patch/exec_cmd + stream_anthropic; `Cargo.toml` → tokio + reqwest + futures-util. `ChatMsg` pub yapıldı.
+- **Anthropic yolu netleşti:** Tauri + toolsuz chat → Rust proxy (`stream_anthropic`, `Channel<StreamEvent>`); tarayıcı-dev veya tool'lu çağrı → doğrudan `fetch`. Eski stub kaldırıldı.
+
+## 2026-10-08 — Faz H: Provider Registry (7 provider, capability, model bazlı `maxOutput`)
+
+- `Provider → Model → Capabilities → Agent` zinciri kuruldu. 7 provider: anthropic/openai/gemini/ollama/openrouter/deepseek/xai.
+- `openaiCompatible.ts` fabrikası (openai/openrouter/deepseek/xai). Yeni provider = 1 dosya + registry kaydı.
+- Model bazlı `maxOutput` (eski Anthropic 4096 sabiti kalktı; Anthropic `min(maxOutput, 16384)`, OpenAI `max_tokens`/`max_completion_tokens`, Gemini `generationConfig.maxOutputTokens`, Ollama `options.num_predict`).
+- `deepseek-reasoner` toolsuz/reasoning olarak ayrıştı.
+- Titlebar capability rozetleri (🛠👁🧠), `/model` capability satırı (`tools✓/vision✓/reasoning✓`).
+- `commands.test.ts` güncel modellere uyarlandı (gpt-6.1-sol + capability satırı).
+- Güncel default modeller: `claude-opus-5-5`, `gpt-6.1-sol`, `gemini-3.8-flash`, `llama3.3`, `openrouter/auto`, `deepseek-chat`, `grok-4.20`.
+
+## 2026-10-08 — P0/P1: ground-truth, migration, suggest, vision uçtan uca
+
+- **P0-2 model ID ground-truth:** OpenRouter `/v1/models` (public, 468 model) ile doğrulandı: `openrouter/auto`, `openai/gpt-6.1-sol`, `deepseek/deepseek-chat`, `x-ai/grok-4.7`, `x-ai/grok-4.20` OK. Düzeltme: `anthropic/claude-sonnet-5-5` (tireli) OpenRouter'da YOK → doğrusu noktalı `anthropic/claude-sonnet-5.5` (`openrouter.ts` + `REMOVED_MODEL_MAP`). Native Anthropic/OpenAI/DeepSeek/xAI/Gemini ID'leri anahtarsız doğrulanamadı — gerçek anahtarla duman testi açık kaldı.
+- **P0-3 eski model migration:** `REMOVED_MODEL_MAP` (10 girdi: gpt-4o→gpt-6.1-sol, gpt-4o-mini→gpt-6-luna, o3→gpt-6.1-sol, o4-mini→gpt-6-luna, sonnet-4-6→sonnet-5-5, opus-5→opus-5-5, haiku-4-5→haiku-5-5, gemini-2.5-pro→3-pro, gemini-2.5-flash→3.8-flash, OR tireli slug→noktalı) + `migrateModelId` / `migrateProviderModel`; `db.ts` (`parseSession`) + `commands.ts` (`normalizeSession`) import yolunda uygulanır, özel/boş ID korunur; 2 yeni vitest eklendi.
+- **P1 suggest:** `suggestProvider()` (önek + harf skoru), `/provider` ve `getProvider` hatasında "bunu mu demek istedin" önerisi.
+- **P1 vision uçtan uca:** `Message.images` + `ChatItem.images` → provider formatları (Anthropic blocks / OpenAI `image_url` / Gemini `inline_data` / Ollama `images`; Rust proxy görselde fetch'e düşer) → InputBar `[IMG]` (canvas 1568px JPEG, max 4) → Terminal thumbnail → vision'suz modelde erken err + export notu.
+- **P1 test:** `openaiCompatible.test.ts` (stream/usage/tool/error/headers/max_tokens/vision + registry bütünlüğü + suggest).
+
+## 2026-10-08 — Çözülen sınırlamalar
+
+1. `stream.rs` stub → `stream_anthropic` aktif. Kalan gap: Rust proxy tool-call desteklemez.
+2. `csp: null` → kısıtlı CSP aktif (`tauri.conf.json`, bkz. Güvenlik bölümü).
+3. `fontSize` görsel etkisiz → çözüldü (`:root` `--font-size` canlı bağ).
+4. Full-snapshot DB yazma → çözüldü (transaction içinde `INSERT OR REPLACE` + stale silme, `db.ts`).
+5. Session model/provider kilidi → çözüldü (`updateSessionModel` ile Titlebar/`/model`/`/provider` aktif session'ı da günceller).
+6. Test dosyası yok → engine + providers vitest'leri eklendi (`agent/context/policy/toolspec/patch/openaiCompatible/commands`).
+7. `src/Memorybank/` boş klasörü silindi.
+
+## 2026-10-08 — Güvenlik Sertleştirme + UI Temizliği
+
+Doğrulama: `cargo check --lib` temiz, `cargo test commands::fs` 3/3, JSON geçerli. `npm` ortamda yoktu → TS tarafı API-stabil tutuldu.
+
+- **20.1 `exec_cmd` timeout:** Ölü kod (`let _ = timeout`) kaldırıldı; `tokio::process::Command::output()` artık `tokio::time::timeout(timeout, …)` ile sarılı (`exec.rs:81-92`). Aşımda `kill_on_drop(true)` process'i öldürür, `"komut zaman aşımına uğradı"` döner. Aralık aynı: 1–30sn (varsayılan 15sn).
+- **20.2 `exec_cmd` workspace jail:** Yeni opsiyonel `root: Option<String>` (`exec.rs:54-79` + `shell.ts:40-43`); doluysa `cwd` canonicalize edilip `starts_with` ile doğrulanır, değilse `"cwd workspace dışına çıkamaz"`. Frontend (`toolExec`) her çağrıda `root` gönderir. `Option` olduğu için eski IPC yükleri kırılmaz. Ulaşılamaz `rm/sudo/chmod…` ölü kontrolü silindi (allowlist zaten reddediyordu).
+- **20.3 CSP + shell saldırı yüzeyi:** `tauri.conf.json` `csp: null` → kısıtlı policy (Google Fonts + 6 AI API hostu + localhost/127.0.0.1). `lib.rs`'ten `tauri_plugin_shell::init()`, `capabilities/default.json`'dan `shell:default`, `Cargo.toml`'dan `tauri-plugin-shell` kaldırıldı. `src/` içinde `plugin-shell` importu yok (`exec_cmd` tek shell yoludur). `package.json`'daki `@tauri-apps/plugin-shell` bilerek bırakıldı (kaldırılırsa `package-lock.json` senkronu bozulur; backend izni kalktığı için güvenlik etkisi yok).
+- **20.4 Frontend tekilleştirme (davranış değişikliği yok):** Yeni `src/lib/tauri.ts` tek `isTauri()` tanımı (`db.ts`, `settings.ts`, `rustStream.ts` buraya bağlandı). `providerNeedsKey` tek tanımı `store/settings.ts`'te (`PROVIDER_DEFS` tabanlı; `useStream.ts` import + re-export eder).
+- **20.5 Terminal + App.tsx:** `Terminal.tsx` her token'daki `out.sort(O(n log n))` kaldırıldı (mesajlar kronolojik, extras hep en yeni → birleştirme yeterli). `App.tsx` `extrasBySession` session başına 200 satırla cap'lendi; silinen session'ların `extras/clearedBefore` kayıtlarını budayan effect eklendi. Boot anahtar-durum satırı 4 hardcoded provider yerine `PROVIDER_IDS` üzerinden dinamik (openrouter/deepseek/xai eksikti).
+
+## 2026-10-08 — Doğrulama kayıtları
+
+Her `npm run test` / `npm run build` / `cargo check` koşusundan sonra bu tablo güncellenir.
+
+| Komut | Sonuç | Not |
+|---|---|---|
+| `npm run test` (vitest 4.1.11) | ✅ 6 dosya / 39 test yeşil (~1s) | `commands.test.ts` güncel modellere uyarlandı (gpt-6.1-sol + capability satırı) |
+| `tsc --noEmit` | ✅ 0 hata | SettingsModal Draft cast düzeltmesi sonrası temiz |
+| `npm run build` | ✅ yeşil (72→76 modül) | `@tauri-apps/api/core.js` chunk notu kozmetik; SettingsModal dinamik import kaldırıldı |
+| `cargo check` | ⚠️ bloklu | `javascriptcoregtk-4.1.pc` yok → `webkit2gtk-4.1` + full Tauri system deps gerekli |
+| `rustfmt --check` (keystore.rs) | ✅ yeni kod format-temiz | Tek diff pre-existing `read_key` zincirinde |
+| P0-2 ground-truth | ⚠️ kısmi | OpenRouter 468 model OK; tireli OR slug düzeltildi; native ID'ler anahtarsız doğrulanamadı |
+| P0-3 migration | ✅ tamam | `REMOVED_MODEL_MAP` 10 girdi; `db.ts` + `commands.ts` yolunda uygulanır; 2 yeni vitest |
+| `cargo check --lib` (§20 sonrası) | ✅ temiz | `exec.rs` timeout+jail + shell kaldırma sonrası |
+| `cargo test --lib commands::fs` | ✅ 3/3 geçti | `parent_dir/mutlak_yol/secret` jail testleri |
+| JSON geçerlilik | ✅ OK | `package.json`, `tauri.conf.json`, `capabilities/default.json` doğrulandı |
+| `npm run build` / `npm test` (§20 sonrası) | ⚠️ koşulamadı | Ortamda Node yok; Node'lu makinede koşulmalı |
+| `npm run build` / `npm test` (2026-10-09) | ✅ yeşil | Taşınabilir toolchain Node v22.23.3 (`/tmp/opencode/toolchain`): `tsc` 0 hata + vite 81 modül + favicon `dist/` kökünde; **7 dosya / 52 test yeşil** |
+
+## 2026-10-09 — Dokümantasyon ayrımı (bu işlem)
+
+- `memorybank.md` sadece **güncel proje mimarisi** olacak şekilde sadeleştirildi: tarihli faz anlatımları (§18), doğrulama kayıtları (§19), güvenlik işlem detayları (§20) ve `~~çözüldü~~` geçmişleri (§15) buraya taşındı.
+- Stale mimari bilgiler güncellendi: shell plugin kaldırma, 7 provider'lı keystore, güncel model ID'leri, model bazlı `maxOutput`, `Message.images`, `workspace` store, `tauri.ts` tekilleştirmesi, dinamik boot satırı, extras cap, terminal sort kaldırma.
+- Yeni kural: mimari değişikliği = `memorybank.md` güncelle + buraya tarihli işlem ekle.
+
+## 2026-10-09 — Logo değişimi + bundle ikonları üretildi
+
+- Yeni logo (`src-tauri/icons/macrocode-logo.svg`, 512×512: siyah yuvarlak kare + neon yeşil `m<` monogramı) uygulamanın logosu olarak dahil edildi.
+- Tespit: `tauri.conf.json` → `bundle.icon` 4 dosya gösteriyordu ama klasörde hiçbiri yoktu (`tauri build` kırık olurdu). SVG'den 4 dosya üretildi:
+  `32x32.png` + `128x128.png` (`rsvg-convert`), `icon.ico` (16/32/48/256 PNG-sıkıştırmalı girdiler),
+  `icon.icns` (ic07–ic10: 128/256/512/1024 PNG verili). Doğrulama: `file` → `MS Windows icon resource - 4 icons` /
+  `Mac OS X icon, "ic07" type`. (Not: ImageMagick `.ico`/`.icns` uzantısına düz PNG yazdığı için konteynerlar
+  python3-stdlib betikle kuruldu: `/tmp/opencode/make_icons.py` — ICO: `00 00 01 00` başlık + PNG blob'lar;
+  ICNS: `icns` sihri + `ic07..ic10` elemanları.)
+- Favicon bağlandı: `public/macrocode-logo.svg` (kaynağın birebir kopyası) + `index.html` →
+  `<link rel="icon" type="image/svg+xml" href="/macrocode-logo.svg">`.
+- `tauri.conf.json` değişmedi (zaten doğru 4 dosyayı gösteriyordu; dosyalar artık mevcut).
+- UI: Titlebar ortaya 18px logo eklendi (`Titlebar.tsx` + `.titlebar-logo` CSS; dekoratif, `draggable=false`,
+  göreli yol — dev/preview/Tauri'de çözülür, CSP `img-src 'self'` kapsamında).
+- UI: Titlebar ortaya 18px logo gösteriyor (`Titlebar.tsx` + `.titlebar-logo`).
+
+## 2026-10-09 — Kritik sıkıntılar turu (K1/K3/Y1/Y2/Y3/O1/O2/O3 düzeltildi)
+
+Detaylı incelemede bulunan kritik/yüksek/orta sorunların fixleri:
+
+- **K1 TLS kök sertifikası:** `Cargo.toml` → reqwest'e `rustls-tls-native-roots` eklendi
+  (yalnızca `manual-roots` vardı = boş root store → `stream_anthropic` HTTPS el sıkışması patlıyordu).
+  + `anthropic.ts` → Rust yolu yanıt başlamadan düşerse fetch'e geri döner (metin aktıysa düşmez).
+- **K3 Rust `max_tokens` sabiti:** `stream_anthropic` artık `max_tokens: Option<u32>` alıyor;
+  frontend `min(maxOutput,16384)` gönderiyor (bilinmeyende 4096). Varsayılan yol da model bazlı oldu.
+- **Y1 symlink jail bypass:** `resolve_rooted` (`fs.rs`) final hedef mevcutsa canonicalize edip
+  jail'i tekrar denetliyor (yeni dosya → parent kontrolü). 3 yeni test (dışarı symlink red, içeri kabul, yeni dosya).
+- **Y2 exec allowlist:** `exec.rs` `check_cmd` prefix tablosuna çevrildi (frontend `policy.ts` ile birebir:
+  `node/npx` sadece `--version`, `npm run` prefix'li, `cargo` check/test/build...). `node -e` / `npx <paket>` /
+  `npm install` artık backend'de de red. 2 yeni test.
+- **Y3 saldırı yüzeyi:** `capabilities/default.json`'dan `store:default` çıkarıldı
+  (frontend plugin-store JS kullanmıyor — yalnızca `invoke`; Rust tarafı etkilenmez).
+- **O1 abort israfı:** `stream.rs` kanal kapanınca akışı bitiriyor (`send` Err → `return Ok`).
+- **O2 SSE toleransı:** bozuk satır akışı öldürmüyor, atlanıyor (fetch yoluyla aynı). 4 yeni `stream` testi.
+- **O3 usage overwrite:** `useStream` + `agent` artık usage'ı max-birleştiriyor (Anthropic input kaybolmuyor).
+- **Biçim:** 6 Rust dosyası `rustfmt` ile temizlendi (bu toolchain'in stilinde pre-existing farklar da vardı).
+- **Doğrulama:** `cargo check --lib` ✅ temiz · `cargo test --lib` ✅ 12/12 (9 yeni: fs 3 + exec 2 + stream 4; 3 eski jail testi) · `rustfmt --check` ✅ · capabilities JSON ✅.
+- **Frontend doğrulama (2026-10-09, taşınabilir toolchain Node v22.23.3 `/tmp/opencode/toolchain`):**
+  `npm run build` ✅ (`tsc` 0 hata + vite 81 modül; bilinen kozmetik chunk uyarısı; favicon `dist/` köküne kopyalandı) ·
+  `npm test` ✅ 7 dosya / 52 test yeşil (~1s).
+  Gerçek Anthropic anahtarıyla duman testi hâlâ açık (K1'in fiilî kanıtı + `tauri dev` webkit bağımlılıkları eksik).
+
+## 2026-10-09 — Faz 1: sekmeli Ayarlar + Sağlayıcılar sekmesi
+
+- `SettingsModal.tsx` → `SettingsModal/` klasörü (kabuk + 5 sekme; `App.tsx` importu değişmedi).
+  Sağlayıcılar sekmesi tam işlevsel: maskeli anahtar (`key_hint` → `••••a1b2`, 3 durumlu alan:
+  değişmedi/yazıldı/silindi), 3 durumlu bağlantı testi (`validateDetailed`: bağlı/geçersiz/ağ hatası),
+  özel base URL (4 OpenAI-uyumlu), Ollama model keşfi (`listOllamaModels`), özel uç ekle
+  (ad+baseURL+anahtar+modeller, varsayılan yap). Modeller/Sohbet sekmelerine mevcut
+  kontroller taşındı; Dil/Hakkında yer tutucu (Faz 4).
+- Yeni tipler: `CustomEndpoint` (`types`), `validate.ts`, `custom.ts` (TR transliterasyonlu slug,
+  `Provider` birliğine dokunulmadı). `openaiCompatible` ayar `baseUrl` override'ı okuyor.
+- Store: `baseUrlOverride/customEndpoints/activeEndpointId` (+ persist) ve `customSecrets`
+  (yalnızca bellek — `partialize`'da `{}`). `useStream` özel uç dalı, `useAgent` erken ret.
+- Rust (önce gözle yazılmıştı, bu turda doğrulandı):
+  `normalize_provider` `custom_*` öneki + `key_hint` komutu + kayıt (`lib.rs`, `mod.rs`) + 3 test.
+- **Doğrulama (bu tur):** `cargo check --lib` ✅ temiz · `cargo test --lib` ✅ **15/15**
+  (3 yeni keystore: yerleşik/custom-kabul/custom-red) · `rustfmt --check` ✅ (1 satır-uzunluğu düzeltildi) ·
+  IPC sözleşme: `key_hint` adı/parametresi + `custom_<slug>` kuralı TS↔Rust uyumlu (küçük harf, ≤48, `[a-z0-9-]`) ·
+  `npm run build` ✅ 0 hata · `npm test` ✅ 9 dosya / 61 test.
+- Dürüstlük: bilgi satırı keychain İDDİA ETMİYOR ("bu cihazda saklanır (keys.json)").
+- **Doğrulama (Node toolchain):** `npm run build` ✅ 0 hata (89 modül) ·
+  `npm test` ✅ 9 dosya / 61 test (2 yeni dosya: validate 5 test + custom 4 test).
+- **Kalan tek doğrulama (bu makinede imkânsız):** canlı Tauri çalıştırma (webkit2gtk yok):
+  ayarları aç → anahtar gir → maskeli görünüm → test et → kaydet → yeniden başlat → kalıcılık kontrolü.
+
+## 2026-10-09 — Faz 2: Modeller sekmesi (2a–2e)
+
+- **2a birleştirme + aç/kapa:** `resolveModels` (registry + custom, çakışmada custom kazanır) +
+  `isModelEnabled`; lookup'lar opsiyonel `customs` parametresi aldı (geriye uyumlu).
+  Titlebar/`/model`/vision/agent aynı birleşimi kullanıyor; `CommandContext.customModels?` eklendi.
+- **2b elle ekleme + yenileme:** `discovery.ts` (openrouter anahtarsız / ollama / openai / gemini;
+  bulunanlar otomatik eklenmez, "ekle" ile `customModels`'a) + `CustomModel` (id+provider+caps).
+- **2c parametreler:** `ProviderConfig.params` + `sanitizeParams` (thinking topP'yi ezer);
+  eşleme: Anthropic (temp/top_p/thinking, temp=1 + fetch yoluna düşer), OpenAI-uyumlu (16k tavan),
+  Gemini (`generationConfig`), Ollama (`options`). `useStream`/`useAgent` geçiriyor.
+- **2d yedek model:** sohbette tek retry (metin akmadıysa; `onFallback` → `/// yedek model kullanıldı`).
+  Ajan ve özel uç akışında yok.
+- **2e fiyat:** `pricing.ts` (1M USD birimi, `$0.0000` hassasiyeti) + `/tokens` eki
+  (`tokenSummaryLine(session, prices?)` — mevcut testler kırılmadı).
+- **Doğrulama:** `npm run build` ✅ 0 hata · `npm test` ✅ 13 dosya / 79 test
+  (4 yeni dosya: params/resolve/discovery/pricing, +18 test). Rust değişikliği yok → cargo gerekmedi.
+
+## 2026-10-11 — P0 Düzeltmeleri: Güvenlik Sertleştirmesi (O6) + Yerel (Native) Tool Calling Formatı
+
+- **P0 Güvenlik (O6 Düzeltmesi):** `policy.ts` içindeki `decideTool('exec', ...)` mantığında `auto-read` ve `auto-edit` modlarında shell komutlarının yetkisiz otomatik onaylanmasına (`autoApproved: true`) yol açan kritik açık kapatıldı. Artık `exec` hiçbir standart modda (`manual`, `auto-read`, `auto-edit`) otomatik onaylanamaz; kabuk komutları her zaman kullanıcı onayı (`autoApproved: false`) gerektirir. `policy.test.ts` güncellendi ve doğrulandı.
+- **P0 Yerel (Native) Tool Calling:** Çok turlu agent döngüsünde sahte metin (`(araç çağrısı: ...)` ve `[araç:sonuç]`) yerine standart sağlayıcı protokollerine geçildi:
+  - `ChatItem` ve `AgentHistoryItem` arayüzlerine `toolCalls`, `toolCallId`, `toolName`, `isError` alanları eklendi.
+  - `agent.ts`: `runAgent` artık asistan mesajını yerel `toolCalls` ile, araç sonucunu ise `role: 'tool'` ile kaydeder.
+  - `openaiCompatible.ts`: `role: 'tool'` (`tool_call_id` ile) ve asistan `tool_calls` dizisi native OpenAI `chat/completions` formatında gönderilir.
+  - `anthropic.ts`: `buildAnthropicMessages` ile asistan içeriği `tool_use` bloklarına, araç sonuçları ise ardışık birleştirilerek `user` mesajı içindeki `tool_result` bloklarına dönüştürülür (Anthropic ardışık rol ve tool standartlarına tam uyum).
+  - `gemini.ts`: `buildGeminiContents` ile model mesajı `functionCall` partlarına, araç sonuçları ise `function` rolü altında `functionResponse` partlarına dönüştürülür.
+  - `ollama.ts`: `role: 'tool'` ve asistan `tool_calls` eşlemesi sağlandı.
+- **Testler & Doğrulama:**
+  - Yeni `src/lib/providers/nativeTools.test.ts` eklendi (Anthropic tek/çoklu `tool_result` birleşimi ve Gemini `functionResponse` testleri).
+  - `agent.test.ts` ve `openaiCompatible.test.ts` yeni native tool formatı assertion'ları ile güçlendirildi.
+  - **14 dosya / 84 vitest testi yeşil** (~3.4s).
+  - `tsc --noEmit && vite build` 0 hata ile derlendi (92 modül).
+  - `cargo test --lib` 15/15 test yeşil.
+
+## Açık kalanlar (sonraki tur)
+
+- `App.tsx`'teki inline `/root|/files|/apply|/skill` dallarının `commands.ts`'e taşınması.
+- Token-bazlı bağlam kırpma (`useAgent` sabit 20 mesaj yerine budget tabanlı).
+- Blok düzenleme (`search_replace`) ve `.macrocode/backups/` mimarisi (O5).
+- `exec_cmd` çıktılarının anlık streaming ile akıtılması.
+- Native provider model ID'lerinin gerçek API anahtarıyla duman testi.
+- Büyük geçmişlerde `updateLastMessage` performansı (her token'da full array kopyası).
+- Uzak özel Ollama URL'leri CSP `connect-src`'ye takılır — gerekirse genişletme.
+- `git init`, ESLint/Prettier + CI.
+- **K2 (ertelendi, büyük iş):** `keys.json` düz metin — stronghold/OS keychain geçiş tasarımı.
+- **O4:** vision görselleri localStorage/SQLite şişmesi (persist ayrımı + boyut guard'ı).
+- Titlebar logo `img` eklendi (SVG bileşen notu kapandı).
+

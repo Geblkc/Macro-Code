@@ -1,0 +1,35 @@
+{
+  "_note": "Faz 10 (D2c) — blok listelerinin TEK kaynağı. TS (policy.ts, context.ts) import eder, Rust (fs.rs) include_str! ile gömer. allowlist.json ile aynı desen → iki tarafın kayması imkânsız. 'dirs' güvenlik duvarıdır (okuma/yazma kapalı), 'ignoreDirs' yalnızca repo haritası/bağlam üretiminde elenir.",
+  "dirs": [
+    "node_modules",
+    ".git",
+    "dist",
+    "target",
+    ".tauri",
+    "coverage",
+    ".vite",
+    ".macrocode"
+  ],
+  "ignoreDirs": [
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    "target",
+    ".tauri",
+    "coverage",
+    ".vite",
+    ".macrocode"
+  ],
+  "files": [
+    ".env",
+    ".env.local",
+    "keys.json",
+    "sessions.db",
+    "id_rsa",
+    "id_ed25519",
+    ".npmrc"
+  ],
+  "secretExts": ["pem", "key", "p12", "pfx"],
+  "dataExts": ["db", "sqlite"]
+}

@@ -1,0 +1,378 @@
+use serde::Serialize;
+use std::path::PathBuf;
+use std::time::Duration;
+
+const TIMEOUT_SECS: u64 = 15;
+const MAX_OUTPUT_BYTES: usize = 8192;
+
+/// Faz 3 (K3) — exec allowlist tek kaynağı: `src/lib/engine/allowlist.json`.
+/// TS `policy.ts` aynı dosyayı import eder; burası `include_str!` ile gömer.
+/// Boş liste = serbest argüman; diğerleri prefix eşleşmesi.
+/// exec her zaman manuel onaylıdır (O6) — burası yalnızca allowlist filtresidir.
+const ALLOWLIST_JSON: &str = include_str!("../../../src/lib/engine/allowlist.json");
+
+/// O1 (Faz 4) — dosya operandsı alan serbest-argüman komutları: argümanlar
+/// workspace-relative olmalı (mutlak yol / `..` / bloklu dosya-dizin reddi).
+/// `cat /etc/passwd`, `find /`, `cat .env` bu kapıdan geçemez (read_file'daki
+/// koruma exec ile delinemez). Diğer komutlarda argüman jail'i yok — allowlist
+/// "hangi komut"u kısıtlar (bilinçli tasarım; bkz. `_note`).
+const FILE_ARG_CMDS: [&str; 10] = [
+    "cat", "head", "tail", "wc", "find", "rg", "ls", "touch", "mkdir", "prettier",
+];
+
+/// Dosya argümanı jail'i: mutlak yol, `..`, bloklu dosya/dizin reddi.
+/// Bayraklar (`-la`, `--color`) ve desenler (`*.ts`) etkilenmez.
+fn check_file_arg(a: &str) -> Result<(), String> {
+    let v = a.trim().replace('\\', "/");
+    if v.is_empty() || v.starts_with('-') {
+        return Ok(()); // bayrak
+    }
+    if v.starts_with('/') {
+        return Err(err(format!("argüman jail dışı (mutlak yol): {a}")));
+    }
+    for seg in v.split('/') {
+        if seg == ".." {
+            return Err(err(format!("argüman jail dışı (../): {a}")));
+        }
+        if crate::commands::fs::is_blocked_dir(seg) {
+            return Err(err(format!("yasaklı dizin argümanda: {a}")));
+        }
+        if crate::commands::fs::is_blocked_file_name(seg) || seg.starts_with(".env.") {
+            return Err(err(format!("yasaklı dosya argümanda: {a}")));
+        }
+        // Uzantı blokajı — TS `isBlockedFile` ile senkron (D2).
+        if let Some(ext) = std::path::Path::new(seg)
+            .extension()
+            .and_then(|e| e.to_str())
+        {
+            if matches!(ext, "pem" | "key" | "p12" | "pfx" | "db" | "sqlite") {
+                return Err(err(format!("yasaklı dosya argümanda: {a}")));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn err(msg: impl Into<String>) -> String {
+    msg.into()
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExecOut {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
+    pub truncated: bool,
+}
+
+fn allow_table() -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(ALLOWLIST_JSON).map_err(|e| err(format!("allowlist bozuk: {e}")))?;
+    v.as_object()
+        .cloned()
+        .ok_or_else(|| err("allowlist obje değil"))
+}
+
+/// `rm` yalnızca `-i` ile; `-f`/`-r`/`-R`/`--force`/`--recursive` reddedilir.
+fn is_rm_safe(args: &[String]) -> bool {
+    if args.first().is_some_and(|a| a == "-i") {
+        for a in &args[1..] {
+            if *a == "--force" || *a == "--recursive" || *a == "--no-preserve-root" {
+                return false;
+            }
+            if a.len() > 1
+                && a.starts_with('-')
+                && !a.starts_with("--")
+                && a.chars()
+                    .skip(1)
+                    .any(|ch| ch == 'f' || ch == 'r' || ch == 'R')
+            {
+                return false;
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Kullanıcının ayarlardan eklediği ek allowlist (TS `parseCustomAllowList` çıktısı).
+/// Aynı biçim: `{ "<komut>": [["<arg0>"], ["<arg0>", "<arg1>"]] }` — boş liste = serbest argüman.
+pub type ExtraAllow = serde_json::Map<String, serde_json::Value>;
+
+/// `extra` tablosunda bir komutun izinli olup olmadığını kontrol eder.
+/// Boş liste (serbest argüman) veya prefix eşleşmesi geçerli → true.
+fn extra_allows(extra: &ExtraAllow, cmd: &str, args: &[String]) -> bool {
+    let Some(entry) = extra.get(cmd) else {
+        return false;
+    };
+    let Some(prefixes) = entry.as_array() else {
+        return false;
+    };
+    if prefixes.is_empty() {
+        return true;
+    }
+    prefixes.iter().any(|p| {
+        p.as_array().is_some_and(|want| {
+            want.iter().enumerate().all(|(i, w)| {
+                w.as_str()
+                    .is_some_and(|s| args.get(i).is_some_and(|a| a == s))
+            })
+        })
+    })
+}
+
+fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), String> {
+    let c = cmd.trim();
+    if c.is_empty() {
+        return Err(err("komut boş olamaz"));
+    }
+    // Tehlikeli argümanlar: shell operatörleri ve mutlak kaçışlar ham string olarak gelmemeli.
+    // (args dizisi kullanıldığı için shell parse edilmez; yine de savunma amaçlı kontrol.)
+    for a in args {
+        if a.contains('\n') || a.contains('\0') {
+            return Err(err("geçersiz argüman"));
+        }
+    }
+    if c == "rm" {
+        if !is_rm_safe(args) {
+            return Err(err("yasaklı komut: rm yalnızca -i ile · -f/-r reddedilir"));
+        }
+        // O1: rm de dosya argümanı alır — jail dışı hedef satılamaz.
+        for a in args.iter().filter(|a| !a.starts_with('-')) {
+            check_file_arg(a)?;
+        }
+        return Ok(());
+    }
+    let table = allow_table()?;
+    // Faz 8 L3: kullanıcının ek allowlist'i de geçerli (yerleşik tablo ile birleşik).
+    if extra_allows(extra, c, args) {
+        return Ok(());
+    }
+    // `_note` meta anahtarı komut değildir.
+    let entry = table.get(c).filter(|_| c != "_note");
+    match entry {
+        None => {
+            let mut cmds: Vec<&String> = table.keys().filter(|k| *k != "_note").collect();
+            cmds.sort();
+            Err(err(format!(
+                "yasaklı komut: {c} · allowlist: {}",
+                cmds.iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            )))
+        }
+        Some(v) => {
+            let prefixes = v.as_array().ok_or_else(|| err("allowlist biçimi bozuk"))?;
+            // Dosya argümanı jail'i prefix'ten BAĞIMSIZ: boş listede (cat/find/…)
+            // args serbest olsa da mutlak yol / ../ / bloklu dosya reddedilir.
+            if FILE_ARG_CMDS.contains(&c) {
+                for a in args.iter().filter(|a| !a.starts_with('-')) {
+                    check_file_arg(a)?;
+                }
+            }
+            // Boş liste: args serbest (ls/pwd/echo/eslint/pytest/…).
+            if prefixes.is_empty() {
+                return Ok(());
+            }
+            let ok = prefixes.iter().any(|p| {
+                p.as_array().is_some_and(|want| {
+                    want.iter().enumerate().all(|(i, w)| {
+                        w.as_str()
+                            .is_some_and(|s| args.get(i).is_some_and(|a| a == s))
+                    })
+                })
+            });
+            if ok {
+                Ok(())
+            } else {
+                Err(err(format!("yasaklı argüman: {c} {}", args.join(" "))))
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn exec_cmd(
+    cmd: String,
+    args: Vec<String>,
+    cwd: String,
+    timeout_ms: Option<u64>,
+    root: Option<String>,
+    // Faz 8 L3: kullanıcı allowlist uzantısı (TS `parseCustomAllowList` çıktısı).
+    extra_allow: Option<ExtraAllow>,
+) -> Result<ExecOut, String> {
+    let extra = extra_allow.unwrap_or_default();
+    check_cmd(&cmd, &args, &extra)?;
+    let cwd_trimmed = cwd.trim();
+    if cwd_trimmed.is_empty() {
+        return Err(err("cwd boş olamaz"));
+    }
+    let dir = PathBuf::from(cwd_trimmed)
+        .canonicalize()
+        .map_err(|e| err(format!("cwd geçersiz: {e}")))?;
+
+    // Workspace jail: root verildiyse cwd onun altında olmalı.
+    // Frontend her zaman root gönderir; doğrudan invoke edenlere karşı backend sınırı.
+    if let Some(r) = root.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let base = PathBuf::from(r)
+            .canonicalize()
+            .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))?;
+        if !dir.starts_with(&base) {
+            return Err(err("cwd workspace dışına çıkamaz"));
+        }
+    }
+
+    let timeout =
+        Duration::from_millis(timeout_ms.unwrap_or(TIMEOUT_SECS * 1000).clamp(1000, 30000));
+
+    let mut child_cmd = tokio::process::Command::new(cmd.trim());
+    child_cmd.args(&args).current_dir(&dir).kill_on_drop(true);
+    let output_fut = child_cmd.output();
+    let output = match tokio::time::timeout(timeout, output_fut).await {
+        Ok(res) => res.map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?,
+        Err(_) => return Err(err("komut zaman aşımına uğradı")),
+    };
+
+    let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut truncated = false;
+    if stdout.len() + stderr.len() > MAX_OUTPUT_BYTES {
+        let mut combined = format!("{stdout}\n{stderr}");
+        combined.truncate(MAX_OUTPUT_BYTES);
+        stdout = combined;
+        stderr.clear();
+        truncated = true;
+    }
+    Ok(ExecOut {
+        stdout,
+        stderr,
+        code: output.status.code().unwrap_or(-1),
+        truncated,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Ek allowlist olmadan kontrol (yerleşik tablo).
+    fn check_cmd2(cmd: &str, args: &[String]) -> Result<(), String> {
+        check_cmd(cmd, args, &serde_json::Map::new())
+    }
+
+    /// Kullanıcı allowlist'i: `{ "docker": [["ps"]] }`
+    fn extra(pairs: &[(&str, &[&[&str]])]) -> ExtraAllow {
+        let mut m = ExtraAllow::new();
+        for (cmd, prefixes) in pairs {
+            let arr: Vec<serde_json::Value> =
+                prefixes.iter().map(|p| serde_json::json!(p)).collect();
+            m.insert((*cmd).to_string(), serde_json::Value::Array(arr));
+        }
+        m
+    }
+
+    #[test]
+    fn keyfi_calistirma_reddedilir() {
+        assert!(check_cmd2("node", &args(&["-e", "1"])).is_err());
+        assert!(check_cmd2("npx", &args(&["kotu-paket"])).is_err());
+        assert!(check_cmd2("npm", &args(&["install"])).is_err());
+        assert!(check_cmd2("npm", &args(&["exec", "kotu"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-rf", "/"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", "-rf", "dosya"])).is_err());
+        assert!(check_cmd2("rm", &args(&["dosya"])).is_err());
+        assert!(check_cmd2("", &args(&[])).is_err());
+    }
+
+    #[test]
+    fn o1_dosya_argumani_jail() {
+        // O1 (Faz 4): serbest-argüman komutlarında dosya operandsı jail içinde olmalı.
+        assert!(check_cmd2("cat", &args(&["/etc/passwd"])).is_err());
+        assert!(check_cmd2("cat", &args(&["../../.ssh/id_rsa"])).is_err());
+        assert!(check_cmd2("cat", &args(&[".env"])).is_err());
+        assert!(check_cmd2("cat", &args(&[".git/config"])).is_err());
+        assert!(check_cmd2("find", &args(&["/"])).is_err());
+        assert!(check_cmd2("find", &args(&[".."])).is_err());
+        assert!(check_cmd2("ls", &args(&["/home"])).is_err());
+        assert!(check_cmd2("touch", &args(&["../kacis.txt"])).is_err());
+        assert!(check_cmd2("rg", &args(&["token", ".git"])).is_err());
+        assert!(check_cmd2("head", &args(&["-n", "5", "/var/log/syslog"])).is_err());
+        // Bloklu dosya uzantısı da düşer (read_file ile senkron).
+        assert!(check_cmd2("cat", &args(&["sertifika.pem"])).is_err());
+        // Normal kullanım etkilenmez.
+        assert!(check_cmd2("cat", &args(&["src/app.ts"])).is_ok());
+        assert!(check_cmd2("find", &args(&[".", "-name", "*.ts"])).is_ok());
+        assert!(check_cmd2("rg", &args(&["desen", "src"])).is_ok());
+        assert!(check_cmd2("cat", &args(&["-n", "src/a.ts"])).is_ok());
+        // Bayraklar jail'e takılmaz.
+        assert!(check_cmd2("ls", &args(&["-la"])).is_ok());
+    }
+
+    #[test]
+    fn o1_rm_jail() {
+        assert!(check_cmd2("rm", &args(&["-i", "/etc/hosts"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", "../disari.txt"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", ".env"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", "build/turetilmis.js"])).is_ok());
+    }
+
+    #[test]
+    fn faz8_l3_kullanici_allowlisti_gecerer() {
+        let ex = extra(&[("docker", &[&["ps"]]), ("mytool", &[])]);
+        // Kullanıcının eklediği komut + prefix eşleşmesi → geçer.
+        assert!(check_cmd("docker", &args(&["ps"]), &ex).is_ok());
+        // Prefix eşleşmiyorsa reddedilir.
+        assert!(check_cmd("docker", &args(&["rm", "-rf"]), &ex).is_err());
+        // Boş liste = serbest argüman.
+        assert!(check_cmd("mytool", &args(&["-x", "1"]), &ex).is_ok());
+        // Ek tablo olmadan aynı komut reddedilir.
+        assert!(check_cmd2("docker", &args(&["ps"])).is_err());
+    }
+
+    #[test]
+    fn faz8_l3_yerlesik_ve_ek_tablo_birlestirilir() {
+        // Yerleşik "npm" tablosu prefix eşleşmesi yapıyor; ek tablo da birleşir.
+        let ex = extra(&[("npm", &[&["run", "build:ozel"]])]);
+        assert!(check_cmd("npm", &args(&["run", "build"]), &ex).is_ok()); // yerleşik
+        assert!(check_cmd("npm", &args(&["run", "build:ozel"]), &ex).is_ok()); // ek
+        assert!(check_cmd("npm", &args(&["install"]), &ex).is_err());
+    }
+
+    #[test]
+    fn faz8_l3_ek_tablo_dangerous_komutlari_acmaz() {
+        // `rm` ek tabloda olsa bile -f/-r reddedilir (kurallar değişmez).
+        let ex = extra(&[("rm", &[&["-rf"]])]);
+        assert!(check_cmd("rm", &args(&["-rf", "x"]), &ex).is_err());
+    }
+
+    #[test]
+    fn izinli_prefixler_gecer() {
+        assert!(check_cmd2("node", &args(&["--version"])).is_ok());
+        assert!(check_cmd2("npx", &args(&["--version"])).is_ok());
+        assert!(check_cmd2("npm", &args(&["--version"])).is_ok());
+        assert!(check_cmd2("npm", &args(&["run", "build"])).is_ok());
+        assert!(check_cmd2("npm", &args(&["run"])).is_ok()); // betiksiz `npm run` sadece listeler (salt-okunur)
+        assert!(check_cmd2("npm", &args(&["test"])).is_ok());
+        assert!(check_cmd2("cargo", &args(&["check"])).is_ok());
+        assert!(check_cmd2("cargo", &args(&["clippy"])).is_ok());
+        assert!(check_cmd2("cargo", &args(&["test", "--", "filtre"])).is_ok());
+        assert!(check_cmd2("cargo", &args(&["run"])).is_err());
+        assert!(check_cmd2("git", &args(&["status"])).is_ok());
+        assert!(check_cmd2("git", &args(&["push"])).is_ok());
+        assert!(check_cmd2("git", &args(&["add", "."])).is_ok());
+        assert!(check_cmd2("ls", &args(&["-la"])).is_ok());
+        assert!(check_cmd2("echo", &args(&["merhaba"])).is_ok());
+        assert!(check_cmd2("rm", &args(&["-i", "dosya"])).is_ok());
+        assert!(check_cmd2("pytest", &args(&["-k", "test_x"])).is_ok());
+        assert!(check_cmd2("tsc", &args(&["--noEmit"])).is_ok());
+        assert!(check_cmd2("go", &args(&["test", "./..."])).is_ok());
+        assert!(check_cmd2("rg", &args(&["desen"])).is_ok());
+        assert!(check_cmd2("pip", &args(&["install", "paket"])).is_ok());
+        assert!(check_cmd2("pip", &args(&["uninstall", "paket"])).is_err());
+    }
+}

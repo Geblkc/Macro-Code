@@ -1,0 +1,38 @@
+name: ci
+on: { pull_request: {}, push: { branches: [main] } }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: rustfmt, clippy }
+      - run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --lib --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - run: cargo test --lib --manifest-path src-tauri/Cargo.toml
+
+  # Gerçek uygulama smoke testi: ACL/capability hataları (ör. `sql:allow-execute`)
+  # yalnızca uygulama çalışırken ortaya çıkar — birim testleri yakalayamaz.
+  # Ağır (webkit bağımlılıkları) olduğu için ayrı iş olarak tanımlandı.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tauri sistem bağımlılıkları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev \
+            libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev xvfb sqlite3
+      - run: npm ci
+      - name: Smoke test (uygulama boot + veritabanı yazımı)
+        run: xvfb-run -a bash scripts/smoke-test.sh

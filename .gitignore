@@ -1,0 +1,27 @@
+# deps
+node_modules/
+# build
+dist/
+src-tauri/target/
+src-tauri/gen/
+# os
+.DS_Store
+# env
+.env
+.env.local
+# editor / IDE
+.idea/
+.vscode/
+*.swp
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*
+# yerel veritabanı (oturumlar uygulama veri dizininde yaşar)
+*.db
+*.db-wal
+*.db-shm
+# geçici
+tmp/
+*.tmp
+*.bak

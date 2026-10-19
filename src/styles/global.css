@@ -1,0 +1,131 @@
+:root {
+  /* Renkler */
+  --bg:           #080808;
+  --bg2:          #0f0f0f;
+  --bg3:          #161616;
+  --border:       #1e1e1e;
+  --border2:      #2a2a2a;
+  --accent:       #00e5a0;
+  --accent2:      #00b87a;
+  --dim:          #444;
+  --muted:        #666;
+  --text:         #d4d4d4;
+  --textbright:   #f0f0f0;
+
+  /* Mesaj renkleri */
+  --col-user:     #7eb8f7;
+  --col-ai:       #00e5a0;
+  --col-sys:      #a78bfa;
+  --col-err:      #f87171;
+  --col-warn:     #fbbf24;
+
+  /* Tipografi */
+  --font-mono:    'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-size:    13px;
+  --line-height:  1.65;
+
+  /* Olcu / radius */
+  --radius-s: 3px;
+  --radius-m: 4px;
+  --radius-l: 6px;
+  --radius-xl: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* Odak */
+  --focus: var(--accent);
+}
+
+* { box-sizing: border-box; }
+
+:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: var(--radius-s);
+}
+
+::selection {
+  background: rgba(0, 229, 160, 0.25);
+}
+
+button { font-family: inherit; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.titlebar {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.main-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  position: relative;
+}
+
+.sidebar-list,
+.model-dropdown,
+.modal {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-view,
+  .msg-in,
+  .cursor,
+  .thinking::after {
+    animation: none;
+  }
+}
