@@ -3,6 +3,7 @@ import Titlebar from './components/Titlebar';
 import Sidebar from './components/Sidebar';
 import Terminal from './components/Terminal';
 import InputBar from './components/InputBar';
+import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
 import { useStream } from './hooks/useStream';
 import { getActiveAgentRun, useAgent } from './hooks/useAgent';
@@ -21,25 +22,11 @@ import { compactSessionMessages, shouldCompact } from './lib/engine/compact';
 import { makeSummarizeFn, summarizerConfig } from './lib/summarize';
 import { buildSessionBackup, handleSlashCommand, parseSessionBackup, type CommandContext } from './lib/commands';
 import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsToDb, sqlError } from './lib/db';
-import type { ExtraLine, Provider, TerminalLine } from './types';
+import type { ExtraLine, Provider, TerminalLine, ToolEvent } from './types';
 import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
-import { ALL_MODELS, PROVIDER_IDS, getCapabilitiesForModel, hasProviderKey } from './lib/providers';
+import { ALL_MODELS, getCapabilitiesForModel, hasProviderKey } from './lib/providers';
 import { isStale } from './lib/providers/modelsDev';
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function detectPlatform(): string {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  return nav.userAgentData?.platform ?? navigator.platform ?? 'unknown';
-}
-
-function detectArch(): string {
-  const ua = navigator.userAgent;
-  if (/aarch64|arm64/i.test(ua)) return 'arm64';
-  if (/x86_64|win64|x64|amd64/i.test(ua)) return 'x64';
-  return 'unknown';
-}
 
 function downloadFile(text: string, filename: string, mime: string): void {
   const blob = new Blob([text], { type: mime });
@@ -79,17 +66,32 @@ export default function App() {
   const sessions = useSessionStore((s) => s.sessions);
   const streaming = useSessionStore((s) => s.isStreaming);
   const fontSize = useSettingsStore((s) => s.fontSize);
+  const clockFormat = useSettingsStore((s) => s.clockFormat);
+  const contrast = useSettingsStore((s) => s.contrast);
+  const uiFont = useSettingsStore((s) => s.uiFont);
   const session = sessions.find((s) => s.id === activeId) ?? null;
 
   const MAX_EXTRAS_PER_SESSION = 200;
 
-  const pushExtra = useCallback((sessionId: string, line: Omit<TerminalLine, 'id'>) => {
-    const full: ExtraLine = { ...line, id: createId(), ts: Date.now() };
-    setExtrasBySession((prev) => {
-      const next = [...(prev[sessionId] ?? []), full];
-      const capped = next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
-      return { ...prev, [sessionId]: capped };
-    });
+  const pushExtra = useCallback(
+    (sessionId: string, line: Omit<TerminalLine, 'id'> & { tool?: ToolEvent }) => {
+      const full: ExtraLine = { ...line, id: createId(), ts: Date.now() };
+      setExtrasBySession((prev) => {
+        const next = [...(prev[sessionId] ?? []), full];
+        const capped = next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
+        return { ...prev, [sessionId]: capped };
+      });
+    },
+    [],
+  );
+
+  /** Onay kartındaki "bu komutu her zaman çalıştır" kutusu -> allowlist. */
+  const handleAlwaysAllow = useCallback((_sessionId: string, command: string) => {
+    const line = command.trim();
+    if (!line) return;
+    const st = useSettingsStore.getState();
+    if (st.customAllowList.includes(line)) return;
+    st.setCustomAllowList([...st.customAllowList, line]);
   }, []);
 
   const clearView = useCallback((sessionId: string) => {
@@ -682,25 +684,8 @@ export default function App() {
       const fresh = st.sessions.length <= 1 && sess.messages.length === 0;
       if (!fresh) return;
       const id = sess.id;
-      const boot: Omit<TerminalLine, 'id'>[] = [
-        { type: 'sys', content: '/// macrocode v0.1.0 — ai terminal interface' },
-        { type: 'sys', content: `/// platform: ${detectPlatform()} · arch: ${detectArch()}` },
-        { type: 'sys', content: '/// başlamak için mesajını yaz veya /help yaz' },
-      ];
-      for (const line of boot) {
-        pushExtra(id, line);
-        await sleep(100);
-      }
-      const ks = useSettingsStore.getState().keyStatus;
-      const mark = (on: boolean) => (on ? 'bağlı ✓' : '—');
-      const statusLine = `/// ${PROVIDER_IDS.map((p) => `${p}: ${mark(ks[p])}`).join('  |  ')}`;
-      const anyOn = PROVIDER_IDS.some((p) => ks[p]);
-      pushExtra(
-        id,
-        anyOn
-          ? { type: 'sys', content: statusLine }
-          : { type: 'sys', content: '/// api anahtarı için ⚙ ayarlar → settings' },
-      );
+      // Boot bilgisi artık durum çubuğunda (sağlayıcı noktası + model + token).
+      // Boş oturumda karşılama ekranı gösterilir; ek satırla bozulmaz.
       if (resumedRuns > 0) {
         pushExtra(id, {
           type: 'sys',
@@ -723,6 +708,15 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--font-size', `${fontSize}px`);
   }, [fontSize]);
+
+  // Görünüm tercihleri -> <html> nitelikleri (high-contrast.css bunları okur).
+  useEffect(() => {
+    document.documentElement.setAttribute('data-contrast', contrast);
+  }, [contrast]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-uifont', uiFont);
+  }, [uiFont]);
 
   // SQLite yansitma (gecikmeli; streaming'de her token'da yazmaz).
   useEffect(() => {
@@ -861,12 +855,18 @@ export default function App() {
             extras={activeId ? (extrasBySession[activeId] ?? []) : []}
             clearedBefore={activeId ? (clearedBefore[activeId] ?? null) : null}
             pending={activeId ? (pendingBySession[activeId] ?? []) : []}
+            clockFormat={clockFormat}
             onApprove={() => {
               if (activeId) void handleApproveAll(activeId);
             }}
             onReject={() => {
               if (activeId) void handleRejectAll(activeId);
             }}
+            onAlwaysAllow={
+              (cmd) => {
+                if (activeId) handleAlwaysAllow(activeId, cmd);
+              }
+            }
           />
           <InputBar
             onSend={(t, imgs) => void handleSend(t, imgs)}
@@ -885,6 +885,13 @@ export default function App() {
           />
         </div>
       </div>
+      <StatusBar
+        pendingCount={activeId ? (pendingBySession[activeId]?.length ?? 0) : 0}
+        onPendingClick={() => {
+          const el = document.querySelector('.approval');
+          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }}
+      />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

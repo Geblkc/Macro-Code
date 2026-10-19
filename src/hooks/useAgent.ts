@@ -25,12 +25,14 @@ import { deriveTodoState } from '../lib/engine/tools/todo';
 import { listSkills, skillsPrompt } from '../lib/engine/skills';
 import { configureMcp, mcpToolsForAgent } from '../lib/engine/mcp/pool';
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
-import type { Provider } from '../types';
+import type { Provider, ToolEvent } from '../types';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 
 export interface AgentToolLine {
   type: 'sys' | 'err' | 'warn';
   content: string;
+  /** Varsa satır yapılandırılmış bir araç çağrısıdır (kart render edilir). */
+  tool?: ToolEvent;
 }
 
 /** Faz 1 G2/G5: oturum başına aktif run (onayda durur, resolve ile devam eder). */
@@ -38,6 +40,17 @@ const activeRuns = new Map<string, AgentRun>();
 
 export function getActiveAgentRun(sessionId: string): AgentRun | undefined {
   return activeRuns.get(sessionId);
+}
+
+/** Araç argümanlarının tek satırlık önizlemesi. */
+function previewArgs(args: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (v === undefined || v === null) continue;
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    parts.push(`${k}=${s.length > 60 ? s.slice(0, 60) + '…' : s}`);
+  }
+  return parts.join(' ');
 }
 
 /** Araç çıktısı önizlemesi (tek satır, uzun çıktı kırpılır). */
@@ -98,7 +111,16 @@ function makeRunEventHandler(opts: {
       } catch {
         // store hatası akışı durdurmaz
       }
-      emit({ type: 'sys', content: `/// tool ▸ ${e.call.name} ${JSON.stringify(e.call.args).slice(0, 160)}` });
+      emit({
+        type: 'sys',
+        content: `/// tool ▸ ${e.call.name} ${JSON.stringify(e.call.args).slice(0, 160)}`,
+        tool: {
+          id: String(e.call.id),
+          name: String(e.call.name),
+          args: previewArgs(e.call.args as Record<string, unknown>),
+          status: 'run',
+        },
+      });
     } else if (e.k === 'tool_preview') {
       emit({ type: 'sys', content: `/// önizleme (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}` });
     } else if (e.k === 'tool_result') {
@@ -116,13 +138,23 @@ function makeRunEventHandler(opts: {
       } catch {
         // yoksay
       }
-      if (!e.ok) {
+      if (toolName) {
+        // Yapılandırılmış araç kartı (çağrı + sonuç tek kartta birleşir).
+        emit({
+          type: e.ok ? 'sys' : 'err',
+          content: e.ok
+            ? `▸ ${toolName}: ${previewOutput(e.output)}`
+            : `✗ araç hatası (${e.id.slice(0, 8)}): ${e.output.slice(0, 300)}`,
+          tool: {
+            id: String(e.id),
+            name: toolName,
+            args: '',
+            status: e.ok ? 'ok' : 'err',
+            output: e.output.slice(0, 4000),
+          },
+        });
+      } else if (!e.ok) {
         emit({ type: 'err', content: `✗ araç hatası (${e.id.slice(0, 8)}): ${e.output.slice(0, 300)}` });
-      } else if (toolName === 'todo' || toolName === 'plan') {
-        emit({ type: 'sys', content: e.output.slice(0, 800) });
-      } else if (toolName) {
-        // Faz 8 L6: başarılı araç çıktısı da görünür.
-        emit({ type: 'sys', content: `▸ ${toolName}: ${previewOutput(e.output)}` });
       }
     }
   };

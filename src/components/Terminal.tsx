@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageLine from './MessageLine';
-import type { ExtraLine, Message, Session, TerminalLine } from '../types';
+import ToolCallCard from './ToolCallCard';
+import ApprovalCard from './ApprovalCard';
+import TaskPanel from './TaskPanel';
+import Welcome from './Welcome';
+import type { ExtraLine, Message, Session, TerminalLine, ToolEvent } from '../types';
 import type { PendingApproval } from '../lib/engine/approvals';
 import { execApprovalWarning } from '../lib/engine/policy';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { deriveTodoState } from '../lib/engine/tools/todo';
+import { Icon } from './icons';
 
 interface Props {
   session: Session | null;
@@ -14,6 +19,10 @@ interface Props {
   pending?: PendingApproval[];
   onApprove?: () => void;
   onReject?: () => void;
+  /** "Her zaman çalıştır" kutusu (komut metni ile çağrılır). */
+  onAlwaysAllow?: (command: string) => void;
+  /** Zaman damgası biçimi. */
+  clockFormat: '24h' | '12h';
 }
 
 interface ViewLine {
@@ -26,11 +35,16 @@ interface ViewLine {
   thinking?: boolean;
   meta?: string;
   reasoning?: string;
+  tool?: ToolEvent;
 }
 
-function formatClock(ts: number): string {
+function formatClock(ts: number, fmt: '24h' | '12h'): string {
   const d = new Date(ts);
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  if (fmt === '12h') {
+    const h = d.getHours() % 12 || 12;
+    return `${h}:${pad(d.getMinutes())}`;
+  }
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
@@ -47,15 +61,25 @@ function formatUsage(m: Message): string | null {
   return `in:${formatCount(m.tokens.input)} · out:${formatCount(m.tokens.output)}`;
 }
 
-function toViewLine(m: Message, streaming: boolean, isLast: boolean): ViewLine {
+function toViewLine(
+  m: Message,
+  streaming: boolean,
+  isLast: boolean,
+  clockFormat: '24h' | '12h',
+): ViewLine {
   const isAssistant = m.role === 'assistant';
   const isUser = m.role === 'user';
   const usage = formatUsage(m);
+  // Meta kolonu çok satırlı (sağa hizalı): saat / model / token.
   const meta =
     isUser || isAssistant
-      ? isAssistant && m.model
-        ? `${formatClock(m.timestamp)} · ${m.model}${usage ? ` · ${usage}` : ''}`
-        : [formatClock(m.timestamp), usage].filter(Boolean).join(' · ')
+      ? [
+          formatClock(m.timestamp, clockFormat),
+          isAssistant && m.model ? m.model : '',
+          usage ?? '',
+        ]
+          .filter(Boolean)
+          .join('\n')
       : undefined;
   return {
     key: m.id,
@@ -70,7 +94,16 @@ function toViewLine(m: Message, streaming: boolean, isLast: boolean): ViewLine {
   };
 }
 
-export default function Terminal({ session, extras, clearedBefore, pending, onApprove, onReject }: Props) {
+export default function Terminal({
+  session,
+  extras,
+  clearedBefore,
+  pending,
+  onApprove,
+  onReject,
+  onAlwaysAllow,
+  clockFormat,
+}: Props) {
   const streaming = useSessionStore((s) => s.isStreaming);
   const showThinking = useSettingsStore((s) => s.showThinking);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -84,10 +117,39 @@ export default function Terminal({ session, extras, clearedBefore, pending, onAp
       clearedBefore == null
         ? session.messages
         : session.messages.filter((m) => m.timestamp >= clearedBefore);
-    msgs.forEach((m, i) => out.push(toViewLine(m, streaming, i === msgs.length - 1)));
+    msgs.forEach((m, i) => out.push(toViewLine(m, streaming, i === msgs.length - 1, clockFormat)));
+
     // Extras her zaman en sonda: pushExtra Date.now() damgalıdır, mesajlar kronolojiktir.
-    // O(n log n) sort her token'da yeniden koşuyordu — birleştirme yeterli.
+    // Araç çağrısı + sonucu aynı kartta birleşir (id eşleşmesi).
+    const toolIndex = new Map<string, number>();
     for (const e of extras) {
+      if (e.tool) {
+        const prev = toolIndex.get(e.tool.id);
+        if (prev !== undefined) {
+          const merged = out[prev];
+          out[prev] = {
+            ...merged,
+            tool: {
+              ...merged.tool!,
+              status: e.tool.status,
+              output: e.tool.output ?? merged.tool!.output,
+              args: merged.tool!.args || e.tool.args,
+            },
+            content: e.content,
+          };
+          continue;
+        }
+        toolIndex.set(e.tool.id, out.length);
+        out.push({
+          key: e.id,
+          ts: e.ts,
+          type: e.type,
+          content: e.content,
+          tool: e.tool,
+          meta: e.type === 'err' || e.type === 'warn' ? formatClock(e.ts, clockFormat) : undefined,
+        });
+        continue;
+      }
       out.push({
         key: e.id,
         ts: e.ts,
@@ -95,12 +157,12 @@ export default function Terminal({ session, extras, clearedBefore, pending, onAp
         content: e.content,
         meta:
           e.type === 'err' || e.type === 'warn' || e.type === 'user'
-            ? formatClock(e.ts)
+            ? formatClock(e.ts, clockFormat)
             : undefined,
       });
     }
     return out;
-  }, [session, extras, clearedBefore, streaming]);
+  }, [session, extras, clearedBefore, streaming, clockFormat]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -119,7 +181,6 @@ export default function Terminal({ session, extras, clearedBefore, pending, onAp
   };
 
   // Kasıtlı depsiz: streaming'de her render'da alta yapışmayı korur.
-  // setShowJump aynı değerde bail-out yapar; yine de gereksiz yazmayı önle.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) {
@@ -135,84 +196,125 @@ export default function Terminal({ session, extras, clearedBefore, pending, onAp
     setShowJump(false);
   }, [session?.id]);
 
-  // Faz 8 L4: görev listesi geçmişten türetilir (kalıcı katman ayrı tutulmaz).
+  // Faz 8 L4: görev listesi (todo/plan) mesajların sonunda gösterilir.
   const todoItems = useMemo(
     () => deriveTodoState(session?.messages ?? []).items,
     [session?.messages],
   );
 
+  // Boş oturum → karşılama ekranı.
+  const isEmpty =
+    !!session &&
+    view.length === 0 &&
+    (pending ?? []).length === 0 &&
+    todoItems.length === 0;
+
   return (
     <div className="terminal-wrap">
       <div className="terminal" ref={scrollRef} onScroll={onScroll}>
-        <div className="terminal-view" key={session?.id ?? 'none'}>
-          {!session && (
-            <div className="msg msg-sys">
-              <span className="msg-body msg-text">/// session yok — + new ile başlat</span>
-            </div>
-          )}
-          {view.map((l) => (
-            <MessageLine
-              key={l.key}
-              type={l.type}
-              content={l.content}
-              images={l.images}
-              isStreaming={l.isStreaming}
-              thinking={l.thinking}
-              meta={l.meta}
-              reasoning={l.reasoning}
-              showThinking={showThinking}
-            />
-          ))}
-          {/* Faz 8 L4: görev listesi (todo/plan) mesajların sonunda gösterilir. */}
-          {todoItems.length > 0 && (
-            <div className="msg msg-sys" key="todo-panel">
-              <span className="msg-body msg-text">
-                {`/// görevler (${todoItems.filter((t) => t.done).length}/${todoItems.length}):`}
-                <br />
-                {todoItems.map((t) => `  ${t.done ? '[x]' : '[ ]'} ${t.id} ${t.text}`).join('\n')}
-              </span>
-            </div>
-          )}
-          {(pending ?? []).map((p) => {
-            // O1 (Faz 4): exec'te komut kırpmadan, cmd + args ayrı gösterilir;
-            // yapı gereği kod çalıştıran komutlarda açık uyarı satırı var.
-            const isExec = p.call.name === 'exec';
-            const eArgs = p.call.args ?? {};
-            const execCmd = typeof eArgs.cmd === 'string' ? eArgs.cmd : '';
-            const execArgList = Array.isArray(eArgs.args)
-              ? (eArgs.args as unknown[]).filter((a): a is string => typeof a === 'string')
-              : [];
-            const warning = isExec ? execApprovalWarning(execCmd, execArgList) : null;
-            const shown = isExec
-              ? `exec · ${execCmd} ${execArgList.join(' ')}`
-              : `${String(p.call.name)} ${JSON.stringify(p.call.args) ?? ''}`.slice(0, 240);
-            return (
-              <div className="msg msg-sys" key={`pending-${p.id}`}>
-                <span className="msg-body msg-text">
-                  {`⏸ onay bekleniyor: ${shown.trim()}`}
-                  {warning && (
-                    <>
-                      <br />
-                      <span style={{ color: 'var(--col-warn)' }}>{`⚠ ${warning}`}</span>
-                    </>
-                  )}
-                  <span style={{ marginLeft: 8 }}>
-                    <button className="btn-send" onClick={onApprove} title="onayla (Enter)">
-                      [ONAYLA ✓ Enter]
-                    </button>{' '}
-                    <button className="btn-send btn-stop" onClick={onReject} title="reddet (Esc)">
-                      [REDDET ✗ Esc]
-                    </button>
-                  </span>
-                </span>
+        {isEmpty ? (
+          <Welcome />
+        ) : (
+          <div className="terminal-view" key={session?.id ?? 'none'}>
+            {!session && (
+              <div className="msg msg-sys">
+                <div className="gutter" aria-hidden="true">
+                  ///
+                </div>
+                <div className="body-col">
+                  <div className="logline">oturum yok — yeni oturum oluştur</div>
+                </div>
+                <div className="meta-col" />
               </div>
-            );
-          })}
-        </div>
+            )}
+
+            {view.map((l) =>
+              l.tool ? (
+                <div className="msg msg-tool" key={l.key}>
+                  <div className="gutter" aria-hidden="true">
+                    ▸
+                  </div>
+                  <div className="body-col">
+                    <ToolCallCard tool={l.tool} />
+                  </div>
+                  <div className="meta-col">{l.meta}</div>
+                </div>
+              ) : (
+                <MessageLine
+                  key={l.key}
+                  type={l.type}
+                  content={l.content}
+                  images={l.images}
+                  isStreaming={l.isStreaming}
+                  thinking={l.thinking}
+                  meta={l.meta}
+                  reasoning={l.reasoning}
+                  showThinking={showThinking}
+                />
+              ),
+            )}
+
+            {todoItems.length > 0 && (
+              <div className="msg msg-sys" key="todo-panel">
+                <div className="gutter" aria-hidden="true">
+                  ☑
+                </div>
+                <div className="body-col">
+                  <TaskPanel
+                    items={todoItems.map((t, i) => ({
+                      id: t.id,
+                      text: t.text,
+                      done: t.done,
+                      active: !t.done && todoItems.findIndex((x) => !x.done) === i,
+                    }))}
+                  />
+                </div>
+                <div className="meta-col" />
+              </div>
+            )}
+
+            {(pending ?? []).map((p) => {
+              // O1 (Faz 4): exec'te komut kırpmadan, cmd + args ayrı gösterilir;
+              // yapı gereği kod çalıştıran komutlarda açık uyarı satırı var.
+              const isExec = p.call.name === 'exec';
+              const eArgs = p.call.args ?? {};
+              const execCmd = typeof eArgs.cmd === 'string' ? eArgs.cmd : '';
+              const execArgList = Array.isArray(eArgs.args)
+                ? (eArgs.args as unknown[]).filter((a): a is string => typeof a === 'string')
+                : [];
+              const warning = isExec ? execApprovalWarning(execCmd, execArgList) : null;
+              // Onay kartı araç adını kendi başlığında gösterir; burada
+              // yalnız komut/argüman yer alır (çift yazım olmaz).
+              const shown = isExec
+                ? `${execCmd} ${execArgList.join(' ')}`.trim()
+                : (JSON.stringify(p.call.args) ?? '').slice(0, 240);
+              return (
+                <div className="msg msg-warn" key={`pending-${p.id}`}>
+                  <div className="gutter" aria-hidden="true">
+                    !
+                  </div>
+                  <div className="body-col">
+                    <ApprovalCard
+                      callName={String(p.call.name)}
+                      detail={shown}
+                      warning={warning}
+                      onApprove={onApprove}
+                      onReject={onReject}
+                      onAlways={isExec && onAlwaysAllow ? () => onAlwaysAllow(execCmd) : undefined}
+                    />
+                  </div>
+                  <div className="meta-col" />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
       {showJump && (
         <button className="jump-latest" onClick={scrollToBottom} title="en son mesaja git">
-          ↓ yeni mesaj
+          <Icon name="chevron-down" size="sm" />
+          yeni mesaj
         </button>
       )}
     </div>

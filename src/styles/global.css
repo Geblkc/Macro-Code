@@ -1,67 +1,159 @@
+/* ══════════════════════════════════════════════════════════════════
+   MacroCode — Tasarım Tokenları + Temel Katman
+   ─────────────────────────────────────────────────────────────────
+   Renk, ölçü, tipografi ve hareket tek kaynaktan (`:root`) gelir.
+   Yeni renk eklerken buraya ekle; bileşenlerde ham hex kullanma.
+   ══════════════════════════════════════════════════════════════════ */
+
 :root {
-  /* Renkler */
-  --bg:           #080808;
-  --bg2:          #0f0f0f;
-  --bg3:          #161616;
-  --border:       #1e1e1e;
-  --border2:      #2a2a2a;
-  --accent:       #00e5a0;
-  --accent2:      #00b87a;
-  --dim:          #444;
-  --muted:        #666;
-  --text:         #d4d4d4;
-  --textbright:   #f0f0f0;
+  /* ── Yüzey rampası (karanlık → açık) ── */
+  --bg-sunken:   #07090b;   /* kod gövdesi, içe gömülü kuyu */
+  --bg-base:     #0b0d10;   /* uygulama zemini */
+  --bg-panel:    #111419;   /* sidebar, titlebar, inputbar */
+  --bg-raised:   #171b21;   /* kart, dropdown, modal */
+  --bg-overlay:  #1c2128;   /* raised üzerinde hover/active */
+  --bg-inset:    #0e1116;   /* input alanları */
 
-  /* Mesaj renkleri */
-  --col-user:     #7eb8f7;
-  --col-ai:       #00e5a0;
-  --col-sys:      #a78bfa;
-  --col-err:      #f87171;
-  --col-warn:     #fbbf24;
+  /* Geriye uyumlu alias (eski CSS çalışmaya devam eder) */
+  --bg:  var(--bg-base);
+  --bg2: var(--bg-panel);
+  --bg3: var(--bg-raised);
 
-  /* Tipografi */
-  --font-mono:    'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-size:    13px;
-  --line-height:  1.65;
+  /* ── Kenarlar ── */
+  --border-subtle:  #1c2128;
+  --border-default: #262c35;
+  --border-strong:  #38404c;
 
-  /* Olcu / radius */
-  --radius-s: 3px;
-  --radius-m: 4px;
-  --radius-l: 6px;
-  --radius-xl: 8px;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
+  /* ── Metin (WCAG AA, --bg-base üzerinde ölçülmüş) ── */
+  --text-primary:   #e6eaf0;   /* 16.1:1 */
+  --text-secondary: #a8b2c1;   /*  9.1:1 */
+  --text-tertiary:  #77808e;   /*  4.9:1 */
+  --text-disabled:  #4a525e;
 
-  /* Odak */
+  /* ── Vurgu (logo ile birebir aynı: #00E676) ── */
+  --accent:        #00e676;
+  --accent-hover:  #2beb8e;
+  --accent-active: #00c563;
+  --accent-text:   #00e676;
+  --accent-subtle: rgba(0, 230, 118, 0.10);
+  --accent-line:   rgba(0, 230, 118, 0.30);
+  --accent-ink:    #04150c;
+
+  /* ── Anlamsal renkler (rol/kanal) ── */
+  --col-user: #6fb1ff;
+  --col-ai:   #00e676;
+  --col-sys:  #b79cff;
+  --col-err:  #ff8a8a;
+  --col-warn: #ffc861;
+  --col-tool: #7fd4ff;
+
+  /* ── Gölge ── */
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --sh-2: 0 4px 12px -2px rgba(0, 0, 0, 0.50), 0 2px 4px -1px rgba(0, 0, 0, 0.30);
+  --sh-3: 0 24px 56px -12px rgba(0, 0, 0, 0.70), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  --sh-glow: 0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent);
+
+  /* ── Tipografi ── */
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+  --font-ui:   'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --fs-2xs: 10px;
+  --fs-xs:  11px;
+  --fs-sm:  12px;
+  --fs-md:  13px;
+  --fs-lg:  15px;
+  --fs-xl:  18px;
+  --fs-2xl: 24px;
+  --font-size: var(--fs-md);
+  --line-height: 1.65;
+
+  /* ── Boşluk (4px tabanlı) ── */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 48px;
+
+  /* ── Yarıçap ── */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* ── Hareket ── */
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 90ms;
+  --dur-2: 160ms;
+  --dur-3: 240ms;
+  --dur-4: 420ms;
+
+  /* ── Ölçü ── */
+  --h-titlebar: 40px;
+  --h-statusbar: 24px;
+  --w-sidebar: 240px;
+  --measure: 78ch;
+
+  /* ── Odak ── */
   --focus: var(--accent);
 }
+
+/* Arayüz kabuğu için sans fontu (JetBrains Mono yerine) */
+[data-uifont='inter'] {
+  --font-mono: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui:   'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Reset & Temel
+   ══════════════════════════════════════════════════════════════════ */
 
 * { box-sizing: border-box; }
 
 :focus-visible {
-  outline: 1px solid var(--focus);
-  outline-offset: 1px;
-  border-radius: var(--radius-s);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
 }
 
-::selection {
-  background: rgba(0, 229, 160, 0.25);
-}
+::selection { background: rgba(0, 230, 118, 0.25); }
 
-button { font-family: inherit; }
+button { font-family: inherit; color: inherit; }
 
 html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-base);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: var(--font-size);
   line-height: var(--line-height);
+  font-feature-settings: 'liga' 1, 'calt' 1;
+  -webkit-font-smoothing: antialiased;
 }
+
+body { overflow: hidden; }
+
+/* Yalnızca ekran okuyucular için */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Yerleşim kabuğu
+   ══════════════════════════════════════════════════════════════════ */
 
 .app {
   display: flex;
@@ -70,62 +162,41 @@ html, body, #root {
   overflow: hidden;
 }
 
-.titlebar {
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  user-select: none;
-}
-
 .body {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.sidebar {
-  width: 200px;
+/* ══════════════════════════════════════════════════════════════════
+   İkonlar (icons.tsx ile birlikte)
+   ══════════════════════════════════════════════════════════════════ */
+
+.icon {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  background: var(--bg2);
-  border-right: 1px solid var(--border);
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.main-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
+.icon-sm { width: 13px; height: 13px; }
+.icon-lg { width: 20px; height: 20px; }
 
-.terminal {
-  flex: 1;
-  padding: 12px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border2) transparent;
-  position: relative;
-}
-
-.sidebar-list,
-.model-dropdown,
-.modal {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border2) transparent;
-}
+/* ══════════════════════════════════════════════════════════════════
+   Erişilebilirlik
+   ══════════════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-  .terminal-view,
-  .msg-in,
-  .cursor,
-  .thinking::after {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

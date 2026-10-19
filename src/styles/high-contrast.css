@@ -1,0 +1,55 @@
+/* ══════════════════════════════════════════════════════════════════
+   Yüksek kontrast varyantı
+   ─────────────────────────────────────────────────────────────────
+   `html[data-contrast="high"]` ile etkinleşir (Ayarlar → Sohbet).
+   Normal paletin üzerine yalnızca token geçersiz kılması; yeni
+   renk tanımlanmaz. Şeffaflık yerine düz renk kullanılır.
+   ══════════════════════════════════════════════════════════════════ */
+
+[data-contrast='high'] {
+  --bg-sunken:   #000000;
+  --bg-base:     #05070a;
+  --bg-panel:    #0e1218;
+  --bg-raised:   #161b23;
+  --bg-overlay:  #1f2630;
+  --bg-inset:    #080b0f;
+
+  --border-subtle:  #39424f;
+  --border-default: #4c5766;
+  --border-strong:  #6b7787;
+
+  --text-primary:   #ffffff;
+  --text-secondary: #d6dee9;
+  --text-tertiary:  #a9b4c2;
+  --text-disabled:  #6c7683;
+
+  --accent:        #00f58a;
+  --accent-hover:  #4cffaa;
+  --accent-active: #00d977;
+  --accent-text:   #00f58a;
+  --accent-subtle: rgba(0, 245, 138, 0.16);
+  --accent-line:   rgba(0, 245, 138, 0.55);
+  --accent-ink:    #04140b;
+
+  --col-user: #8fc6ff;
+  --col-ai:   #00f58a;
+  --col-sys:  #cbb4ff;
+  --col-err:  #ffa3a3;
+  --col-warn: #ffd27a;
+  --col-tool: #9bdfff;
+
+  --sh-2: 0 4px 14px -2px rgba(0, 0, 0, 0.8);
+  --sh-3: 0 24px 60px -10px rgba(0, 0, 0, 0.9);
+
+  --fs-2xs: 11px;
+  --fs-xs:  12px;
+}
+
+/* Sistem `prefers-contrast: more` tercihini de karşıla (kullanıcı ayarı yoksa). */
+@media (prefers-contrast: more) {
+  html:not([data-contrast='normal']) {
+    --border-subtle:  #39424f;
+    --border-default: #4c5766;
+    --text-tertiary:  #a9b4c2;
+  }
+}

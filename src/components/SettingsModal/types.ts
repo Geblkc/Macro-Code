@@ -1,14 +1,15 @@
 import type { CustomEndpoint, CustomModel, ModelParams, ModelPrice, Provider } from '../../types';
+import type { IconName } from '../icons';
 
 export type TabId = 'providers' | 'models' | 'chat' | 'mcp' | 'lang' | 'about';
 
-export const TABS: { id: TabId; label: string }[] = [
-  { id: 'providers', label: 'Sağlayıcılar' },
-  { id: 'models', label: 'Modeller' },
-  { id: 'chat', label: 'Sohbet' },
-  { id: 'mcp', label: 'MCP' },
-  { id: 'lang', label: 'Dil ve Bölge' },
-  { id: 'about', label: 'Hakkında' },
+export const TABS: { id: TabId; label: string; icon: IconName }[] = [
+  { id: 'providers', label: 'Sağlayıcılar', icon: 'key' },
+  { id: 'models', label: 'Modeller', icon: 'cpu' },
+  { id: 'chat', label: 'Sohbet', icon: 'message' },
+  { id: 'mcp', label: 'MCP', icon: 'activity' },
+  { id: 'lang', label: 'Dil ve bölge', icon: 'globe' },
+  { id: 'about', label: 'Hakkında', icon: 'info' },
 ];
 
 /** Bağlantı testi durumu: beklemede / testte / bağlı / geçersiz / ağ hatası. */
@@ -87,6 +88,12 @@ export interface Draft {
   mcps: McpDraft[];
   customAllowList: string[];
   auditEnabled: boolean;
+  /** Görünüm: yüksek kontrast paleti. */
+  contrast: 'normal' | 'high';
+  /** Görünüm: arayüz kabuğu fontu. */
+  uiFont: 'mono' | 'inter';
+  /** Görünüm: saat biçimi. */
+  clockFormat: '24h' | '12h';
 }
 
 /** `ANAHTAR=değer` metnini kayda çevirir (boş/geçersiz satırlar atlanır). */

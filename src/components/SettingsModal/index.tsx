@@ -20,6 +20,7 @@ import ChatTab from './ChatTab';
 import McpTab from './McpTab';
 import LangTab from './LangTab';
 import AboutTab from './AboutTab';
+import { Icon } from '../icons';
 import type { CustomDraft, Draft, McpDraft, SecretDraft, TabId, TestConn } from './types';
 import { TABS, emptySecret, maskLast4, parseEnvText, serializeEnv } from './types';
 import { McpClient } from '../../lib/engine/mcp/client';
@@ -59,11 +60,15 @@ function blankDraft(): Draft {
     mcps: [],
     customAllowList: [],
     auditEnabled: true,
+    contrast: 'normal',
+    uiFont: 'mono',
+    clockFormat: '24h',
   };
 }
 
 export default function SettingsModal({ open, onClose }: Props) {
   const [tab, setTab] = useState<TabId>('providers');
+  const [tabQuery, setTabQuery] = useState('');
   const [draft, setDraft] = useState<Draft>(blankDraft);
   const [initial, setInitial] = useState<Draft>(blankDraft);
   const [show, setShow] = useState<Record<string, boolean>>({});
@@ -118,6 +123,9 @@ export default function SettingsModal({ open, onClose }: Props) {
     next.cachePrompts = s.cachePrompts;
     next.customAllowList = [...s.customAllowList];
     next.auditEnabled = s.auditEnabled;
+    next.contrast = s.contrast;
+    next.uiFont = s.uiFont;
+    next.clockFormat = s.clockFormat;
     next.mcps = s.mcpServers.map((m) => ({
       key: m.id,
       id: m.id,
@@ -153,6 +161,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     setDraft(next);
     setInitial(JSON.parse(JSON.stringify(next)) as Draft);
     setTab('providers');
+    setTabQuery('');
     setTests({});
     setShow({});
     setOllamaFound(null);
@@ -595,6 +604,9 @@ export default function SettingsModal({ open, onClose }: Props) {
     s.setCachePrompts(draft.cachePrompts);
     s.setCustomAllowList(draft.customAllowList);
     s.setAuditEnabled(draft.auditEnabled);
+    s.setContrast(draft.contrast);
+    s.setUiFont(draft.uiFont);
+    s.setClockFormat(draft.clockFormat);
     const known = ALL_MODELS.find((m) => m.id === draft.currentModel);
     if (known) {
       s.setProvider(known.provider);
@@ -686,12 +698,34 @@ export default function SettingsModal({ open, onClose }: Props) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-title">
-          /// settings{dirty && <span className="unsaved" title="kaydedilmemiş değişiklik"> •</span>}
+        <div className="modal-head">
+          <Icon name="settings" className="head-icon" />
+          <span className="modal-title">Ayarlar</span>
+          {dirty ? (
+            <span className="dirty" title="kaydedilmemiş değişiklikler">
+              <span className="dot" />
+              kaydedilmemiş
+            </span>
+          ) : null}
         </div>
-        <div className="settings-layout">
-          <div className="settings-tabs" role="tablist">
-            {TABS.map((t) => (
+        <div className="modal-body">
+          <div className="modal-tabs" role="tablist">
+            <div className="side-search">
+              <Icon name="search" size="sm" />
+              <input
+                value={tabQuery}
+                onChange={(e) => setTabQuery(e.target.value)}
+                placeholder="Ara…"
+                aria-label="Sekme ara"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+            {TABS.filter(
+              (t) =>
+                !tabQuery.trim() ||
+                t.label.toLocaleLowerCase('tr').includes(tabQuery.trim().toLocaleLowerCase('tr')),
+            ).map((t) => (
               <button
                 key={t.id}
                 role="tab"
@@ -699,11 +733,12 @@ export default function SettingsModal({ open, onClose }: Props) {
                 className={`tab-btn${tab === t.id ? ' active' : ''}`}
                 onClick={() => setTab(t.id)}
               >
+                <Icon name={t.icon} size="sm" />
                 {t.label}
               </button>
             ))}
           </div>
-          <div className="settings-content" role="tabpanel">
+          <div className="modal-content" role="tabpanel">
             {tab === 'providers' && (
               <ProvidersTab
                 draft={draft}
@@ -762,16 +797,25 @@ export default function SettingsModal({ open, onClose }: Props) {
                 formError={formError}
               />
             )}
-            {tab === 'lang' && <LangTab />}
+            {tab === 'lang' && <LangTab draft={draft} patch={patch} />}
             {tab === 'about' && <AboutTab />}
           </div>
         </div>
-        <div className="modal-actions">
-          <button className="sidebar-btn" onClick={onClose}>
-            vazgeç
+        <div className="modal-foot">
+          {dirty ? (
+            <span className="hint">
+              <span className="dot" />
+              kaydedilmemiş değişiklikler
+            </span>
+          ) : (
+            <span className="hint">tüm değişiklikler kaydedildi</span>
+          )}
+          <span className="sp" />
+          <button className="btn" onClick={onClose}>
+            Vazgeç
           </button>
-          <button className="sidebar-btn primary" disabled={!dirty} onClick={() => void save()}>
-            kaydet
+          <button className="btn btn-primary" disabled={!dirty} onClick={() => void save()}>
+            Kaydet
           </button>
         </div>
       </div>

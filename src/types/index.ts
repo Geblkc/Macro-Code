@@ -144,6 +144,24 @@ export type TerminalLine = {
 };
 
 /**
+ * Yapılandırılmış araç çağrısı bilgisi (görsel kart için).
+ * `status`: 'run' (çağrıldı) → 'ok' | 'err' (sonuç geldi).
+ */
+export type ToolEvent = {
+  /** Araç çağrısının id'si (çağrı + sonuç eşleşmesi için). */
+  id: string;
+  /** Araç adı (read_file, exec, todo, ...). */
+  name: string;
+  /** Argüman önizlemesi (tek satır). */
+  args: string;
+  status: 'run' | 'ok' | 'err';
+  /** Araç çıktısı (sonuç geldiyse). */
+  output?: string;
+  /** Ölçülen süre (ms). */
+  ms?: number;
+};
+
+/**
  * Gecici gorunum satiri (boot mesaji, komut ciktisi, hata).
  * `ts` olusturma anidir (gorunum siralamasi icin).
  * Uzlasim: sys/err/warn icerikleri `///`, `✗`, `!` isaretlerini TASIR;
@@ -151,6 +169,8 @@ export type TerminalLine = {
  */
 export type ExtraLine = TerminalLine & {
   ts: number;
+  /** Varsa satır bir araç çağrısıdır (kart olarak render edilir). */
+  tool?: ToolEvent;
 };
 
 /**

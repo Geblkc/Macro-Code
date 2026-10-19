@@ -9,6 +9,104 @@
 
 ---
 
+## 2026-10-19 — Görsel Yeniden Tasarım (Faz G1–G8)
+
+**Kapsam:** Terminal DNA'sı korunarak modern bir ürün arayüzü. Prototip ve faz planı:
+`~/.opencode/plan/macrocode-gorsel-yeniden-tasarim.md` · `prototype/index.html`
+
+### G1 — Tasarım temeli
+
+- **Yeni token sistemi** (`styles/global.css`): yüzey rampası (`--bg-sunken` … `--bg-inset`),
+  WCAG AA metin paleti (`--text-primary` 16.1:1 / `--text-secondary` 9.1:1 /
+  `--text-tertiary` 4.9:1), gölge ölçeği, 4px boşluk ölçeği, hareket token'ları.
+- **Kontrast düzeltmesi**: `--dim` (#444, 2.1:1) ve `--muted` (#666, 3.3:1) kullanımdan
+  kaldırıldı → 10–11px meta/başlıklar okunur hale geldi.
+- **Aksan markaya bağlandı**: `#00e5a0` → **`#00E676`** (logo ile birebir aynı, 11.7:1).
+  Önceden 11°'lik ton kayması vardı.
+- **Yüksek kontrast modu** (`styles/high-contrast.css` + `html[data-contrast]`).
+- **SVG ikon seti** (`components/icons.tsx`, 36 ikon) — emoji tamamen kaldırıldı.
+- `styles/terminal.css` (612 satır) → 6 dosyaya bölündü: `global` · `high-contrast` ·
+  `shell` · `message` · `markdown` · `agent` · `settings`.
+
+### G2 — Kabuk
+
+- **Titlebar** 32→40px: sol hizalı kimlik kümesi (logo + MacroCode + oturum), workspace
+  rozeti, **görünür ad** gösteren model rozeti (pill), platforma özel pencere düğmeleri
+  (macOS traffic light / Windows-Linux kare glif), klavye gezinmeli model dropdown'u.
+- **Sidebar** 200→240px, **sürüklenebilir** (180–420px), 56px ikona daraltma,
+  zaman grupları (Bugün/Dün/Bu Hafta/Daha Eski), ikonlu footer.
+- **Durum çubuğu (YENİ, 24px)**: sağlayıcı + bağlantı noktası · model · bağlam ölçer
+  (12.4k/1M) · ↑↓ token · maliyet · **bekleyen onay rozeti** (nabız) · onay modu ·
+  workspace · MCP sayısı. Tüm veri zaten mevcuttu; yalnız gösterildi.
+- **Karşılama ekranı**: boot `///` satırları kaldırıldı → logo + "MacroCode".
+
+### G3 — Mesaj yüzeyi
+
+- **3 kolonlu grid** (gutter 22px / içerik / meta 112px) — zaman damgaları hizalı.
+- Kullanıcı mesajı **kart**; AI mesajı **sol ray** (akış "belge" hissi korunur).
+- `sys/err/warn` artık log satırı; `/// · ✗ · !` işaretleri içerikten gutter'a taşındı
+  (çift işaret sorunu giderildi).
+- Reasoning `<details>` bloğu, 3 noktalı düşünüyor göstergesi, glow'lu streaming caret,
+  hover'da kopyala eylemi.
+- `MessageLine` `React.memo` ile sarmalandı → tamamlanmış mesajlar yeniden render edilmiyor.
+
+### G4 — Markdown + sözdizimi renklendirme
+
+- **Blok parser**: başlık, sırasız/sıralı + iç içe liste, görev listesi, alıntı, yatay
+  çizgi, **GFM tablo**, kod bloğu, paragraf.
+- **Satır içi**: `` `kod` `` `**kalın**` `*italik*` `~~çizili~~` `[bağlantı](url)` `![görsel](url)`.
+- **XSS**: `innerHTML` hâlâ YOK. Bağlantılarda şema allowlist (`http/https/mailto`),
+  görsellerde CSP uyumlu gömme (uzak URL → bağlantı).
+- **Sözdizimi renklendirme** (`lib/highlight.ts`): 12 dil ailesi, **bağımlılıksız**
+  (shiki/prism/hljs yok — proje kuralı). Kod bloğunda satır numarası + dil etiketi + kopyala.
+- Test: `lib/markdown.test.ts` (25) + `lib/highlight.test.ts` (3) — **372 → 400 test**.
+
+### G5 — Agent arayüzü
+
+- **Yapılandırılmış araç olayları**: `ExtraLine.tool` alanı eklendi; `useAgent` çağrı +
+  sonucu id ile eşleştirir → tek kartta birleşir. Kart: ikon, ad, argüman önizlemesi,
+  süre, durum (✓/⟳/✗), genişletilebilir çıktı.
+- **Onay kartı**: tam komut (kırpılmadan), uyarı kutusu, Onayla/Reddet (Enter/Esc),
+  **"bu komutu her zaman çalıştır"** kutusu → `customAllowList`'e yazar (yalnız `exec`).
+- **Görev paneli**: checklist kartı (aktif görev vurgulu, tamamlananlar üstü çizili).
+- Status bar'da bekleyen onay rozeti + tıklayınca onay kartına kaydırma.
+
+### G6 — Ayarlar modalı
+
+- 640→**880px**; ikonlu sekme rayı + sekme arama; sticky alt bar
+  ("kaydedilmemiş değişiklikler" + Vazgeç/Kaydet).
+- **Sağlayıcılar**: 2 kolon kart ızgarası, durum noktası (bağlı/anahtar yok/bağlanamadı),
+  maskeli anahtar + göz ikonu.
+- **Modeller**: arama yapılabilir `ModelPicker` (`datalist` — 500+ modelde `<select>`
+  kullanılamaz durumdaydı) + **tablo** (yetenek ikonları, bağlam, fiyat, aç/kapat anahtarı).
+- **Sohbet**: Görünüm / Davranış / Araçlar grupları; yeni ayarlar: yüksek kontrast,
+  arayüz fontu, saat biçimi.
+- **Dil ve bölge** ve **Hakkında** sekmeleri artık yer tutucu değil (içerik dolu).
+
+### G7 — Marka
+
+- Logo `m<` monogramında **chevron büyütüldü** (`M430 165 L340 270 L430 375`) ve optik
+  merkez düzeltildi (`translate(-4,-14)`) → küçük boyutta "mc" okunması giderildi.
+- `macrocode-logo.svg` (kaynak), `public/macrocode-logo.svg` (favicon) yenilendi;
+  `32x32.png`, `128x128.png`, `icon.ico` (16/32/48/256), `icon.icns` (ic07–ic10) yeniden üretildi.
+
+### G8 — Erişilebilirlik
+
+- **Input odak halkası** eklendi (eskiden `outline:none` → odak görünmezdi).
+- Model dropdown'unda klavye navigasyonu (↑↓ Home End Enter Esc) + `aria-selected`.
+- Tüm etkileşimli öğelerde görünür `:focus-visible` (2px accent).
+- `prefers-reduced-motion` tüm yeni animasyonları kapatır.
+- Yüksek kontrast modu + `prefers-contrast: more` desteği.
+
+### Doğrulama
+
+| Komut | Sonuç | Not |
+|---|---|---|
+| `npx tsc --noEmit` | ✅ 0 hata | |
+| `npm run build` | ✅ yeşil | CSS 43.7 kB (gzip 8.3 kB) · JS 402 kB (gzip 124 kB) |
+| `npm run test` | ✅ 58 dosya / 400 test | 372 → 400 (+28 markdown/highlight) |
+| Tarayıcı (Playwright/Firefox) | ✅ hatasız | karşılama · sohbet · markdown · kod bloğu · tablo · görev listesi · tool kartı · onay kartı · ayarlar (6 sekme) · yüksek kontrast · 800px |
+
 ## 2026-10-19 — Faz 12: Koruma (git + MIT) + Motor (model, compaction, auto-read, ajan devamı)
 
 > UI dosyalarına dokunmadan yapılan motor işi + eşzamanlı çalışma güvenlik ağı.

@@ -1,9 +1,8 @@
 import { PROVIDER_DEFS, PROVIDER_IDS } from '../../lib/providers';
-import { DEFAULT_OLLAMA_URL } from '../../lib/providers/ollama';
 import { parseEndpointModels } from '../../lib/providers/custom';
 import type { Provider } from '../../types';
 import type { CustomDraft, Draft, SecretDraft, TestConn } from './types';
-import { TEST_CONN_LABEL } from './types';
+import { Icon } from '../icons';
 
 interface Props {
   draft: Draft;
@@ -28,15 +27,6 @@ interface Props {
 
 const OVERRIDABLE: Provider[] = ['openai', 'openrouter', 'deepseek', 'xai'];
 
-function StatusText({ state }: { state: TestConn }) {
-  if (state === 'idle' || state === 'testing') {
-    return <span className="status-dim">{state === 'testing' ? 'test ediliyor…' : ''}</span>;
-  }
-  return (
-    <span className={state === 'ok' ? 'status-ok' : 'status-err'}>{TEST_CONN_LABEL[state]}</span>
-  );
-}
-
 interface SecretRowProps {
   label: string;
   fieldId: string;
@@ -52,48 +42,77 @@ interface SecretRowProps {
   clearLabel: string;
 }
 
-function SecretRow(p: SecretRowProps) {
+function SecretCard(p: SecretRowProps) {
   const touched = p.secret.value.length > 0;
-  const testClass = p.test === 'ok' ? 'test-ok' : p.test === 'invalid' || p.test === 'network' ? 'test-fail' : '';
+  const hasKey = touched || p.secret.hint.length > 0;
+  const state = p.test;
+  const stClass = state === 'ok' ? 'ok' : state === 'invalid' || state === 'network' ? 'err' : 'no';
+  const stLabel =
+    state === 'ok'
+      ? 'bağlı'
+      : state === 'invalid'
+        ? 'anahtar geçersiz'
+        : state === 'network'
+          ? 'ağ hatası'
+          : p.secret.deleted
+            ? 'silinecek'
+            : hasKey
+              ? 'anahtar kayıtlı'
+              : 'anahtar yok';
   return (
-    <label className="field">
-      <span className="field-label">{p.label}</span>
-      <span className="field-row">
-        <input
-          type={p.show && touched ? 'text' : 'password'}
-          className="field-input"
-          value={p.secret.value}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={touched ? undefined : p.secret.hint || p.placeholder}
-          onChange={(e) => p.onInput(e.target.value)}
-        />
-        <button className="mini-btn" title="göster/gizle" onClick={p.onToggleShow} disabled={!touched}>
-          {p.show && touched ? 'gizle' : 'göster'}
-        </button>
-        <button className={`mini-btn ${testClass}`} title="bağlantıyı test et" onClick={p.onTest}>
-          test
+    <div className="pcard">
+      <div className="pcard-head">
+        <span className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`} />
+        <h4>{p.label}</h4>
+        <span className={`st ${stClass}`}>{stLabel}</span>
+      </div>
+      <div className="field">
+        <label className="field-label">API anahtarı</label>
+        <div className="input-group">
+          <input
+            type={p.show && touched ? 'text' : 'password'}
+            className="input"
+            value={p.secret.value}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={touched ? undefined : p.secret.hint || p.placeholder}
+            onChange={(e) => p.onInput(e.target.value)}
+          />
+          <button
+            className="mini-btn"
+            title="göster / gizle"
+            aria-label="Anahtarı göster / gizle"
+            onClick={p.onToggleShow}
+            disabled={!touched}
+          >
+            <Icon name={p.show && touched ? 'eye-off' : 'eye'} size="sm" />
+          </button>
+        </div>
+        {p.secret.deleted ? (
+          <span className="field-note">kaydet ile keystore’dan silinecek</span>
+        ) : null}
+      </div>
+      <div className="row">
+        <button className="btn btn-sm" style={{ flex: 1 }} onClick={p.onTest}>
+          {state === 'testing' ? 'test ediliyor…' : 'Test et'}
         </button>
         {p.secret.deleted ? (
-          <button className="mini-btn" title="silme işlemini geri al" onClick={p.onClear}>
-            geri al
+          <button className="btn btn-sm" style={{ flex: 1 }} onClick={p.onClear}>
+            Geri al
           </button>
         ) : (
           <button
-            className="mini-btn danger"
+            className="btn btn-danger btn-sm"
+            style={{ flex: 1 }}
             title={p.clearTitle}
-            disabled={!touched && !p.secret.hint}
+            disabled={!hasKey}
             onClick={p.onClear}
           >
             {p.clearLabel}
           </button>
         )}
-      </span>
-      <span className="field-note">
-        <StatusText state={p.test} />
-        {p.secret.deleted ? ' · kaydet ile keystore’dan silinecek' : ''}
-      </span>
-    </label>
+      </div>
+    </div>
   );
 }
 
@@ -105,54 +124,58 @@ export default function ProvidersTab(props: Props) {
 
   return (
     <div>
-      <div className="modal-section-title">API anahtarları</div>
-
-      {PROVIDER_IDS.map((p) => {
+      <div className="sec">
+        <div className="sec-title">Sağlayıcılar</div>
+        <div className="cards2">
+          {PROVIDER_IDS.map((p) => {
         const def = PROVIDER_DEFS[p];
         if (p === 'ollama') {
           const t = props.tests[p] ?? 'idle';
-          const testClass = t === 'ok' ? 'test-ok' : t === 'invalid' || t === 'network' ? 'test-fail' : '';
+          const stClass = t === 'ok' ? 'ok' : t === 'invalid' || t === 'network' ? 'err' : 'no';
+          const stLabel =
+            t === 'ok'
+              ? 'bağlı'
+              : t === 'invalid'
+                ? 'reddedildi'
+                : t === 'network'
+                  ? 'ağ hatası'
+                  : 'bağlanmadı';
           return (
-            <div key={p}>
-              <label className="field">
-                <span className="field-label">{def.label}</span>
-                <span className="field-row">
-                  <input
-                    type="text"
-                    className="field-input"
-                    value={draft.ollamaUrl}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder={def.placeholder}
-                    onChange={(e) => patch({ ollamaUrl: e.target.value })}
-                  />
-                  <button className={`mini-btn ${testClass}`} title="bağlantıyı test et" onClick={() => props.onTest(p)}>
-                    test
-                  </button>
-                  <button
-                    className="mini-btn danger"
-                    title="varsayılana dön"
-                    disabled={draft.ollamaUrl.trim() === DEFAULT_OLLAMA_URL}
-                    onClick={() => patch({ ollamaUrl: DEFAULT_OLLAMA_URL })}
-                  >
-                    sıfırla
-                  </button>
-                </span>
-                <span className="field-note">
-                  <StatusText state={t} />
-                </span>
-              </label>
-              <div className="field-row" style={{ marginBottom: 10 }}>
-                <button className="mini-btn" disabled={props.ollamaBusy} onClick={props.onDiscoverOllama}>
-                  {props.ollamaBusy ? 'aranıyor…' : 'kurulu modelleri bul'}
+            <div className="pcard" key={p}>
+              <div className="pcard-head">
+                <span className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`} />
+                <h4>{def.label}</h4>
+                <span className={`st ${stClass}`}>{stLabel}</span>
+              </div>
+              <div className="field">
+                <label className="field-label">Sunucu adresi</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={draft.ollamaUrl}
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={def.placeholder}
+                  onChange={(e) => patch({ ollamaUrl: e.target.value })}
+                />
+              </div>
+              <div className="row">
+                <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => props.onTest(p)}>
+                  Test et
+                </button>
+                <button
+                  className="btn btn-sm"
+                  style={{ flex: 1 }}
+                  disabled={props.ollamaBusy}
+                  onClick={props.onDiscoverOllama}
+                >
+                  {props.ollamaBusy ? 'aranıyor…' : 'Modelleri bul'}
                 </button>
               </div>
               {props.ollamaErr ? <div className="form-err">{props.ollamaErr}</div> : null}
               {props.ollamaFound ? (
-                <div className="field-note" style={{ marginBottom: 10 }}>
+                <div className="field-note">
                   bulunanlar: {props.ollamaFound.length === 0 ? '—' : props.ollamaFound.join(', ')}
-                  <br />
-                  kullanmak için terminale <code>/model {'<id>'}</code> yaz.
                 </div>
               ) : null}
             </div>
@@ -160,7 +183,7 @@ export default function ProvidersTab(props: Props) {
         }
         const s = draft.secrets[p] ?? { value: '', hint: '', deleted: false };
         return (
-          <SecretRow
+          <SecretCard
             key={p}
             label={def.label}
             fieldId={p}
@@ -177,12 +200,15 @@ export default function ProvidersTab(props: Props) {
                 : props.onClearSecret(p)
             }
             clearTitle="alanı temizle (kaydet ile keystore’dan silinir)"
-            clearLabel="sil"
+            clearLabel="Temizle"
           />
         );
-      })}
+          })}
+        </div>
+      </div>
 
-      <div className="modal-section-title">Özel taban URL (OpenAI uyumlu uçlar)</div>
+      <div className="sec">
+        <div className="sec-title">Özel taban URL</div>
       <div className="field-note" style={{ marginBottom: 8 }}>
         Proxy / OpenRouter / LM Studio gibi uçlar için. Boş = varsayılan uç.
       </div>
@@ -202,8 +228,10 @@ export default function ProvidersTab(props: Props) {
           />
         </label>
       ))}
+      </div>
 
-      <div className="modal-section-title">Özel sağlayıcılar</div>
+      <div className="sec">
+        <div className="sec-title">Özel sağlayıcılar</div>
       {activeEp ? (
         <div className="field-note" style={{ marginBottom: 8 }}>
           <span className="status-ok">özel uç aktif: {activeEp.name} · {draft.currentModel}</span>{' '}
@@ -255,7 +283,7 @@ export default function ProvidersTab(props: Props) {
                   onChange={(e) => props.onPatchCustom(c.key, { modelsText: e.target.value })}
                 />
               </label>
-              <SecretRow
+              <SecretCard
                 label="Anahtar"
                 fieldId={c.key}
                 secret={c.secret}
@@ -303,6 +331,7 @@ export default function ProvidersTab(props: Props) {
       <div className="field-note" style={{ marginTop: 12 }}>
         Anahtarlar bu cihazda saklanır (keys.json), cihazdan çıkmaz. Kaydedilen
         anahtar bir daha tam gösterilmez, yalnızca son 4 karakter (••••a1b2).
+      </div>
       </div>
     </div>
   );

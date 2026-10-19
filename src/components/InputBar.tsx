@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useKeyHistory } from '../hooks/useKeyHistory';
+import { Icon } from './icons';
 
 interface Props {
   onSend: (text: string, images: string[]) => void;
@@ -46,7 +47,15 @@ function downscaleImage(file: File): Promise<string> {
   });
 }
 
-export default function InputBar({ onSend, onAbort, onClear, streaming, pendingCount, onApprove, onReject }: Props) {
+export default function InputBar({
+  onSend,
+  onAbort,
+  onClear,
+  streaming,
+  pendingCount,
+  onApprove,
+  onReject,
+}: Props) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<string[]>([]);
   const [attachErr, setAttachErr] = useState<string | null>(null);
@@ -82,19 +91,19 @@ export default function InputBar({ onSend, onAbort, onClear, streaming, pendingC
       setAttachErr(null);
       const room = MAX_IMAGES - pending.length;
       if (room <= 0) {
-        setAttachErr(`! en fazla ${MAX_IMAGES} görsel`);
+        setAttachErr(`en fazla ${MAX_IMAGES} görsel`);
         return;
       }
       const batch = [...files].filter((f) => f.type.startsWith('image/')).slice(0, room);
       if (batch.length === 0) {
-        setAttachErr('! yalnızca görsel dosyası');
+        setAttachErr('yalnızca görsel dosyası');
         return;
       }
       try {
         const urls = await Promise.all(batch.map(downscaleImage));
         setPending((p) => [...p, ...urls].slice(0, MAX_IMAGES));
       } catch {
-        setAttachErr('! görsel işlenemedi');
+        setAttachErr('görsel işlenemedi');
       }
     },
     [pending.length],
@@ -114,115 +123,149 @@ export default function InputBar({ onSend, onAbort, onClear, streaming, pendingC
 
   const approxTokens = Math.ceil(value.trim().length / 4);
   const canSend = (value.trim().length > 0 || pending.length > 0) && !streaming;
+  const hasPending = (pendingCount ?? 0) > 0;
 
   return (
     <div className="inputbar">
-      {pending.length > 0 && (
-        <div className="pending-images">
-          {pending.map((url, i) => (
-            <span key={i} className="pending-thumb">
-              <img src={url} alt={`ek ${i + 1}`} />
-              <button
-                className="pending-remove"
-                title="kaldır"
-                onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="inputbar-row">
-        <span className="prompt" aria-hidden="true">❯</span>
-        <textarea
-          ref={areaRef}
-          className="inputbar-field"
-          value={value}
-          rows={1}
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-          aria-label="Mesaj girişi"
-          placeholder={streaming ? 'yanıt bekleniyor…' : 'mesajını yaz veya /help yaz'}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            const hasPending = (pendingCount ?? 0) > 0;
-            // Faz 1 K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
-            if (hasPending && value.trim() === '') {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                onApprove?.();
-                return;
-              }
-              if (e.key === 'Escape') {
+      <div className="inputbar-inner">
+        {pending.length > 0 && (
+          <div className="pending-images">
+            {pending.map((url, i) => (
+              <span key={i} className="pending-thumb">
+                <img src={url} alt={`ek ${i + 1}`} />
+                <button
+                  className="pending-remove"
+                  title="kaldır"
+                  aria-label={`${i + 1}. görseli kaldır`}
+                  onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+                >
+                  <Icon name="x" size="sm" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="input-row">
+          <span className="prompt" aria-hidden="true">
+            ❯
+          </span>
+          <textarea
+            ref={areaRef}
+            className="inputbar-field"
+            value={value}
+            rows={1}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Mesaj girişi"
+            placeholder={streaming ? 'yanıt bekleniyor…' : 'mesajını yaz veya /help yaz'}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              // Faz 1 K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
+              if (hasPending && value.trim() === '') {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  onApprove?.();
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onReject?.();
+                  return;
+                }
+              } else if (hasPending && e.key === 'Escape') {
                 e.preventDefault();
                 onReject?.();
                 return;
               }
-            } else if (hasPending && e.key === 'Escape') {
-              e.preventDefault();
-              onReject?.();
-              return;
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            } else if (e.key === 'ArrowUp' && !e.shiftKey) {
-              const before = value.slice(0, e.currentTarget.selectionStart ?? 0);
-              if (before.includes('\n')) return;
-              e.preventDefault();
-              moveHistory('up', value);
-            } else if (e.key === 'ArrowDown' && !e.shiftKey) {
-              const after = value.slice(e.currentTarget.selectionEnd ?? value.length);
-              if (after.includes('\n')) return;
-              e.preventDefault();
-              moveHistory('down', value);
-            } else if (e.key === 'l' && e.ctrlKey) {
-              e.preventDefault();
-              onClear();
-            }
-          }}
-        />
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            void onFiles(e.target.files);
-            e.target.value = '';
-          }}
-        />
-        {!streaming && (
-          <button
-            className="attach-btn"
-            title="görsel ekle (en fazla 4)"
-            disabled={streaming || pending.length >= MAX_IMAGES}
-            onClick={() => fileRef.current?.click()}
-          >
-            [IMG]
-          </button>
-        )}
-        {streaming ? (
-          <button className="btn-send btn-stop" onClick={onAbort}>
-            [DUR]
-          </button>
-        ) : (
-          <button className="btn-send" disabled={!canSend} onClick={submit}>
-            [SEND]
-          </button>
-        )}
-      </div>
-      <div className="inputbar-meta">
-        <span>
-          {(pendingCount ?? 0) > 0
-            ? `⏸ ${pendingCount} onay bekleniyor · Enter onayla · Esc reddet`
-            : 'Enter gönder · Shift+Enter satır · ↑↓ geçmiş · Ctrl+L temizle'}
-          {attachErr && <> · <span style={{ color: 'var(--col-warn)' }}>{attachErr}</span></>}
-        </span>
-        <span>{value.length} karakter · ~{approxTokens} token{pending.length > 0 && ` · ${pending.length} görsel`}</span>
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              } else if (e.key === 'ArrowUp' && !e.shiftKey) {
+                const before = value.slice(0, e.currentTarget.selectionStart ?? 0);
+                if (before.includes('\n')) return;
+                e.preventDefault();
+                moveHistory('up', value);
+              } else if (e.key === 'ArrowDown' && !e.shiftKey) {
+                const after = value.slice(e.currentTarget.selectionEnd ?? value.length);
+                if (after.includes('\n')) return;
+                e.preventDefault();
+                moveHistory('down', value);
+              } else if (e.key === 'l' && e.ctrlKey) {
+                e.preventDefault();
+                onClear();
+              }
+            }}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              void onFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          {!streaming && (
+            <button
+              className="attach-btn"
+              title="görsel ekle (en fazla 4)"
+              aria-label="Görsel ekle"
+              disabled={streaming || pending.length >= MAX_IMAGES}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Icon name="image" size="sm" />
+            </button>
+          )}
+          {streaming ? (
+            <button className="btn btn-danger btn-sm" onClick={onAbort} title="durdur">
+              <Icon name="square" size="sm" />
+              Dur
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!canSend}
+              onClick={submit}
+              title="gönder (Enter)"
+            >
+              Gönder
+            </button>
+          )}
+        </div>
+
+        <div className="inputbar-meta">
+          <span className="keys">
+            {hasPending ? (
+              <span className="warn-text">
+                {pendingCount} onay bekleniyor · Enter onayla · Esc reddet
+              </span>
+            ) : (
+              <>
+                <span>
+                  <kbd>Enter</kbd> gönder
+                </span>
+                <span>
+                  <kbd>Shift+Enter</kbd> satır
+                </span>
+                <span>
+                  <kbd>↑↓</kbd> geçmiş
+                </span>
+                <span>
+                  <kbd>Ctrl+L</kbd> temizle
+                </span>
+              </>
+            )}
+            {attachErr ? <span className="warn-text">{attachErr}</span> : null}
+          </span>
+          <span>
+            {value.length} karakter · ~{approxTokens} token
+            {pending.length > 0 ? ` · ${pending.length} görsel` : ''}
+          </span>
+        </div>
       </div>
     </div>
   );

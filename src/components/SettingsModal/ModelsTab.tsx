@@ -2,11 +2,15 @@ import { useMemo, useState } from 'react';
 import {
   PROVIDER_DEFS,
   PROVIDER_IDS,
+  getCapabilitiesForModel,
   hiddenProviders,
   isModelEnabled,
   resolveModels,
   visibleModels,
 } from '../../lib/providers';
+import ModelPicker from '../ModelPicker';
+import { Icon } from '../icons';
+import Switch from '../Switch';
 import type {
   ApiKeys,
   CustomModel,
@@ -201,15 +205,19 @@ export default function ModelsTab(props: Props) {
 
   return (
     <div>
-      <div className="modal-section-title">Model listesi</div>
+      <div className="sec">
+        <div className="sec-title">
+          Modeller
+          <span className="chip on">{filteredAll.length} / {visible.length}</span>
+        </div>
       <div className="field-note" style={{ marginBottom: 8 }}>
-        API anahtarı olmayan sağlayıcının modelleri listelenmez. Listeyi daraltmak
-        için ara veya sağlayıcı seç.
+        API anahtarı olmayan sağlayıcının modelleri listelenmez. Aramak için yazın ya da
+        sağlayıcıya göre süzün.
       </div>
-      <span className="field-row">
+      <span className="field-row" style={{ marginBottom: 10 }}>
         <input
           type="text"
-          className="field-input"
+          className="input"
           style={{ flex: 2 }}
           placeholder="model ara (id, ad, aile)…"
           value={listQuery}
@@ -218,7 +226,7 @@ export default function ModelsTab(props: Props) {
           onChange={(e) => setListQuery(e.target.value)}
         />
         <select
-          className="field-input"
+          className="input"
           style={{ flex: 1 }}
           value={listProvider}
           onChange={(e) => setListProvider(e.target.value)}
@@ -231,15 +239,12 @@ export default function ModelsTab(props: Props) {
           ))}
         </select>
       </span>
-      <div className="field-note" style={{ margin: '4px 0' }}>
-        {visible.length} model görünür · {filteredAll.length} eşleşme
-      </div>
       {locked.length > 0 ? (
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 10 }}>
           {locked.map((p) => (
             <span key={p} className="field-row" style={{ marginBottom: 4 }}>
               <span className="field-label" style={{ flex: 1, margin: 0 }}>
-                🔑 {PROVIDER_DEFS[p]?.label ?? p} — anahtar girilmedi
+                <Icon name="key" size="sm" /> {PROVIDER_DEFS[p]?.label ?? p} — anahtar girilmedi
               </span>
               <button className="mini-btn" onClick={props.onOpenProviders}>
                 anahtar ekle
@@ -248,6 +253,64 @@ export default function ModelsTab(props: Props) {
           ))}
         </div>
       ) : null}
+
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Sağlayıcı</th>
+              <th>Yetenek</th>
+              <th className="num">Bağlam</th>
+              <th className="num">Fiyat /1M</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAll.slice(0, 200).map((m) => {
+              const caps = getCapabilitiesForModel(m.id) ?? m.capabilities;
+              const price = draft.prices[m.id];
+              const on = isModelEnabled(draft.disabledModels, m.id);
+              return (
+                <tr key={m.id}>
+                  <td className="m">{m.id}</td>
+                  <td>{PROVIDER_DEFS[m.provider]?.label ?? m.provider}</td>
+                  <td>
+                    <span className="caps">
+                      <span className={caps?.tools ? 'on' : ''} title="tools">
+                        <Icon name="wrench" size="sm" />
+                      </span>
+                      <span className={caps?.vision ? 'on' : ''} title="görsel">
+                        <Icon name="eye" size="sm" />
+                      </span>
+                      <span className={caps?.reasoning ? 'on' : ''} title="reasoning">
+                        <Icon name="spark" size="sm" />
+                      </span>
+                    </span>
+                  </td>
+                  <td className="num">{fmtCtx(m.contextWindow)}</td>
+                  <td className="num">
+                    {price ? `${fmtUsd(price.input)} / ${fmtUsd(price.output)}` : '—'}
+                  </td>
+                  <td>
+                    <Switch
+                      checked={on}
+                      onChange={() => props.onToggleModel(m.id)}
+                      label={`${m.id} aç / kapat`}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {filteredAll.length > 200 ? (
+        <div className="field-note">
+          İlk 200 model gösteriliyor — aramayı ya da sağlayıcı süzgecini daraltın.
+        </div>
+      ) : null}
+      </div>
 
       <div className="modal-section-title">Varsayılan model</div>
       {draft.activeEndpointId ? (
@@ -258,29 +321,13 @@ export default function ModelsTab(props: Props) {
       ) : null}
       <label className="field">
         <span className="field-label">Model</span>
-        <select
-          className="field-input"
+        <ModelPicker
           value={draft.currentModel}
-          onChange={(e) => patch({ currentModel: e.target.value, activeEndpointId: null })}
-        >
-          {!modelKnown && <option value={draft.currentModel}>{draft.currentModel} (özel)</option>}
-          {currentDisabled && (
-            <option value={draft.currentModel}>{draft.currentModel} (kapalı)</option>
-          )}
-          {PROVIDER_IDS.map((p) => {
-            const models = selectModels.filter((m) => m.provider === p);
-            if (models.length === 0) return null;
-            return (
-              <optgroup key={p} label={PROVIDER_DEFS[p]?.label ?? p}>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </optgroup>
-            );
-          })}
-        </select>
+          models={selectModels}
+          extraValue={!modelKnown || currentDisabled ? draft.currentModel : undefined}
+          placeholder="model ara veya yaz…"
+          onChange={(v) => patch({ currentModel: v, activeEndpointId: null })}
+        />
       </label>
       {currentDisabled ? (
         <div className="form-err">seçili model kapalı — listeden açabilirsin.</div>

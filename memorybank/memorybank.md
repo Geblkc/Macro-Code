@@ -4,6 +4,7 @@
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
 > Son güncelleme: 2026-10-19 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 
 ---
 
@@ -82,7 +83,7 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 Desktop Shell:    Tauri v2 (Rust backend — minimal Rust kodu, sadece native API'ler)
 Frontend:         React 18.3 + TypeScript 5.6 + Vite 5.4
 UI Framework:     Sıfırdan CSS (Tailwind YOK — tam kontrol için)
-Tipografi:        JetBrains Mono (Google Fonts, index.html üzerinden)
+Tipografi:        JetBrains Mono (içerik akışı) + Inter (arayüz kabuğu) — Google Fonts, index.html üzerinden
 HTTP/Streaming:   global fetch + ReadableStream (SSE)
 API Key Storage:  tauri-plugin-store → app_data_dir/keys.json
 State:            Zustand 5 (+ persist middleware)
@@ -179,7 +180,7 @@ MacroCode/
 │   │   ├── tauri-config.test.ts # capability/migration sözleşme koruması (Faz 7 A1)
 │   │   ├── commands.ts          # /slash komut işleyici + /export(md|json) + /backup + /tokens(gerçek+yaklaşık+maliyet) + backup parse/build
 │   │   ├── pricing.ts           # costForMessage/formatCost/sessionCost (1M token/USD birimi)
-│   │   ├── markdown.ts          # Sıfırdan markdown tokenizer + güvenli DOM render
+│   │   ├── markdown.ts          # Blok + satır içi markdown tokenizer + güvenli DOM render
 │   │   ├── engine/              # UI'dan bağımsız motor (vitest'li)
 │   │   │   ├── agent.ts         # createAgentRun (maxSteps 8, onay-bekleyenlerde durur) + buildAgentHistory
 │   │   │   ├── context.ts       # ignore/secret/budget/prioritize + summarizeWorkspace
@@ -216,8 +217,13 @@ MacroCode/
 │   │       ├── anthropic.ts / openai.ts / gemini.ts / ollama.ts
 │   │       └── openrouter.ts / deepseek.ts / xai.ts
 │   └── styles/
-│       ├── global.css           # CSS token'ları (:root) + layout
-│       └── terminal.css         # Animasyonlar, mesaj satırları, markdown, sidebar, modal stilleri
+│       ├── global.css           # Token'lar (:root) + reset + focus + ikon + sr-only
+│       ├── high-contrast.css    # [data-contrast="high"] token override'ı
+│       ├── shell.css            # Titlebar, sidebar, status bar, input bar, butonlar
+│       ├── message.css          # 3 kolonlu mesaj grid'i, kartlar, log satirlari, karşılama
+│       ├── markdown.css         # Markdown blokları, kod bloğu, sözdizimi renklendirme
+│       ├── agent.css            # Araç kartları, onay kartı, görev paneli
+│       └── settings.css         # Modal kabuğu, sekme rayı, form kontrolleri, tablolar
 │
 └── src-tauri/                   # ─── RUST BACKEND ───
     ├── Cargo.toml
@@ -811,63 +817,122 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 
 ---
 
-## 10. Markdown Motoru (`lib/markdown.ts`) — Sıfırdan, Kütüphanesiz
+## 10. Markdown Motoru (`lib/markdown.ts` + `lib/highlight.ts`) — Sıfırdan, Kütüphanesiz
 
-- Inline regex: `` `code` ``, `**bold**`, `*italic*` (tek satır).
-- `tokenizeMarkdown`: `^```fence` çok-satırlı tek `codeblock` üretir; **kapanmamış blok dosya sonuna kadar kod** sayılır.
-- `renderMarkdown`: yalnızca `createElement` + `createTextNode` + `textContent`; **`innerHTML` YOK → XSS koruması**.
-- Kullanım: `type==='ai'` ve thinking değilken her delta'da yeniden render.
+### 10.1 Blok tokenizer (`tokenizeBlocks`)
+
+| Blok | Not |
+|---|---|
+| Başlık | `#{1,6} ` → `h1`–`h6` |
+| Paragraf | Boş satır veya yeni blok başlangıcında kesilir |
+| Sırasız / sıralı liste | İç içe girinti alt öğe olur (`children`) |
+| Görev listesi | `- [x]` / `- [ ]` → `checked: true/false` |
+| Alıntı | `> ` satırları birleşir |
+| Yatay çizgi | `---` / `***` / `___` (3+) |
+| GFM tablo | Başlık + ayırıcı + satırlar |
+| Kod bloğu | ```` ```lang ````; **kapanmamış blok dosya sonuna kadar kod** |
+
+### 10.2 Satır içi (`tokenizeInlineRich`)
+
+`` `kod` `` · `**kalın**` · `*italik*` · `~~üstü çizili~~` · `[metin](url)` · `![alt](url)`
+
+- **Bağlantı şeması allowlist**: yalnız `http`/`https`/`mailto` + göreli yol + `#çapa`.
+  `javascript:` / `data:` / `vbscript:` → düz metne düşer.
+- **Görsel**: `data:image/*` ve `blob:` gömülür; uzak URL CSP (`img-src 'self' data: blob:`)
+  dışı olduğu için **bağlantı olarak** gösterilir.
+- `renderMarkdown`: yalnızca `createElement` + `createTextNode` + `textContent`;
+  **`innerHTML` YOK → XSS koruması**. Regresyon testi `lib/markdown.test.ts` (kaynak düzeyinde).
+
+### 10.3 Sözdizimi renklendirme (`lib/highlight.ts`)
+
+- Bağımlılıksız (shiki/prism/hljs **YOK** — proje kuralı).
+- Diller: ts/tsx/js/jsx · python · rust · go · json · bash/sh · sql · css · yaml · diff · xml.
+- Token sınıfları: `hl-key` `hl-str` `hl-num` `hl-com` `hl-fn` `hl-type` `hl-pun`.
+- Çok satırlı blok yorumlar state ile takip edilir.
+- Bilinmeyen dil → düz metin (çökmez).
+
+### 10.4 Kullanım
+
+- `type==='ai'` ve thinking değilken her delta'da yeniden render.
+- `MessageLine` `React.memo` ile sarmalanır → tamamlanmış mesajlar yeniden render edilmez.
 
 ---
 
 ## 11. UI Bileşenleri
 
+> Görsel yeniden tasarım (2026-10-19) sonrası güncel mimari. Prototip ve faz planı:
+> `~/.opencode/plan/macrocode-gorsel-yeniden-tasarim.md` · `prototype/index.html`
+
 ### 11.1 Layout (`App.tsx`)
 
 ```
-┌─────────────────────────────────────────────────┐
-│ [● ● ●]   macrocode — {sessionName}  [model ▾]   │ ← Titlebar (32px, drag region)
-├──────────┬──────────────────────────────────────┤
-│ SESSIONS │   Terminal (scroll)                  │
-├──────────┼──────────────────────────────────────┤
-│ + new    │  ❯ _                         [SEND]  │ ← InputBar
-│ ⚙ sett.  │  Enter gönder · ↑↓ · Ctrl+L          │
-│ ✕ clear  └──────────────────────────────────────┤
-└─────────────────────────────────────────────────┘
-Sidebar: 200px sabit
+┌──────────────────────────────────────────────────────────────┐
+│ [◀◀◀]  ◆ MacroCode · oturum adı      [📁 workspace] [model ▾] │ ← Titlebar 40px
+├──────────┬───────────────────────────────────────────────────┤
+│ OTURUMLAR│                                                   │
+│  ▸ liste │   Terminal (scroll)                               │
+│  ▸ liste │                                                   │
+│  ▸ liste │                                                   │
+├──────────┴───────────────────────────────────────────────────┤
+│ ❯ mesajını yaz…                                     [Gönder] │ ← InputBar
+├──────────────────────────────────────────────────────────────┤
+│ ● anthropic │ model │ ctx 12.4k/1M │ ↑8.2k ↓1.1k │ ⚠ 2 onay │ ← StatusBar 24px
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Yerel state: `settingsOpen`, `extrasBySession` (cap 200), `clearedBefore`, `bootedRef`.
-SQLite yansıtma: store `subscribe` → `persister.schedule(...)`; cleanup'ta `flush()`.
-Silinen session'ların `extras/clearedBefore` kayıtları budanır.
+- Yerel state: `settingsOpen`, `extrasBySession` (cap 200), `clearedBefore`,
+  `pendingBySession`.
+- SQLite yansıtma: store `subscribe` → `persister.schedule(...)`; cleanup'ta `flush()`.
+- Silinen session'ların `extras/clearedBefore/pending` kayıtları budanır.
+- Görünüm tercihleri `<html>` niteliklerine yazılır: `data-contrast`, `data-uifont`.
+- Boot `///` satırları **kaldırıldı** — boş oturumda karşılama ekranı gösterilir,
+  durum bilgisi status bar'da yaşar.
 
 ### 11.2 `Titlebar.tsx`
 
 - `data-tauri-drag-region` (özel Titlebar, `decorations: false`).
-- İşlevsel pencere butonları (Tauri'de close/minimize/toggleMaximize).
-- Orta: logo (18px `.titlebar-logo`) + `macrocode — {sessionName}` (ellipsis taşar). Sağ: `[model ▾]` badge → `ALL_MODELS` dropdown (capability rozetli 🛠👁🧠).
+- **Sol hizalı kimlik kümesi**: logo (18px) + "MacroCode" + oturum adı (ellipsis).
+  Gerçek "ortalanmış başlık" dar pencerede model rozetiyle çarpışıyordu.
+- Pencere düğmeleri platforma göre: macOS traffic light · Windows/Linux kare glifler.
+- Workspace rozeti (yalnız `/root` ayarlıysa).
+- **Model rozeti (pill)**: durum noktası + **görünür ad** (`Claude Opus 5.5`) + sağlayıcı
+  + chevron. Ham model id'si gösterilmez.
+- Açılır liste: arama kutusu + sağlayıcı grupları + **klavye navigasyonu**
+  (↑↓ Home End Enter Esc, `aria-selected`) + yetenek ikonları (🛠/👁/🧠 → SVG).
 
 ### 11.3 `Sidebar.tsx`
 
-- Session listesi (`>` aktif prefix, hover'da `×` — yalnızca `sessions.length > 1`).
-- Footer: `+ new session`, `⚙ settings`, `✕ clear`, JSON export/import.
+- 240px (180–420 arası **sürüklenebilir**, `⌘B`/düğme ile 56px ikona daralır).
+- Başlık: "OTURUMLAR" + adet çipi + `+` (yeni oturum artık tepede).
+- Arama kutusu (her zaman görünür).
+- Oturumlar **zaman gruplarına** ayrılır: Bugün / Dün / Bu Hafta / Daha Eski.
+- Satır: ad + sağlayıcı/model + göreli zaman + mesaj sayısı; hover'da sil.
+- Footer: yeni oturum · ayarlar · 4 ikon butonu (temizle, dışa aktar, içe aktar, daralt).
 
 ### 11.4 `Terminal.tsx`
 
 - Mesajlar + extras **birleştirilir** (sort yok — mesajlar kronolojik, extras en yeni).
-- Son assistant + streaming: içerik varsa cursor, boşsa "düşünüyor..." animasyonu.
-- Otomatik scroll (120px stick eşiği). Session geçişinde 150ms fade-in. Görsel thumbnail desteği.
+- **3 kolonlu grid**: gutter (22px) | içerik (1fr) | meta (112px). Meta kolonu
+  çok satırlı (sağa hizalı): saat / model / token.
+- Araç çağrıları **id ile eşleştirilir** (çağrı + sonuç tek kartta birleşir).
+- Boş oturum → `<Welcome />` (logo + ürün adı).
+- Otomatik scroll (120px stick eşiği) + "yeni mesaj" butonu.
 
 ### 11.5 `MessageLine.tsx`
 
-- `msg msg-{type} msg-in` (80ms animasyon). `ai` → markdown div; diğerleri `pre-wrap` metin.
-- Streaming cursor (yanıp sönen blok).
-- Faz 4: `reasoning` varsa `⠿ düşünüyor` dim `<details>` bloğu (`showThinking` kapalıyken gizli).
+- `msg msg-{type}` + 3 kolonlu grid. `ai` → markdown; `user` → **kart**
+  (`--bg-inset` + `--col-user` sol çubuk); `sys/err/warn` → log satırı.
+- `///` · `✗` · `!` işaretleri içerikten **gutter'a taşınır** (çift işaret olmaz).
+- AI mesajı sol ray (`--accent-line`) ile ayrışır — kart değil (akış "belge" hissi).
+- Reasoning: `<details>` bloğu + canlı düşünüyor göstergesi (3 nokta nabız).
+- Streaming caret (accent, glow'lu) + hover'da kopyala eylemi.
+- `React.memo` + içerik/karşılaştırması → tamamlanmış mesajlar yeniden render edilmez.
 
 ### 11.6 `InputBar.tsx`
 
-- `❯` + input + `[SEND]`/`[DUR]` + `[IMG]` (canvas 1568px JPEG, max 4 görsel).
-- `Enter` gönder · `↑/↓` geçmiş · `Ctrl+L` temizle. Meta bar: kısayollar + karakter sayısı.
+- `❯` + textarea + `[Gönder]`/`[Dur]` + görsel ekleme (canvas 1568px JPEG, max 4).
+- **Odak halkası**: satır kutusu focus'ta accent kenarlık + 3px halka.
+- `Enter` gönder · `↑/↓` geçmiş · `Ctrl+L` temizle. Meta bar: kısayollar + karakter/token.
 
 ### 11.7 `useKeyHistory.ts`
 
@@ -876,34 +941,53 @@ Silinen session'ların `extras/clearedBefore` kayıtları budanır.
 
 ### 11.8 `SettingsModal/` — sekmeli ayarlar
 
-- Kabuk (`index.tsx`): sol sekme listesi (Sağlayıcılar/Modeller/Sohbet/MCP/Dil ve Bölge/Hakkında) + sağ içerik + Kaydet/Vazgeç. `Esc`/overlay kapatır; `dirty` JSON karşılaştırması.
-- **Maskeli secret:** input'ta tam değer asla durmaz — açılışta `key_hint` (`••••a1b2`) çekilir; alan durumları: değişmedi / yazıldı / silindi (geri alınabilir). Test, bellekteki tam değerle yapılır (görüntülenmez).
-- **Sağlayıcılar:** 3 durumlu test (bağlı/geçersiz/ağ hatası), özel base URL (4 OpenAI-uyumlu), Ollama model keşfi (`/api/tags`), özel uç ekle (ad+baseURL+anahtar+modeller, varsayılan yap).
-- **Modeller/Sohbet:** model select + system prompt + font size buraya taşındı; Faz 2'de
-  Modeller sekmesi genişletildi (yenile/ekle/parametre/yedek/fiyat/aç-kapa).
-- Kaydet → store + keystore senkronu (silinenler `delete_api_key`, özel uçlar `custom_<id>` adıyla).
+- Kabuk: 880px modal, **ikonlu sekme rayı** (200px + arama), sağ içerik, sticky alt bar
+  ("kaydedilmemiş değişiklikler" + Vazgeç/Kaydet).
+- **Sağlayıcılar**: 2 kolon **kart ızgarası** — durum noktası (bağlı / anahtar yok /
+  bağlanamadı), maskeli anahtar + göz ikonu, Test et / Temizle butonları.
+- **Modeller**: arama yapılabilir `ModelPicker` (native `datalist` — 500+ modelde
+  `<select>` kullanılamaz), **tablo** (model · sağlayıcı · yetenek ikonları · bağlam ·
+  fiyat · aç/kapat anahtarı).
+- **Sohbet**: Görünüm (yazı boyutu, yüksek kontrast, arayüz fontu, saat biçimi),
+  Davranış (system prompt, özetleyici model), Araçlar (shell allowlist, denetim).
+- **Dil ve bölge**: saat biçimi, sayı biçimi (iskelet), erişilebilirlik.
+- **Hakkında**: logo, sürüm, lisans, gizlilik notu.
+- Kaydet → store + keystore senkronu (silinenler `delete_api_key`, özel uçlar `custom_<id>`).
 
----
+### 11.9 Yeni bileşenler
 
-## 12. Boot Sequence (App.tsx)
+| Bileşen | Rol |
+|---|---|
+| `icons.tsx` | 36 ikonluk SVG seti (16px, 1.5 stroke, `currentColor`) — emoji yok |
+| `StatusBar.tsx` | sağlayıcı · model · context ölçer · token ↑↓ · maliyet · bekleyen onay · onay modu · workspace · MCP |
+| `Welcome.tsx` | karşılama ekranı (logo + MacroCode) |
+| `ToolCallCard.tsx` | araç kartı (ikon, ad, argüman, süre, durum, genişletilebilir çıktı) |
+| `ApprovalCard.tsx` | onay kartı (tam komut, uyarı, Onayla/Reddet, "her zaman çalıştır") |
+| `TaskPanel.tsx` | görev checklist paneli |
+| `Switch.tsx` | native checkbox yerine özel anahtar |
+| `ModelPicker.tsx` | arama yapılabilir model seçici (`datalist`) |
 
-Yalnızca **ilk açılışta** ve **tek/boş** session varsa, 100ms aralıkla:
+## 12. Boot (App.tsx)
+
+Sıra:
 
 ```
-/// macrocode v0.1.0 — ai terminal interface
-/// platform: {platform} · arch: {arch}
-/// başlamak için mesajını yaz veya /help yaz
+1. useSettingsStore.loadFromStore()   → keys.json'dan anahtarlar + keyStatus
+2. loadSessionsFromDb()               → başarılı ve doluysa state'i DB ile DEĞİŞTİR
+2b. saveSessionsToDb(...)             → mevcut durum DB'ye bir kez yansıtılır
+3. Aktif session yoksa createSession()
+4. Bekleyen onaylar geri yüklenir (SQLite pending_approvals)
+5. DB açılamadıysa `!` uyarı satırı düşer (sessiz kalıcılık düşüşü yok)
 ```
 
-Ardından `PROVIDER_IDS` üzerinden dinamik key-durum satırı (7 provider); hiç bağlı yoksa ayarlar uyarısı.
-Platform: `navigator.userAgentData?.platform ?? navigator.platform`. Arch: user-agent regex.
+**Boot `///` satırları kaldırıldı.** Boş oturumda `<Welcome />` (logo + "MacroCode")
+gösterilir; platform/anahtar durumu artık **status bar** ve **model rozeti** üzerinden
+bildirilir. `bootedRef` StrictMode çift-çalışmasına karşı guard'dır.
 
 **models.dev kataloğu (boot):** `loadFromStore()` sonrası `loadModelsDevCatalog()`
 önbellekten anında yükler (ağ üretmez, yerleşik modellerin metadata'sını
 zenginleştirir ve fiyatları doldurur). Katalog bayatsa (24 saat TTL) arka planda
 `refreshModelsDevCatalog()` ile yenilenir; hata sessizce yutulur (kritik değil).
-
----
 
 ## 13. Tauri / Rust Arka Yüzü
 
@@ -987,49 +1071,84 @@ Uzak özel Ollama URL'leri CSP'ye takılır — gerekirse `connect-src` genişle
 
 ### 14.1 CSS Token'ları (`styles/global.css` → `:root`)
 
-**Yeni renk EKLENMEZ; yalnızca bu token'lar kullanılır.**
+**Kural:** Yeni renk **yalnızca** buraya eklenir; bileşenlerde ham hex kullanılmaz.
+Görsel yeniden tasarım (2026-10-19) ile token seti genişletildi.
+
+**Yüzey rampası** (karanlık → açık; saf siyah yerine kaldırılmış taban):
 
 | Token | Değer | Rol |
 |---|---|---|
-| `--bg` | `#080808` | Ana zemin |
-| `--bg2` | `#0f0f0f` | Panel, sidebar, modal, inputbar |
-| `--bg3` | `#161616` | Input, hover, kod içi zemin |
-| `--border` | `#1e1e1e` | İnce ayırıcı |
-| `--border2` | `#2a2a2a` | Buton border |
-| `--accent` | `#00e5a0` | **Mint yeşil — ana aksan** |
-| `--accent2` | `#00b87a` | Aksan hover |
-| `--dim` | `#444` | Çok soluk (başlık, meta) |
-| `--muted` | `#666` | Soluk metin |
-| `--text` | `#d4d4d4` | Ana metin |
-| `--textbright` | `#f0f0f0` | Vurgulu metin |
-| `--col-user` | `#7eb8f7` | Kullanıcı prefix |
-| `--col-ai` | `#00e5a0` | AI prefix |
-| `--col-sys` | `#a78bfa` | System mesajı |
-| `--col-err` | `#f87171` | Hata |
-| `--col-warn` | `#fbbf24` | Uyarı |
-| `--font-mono` | `'JetBrains Mono', ...` | Tipografi |
-| `--font-size` | `13px` | Varsayılan (store'dan canlı bağlanır, 10–20) |
-| `--line-height` | `1.65` | Satır yüksekliği |
+| `--bg-sunken` | `#07090B` | kod gövdesi, içe gömülü kuyu |
+| `--bg-base` | `#0B0D10` | uygulama zemini |
+| `--bg-panel` | `#111419` | sidebar, titlebar, inputbar, status bar |
+| `--bg-raised` | `#171B21` | kart, dropdown, modal |
+| `--bg-overlay` | `#1C2128` | raised üzerinde hover/active |
+| `--bg-inset` | `#0E1116` | input alanları |
+| `--bg` / `--bg2` / `--bg3` | alias | geriye uyum (`--bg-base` / `--bg-panel` / `--bg-raised`) |
 
-Traffic light renkleri token DIŞI (bilerek soluk): `#3a2a2a`, `#3a362a`, `#2a3a2f`.
+**Kenarlar:** `--border-subtle` `#1C2128` · `--border-default` `#262C35` · `--border-strong` `#38404C`
 
-### 14.2 Animasyonlar (`styles/terminal.css`)
+**Metin** (WCAG AA, `--bg-base` üzerinde ölçülmüş):
+
+| Token | Değer | Kontrast | Rol |
+|---|---|---|---|
+| `--text-primary` | `#E6EAF0` | 16.1:1 | gövde, başlık |
+| `--text-secondary` | `#A8B2C1` | 9.1:1 | ikincil metin |
+| `--text-tertiary` | `#77808E` | 4.9:1 | meta, zaman damgası, etiket |
+| `--text-disabled` | `#4A525E` | — | dekoratif devre dışı |
+
+> Eski `--dim` (#444, 2.1:1) ve `--muted` (#666, 3.3:1) **kullanımdan kaldırıldı** — okunamıyordu.
+
+**Vurgu** (logo `#00E676` ile birebir aynı — marka/UI tek palet):
+
+| Token | Değer | Rol |
+|---|---|---|
+| `--accent` | `#00E676` | ana vurgu (11.7:1) |
+| `--accent-hover` / `--accent-active` | `#2BEB8E` / `#00C563` | hover / basılı |
+| `--accent-subtle` / `--accent-line` | `rgba(0,230,118,.10)` / `rgba(0,230,118,.30)` | tonlu yüzey / ince çizgi |
+| `--accent-ink` | `#04150C` | aksan dolgulu zemindeki metin |
+
+**Anlamsal:** `--col-user` `#6FB1FF` · `--col-ai` `= --accent` · `--col-sys` `#B79CFF` ·
+`--col-err` `#FF8A8A` · `--col-warn` `#FFC861` · `--col-tool` `#7FD4FF`
+
+**Gölge:** `--sh-1` · `--sh-2` · `--sh-3` · `--sh-glow` (yeni; önceden neredeyse yoktu)
+
+**Tipografi:** `--font-mono` (JetBrains Mono — içerik akışı) · `--font-ui` (Inter — arayüz
+kabuğu) · `--fs-2xs..--fs-2xl` (10/11/12/13/15/18/24px) · `--line-height` 1.65
+
+**Boşluk:** `--sp-1..--sp-8` (2/4/8/12/16/24/32/48px) · **Yarıçap:** `--r-xs/s/md/lg/pill`
+
+**Hareket:** `--ease-out` · `--ease-in-out` · `--dur-1..--dur-4` (90/160/240/420ms)
+
+**Ölçü:** `--h-titlebar` 40px · `--h-statusbar` 24px · `--w-sidebar` 240px (sürüklenebilir) · `--measure` 78ch
+
+**Yüksek kontrast** (`styles/high-contrast.css`): `html[data-contrast="high"]` token
+override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sistem
+`prefers-contrast: more` tercihi de karşılanır.
+
+### 14.2 Animasyonlar
 
 | Sınıf | Davranış |
 |---|---|
-| `.cursor` | 7×13px accent blok; blink |
-| `.thinking::after` | `...` dots animasyonu |
-| `.terminal-view` | session geçişi 150ms fade-in |
-| `.msg-in` | yeni satır 80ms `translateY` |
-| Scrollbar | 5px, thumb `--border2` |
+| `.caret` | 2×1.05em accent caret; `blink 1.1s` + glow (streaming imleci) |
+| `.thinking-dots i` | 3 nokta nabız (düşünüyor göstergesi) |
+| `.msg` | 120ms `translateY` giriş (her mesaj satırı) |
+| `.terminal-view` | oturum değişiminde 240ms fade-in |
+| `.sb-badge` | bekleyen onay rozeti 2s nabız |
+| `.tool-status.run` | çalışan araç ikonu 1.2s nabız |
+| `.modal` / `.model-dropdown` | 240ms / 160ms açılma (scale + translateY) |
+| Scrollbar | 8px, thumb `--border-strong` |
+
+`prefers-reduced-motion: reduce` → tüm animasyonlar kapanır (`global.css`).
 
 ### 14.3 Ölçüler
 
-- Titlebar 32px · Sidebar 200px · Modal 480px (max 90vw/85vh).
-- Pencere 1100×700, min 800×500, `decorations: false`.
-- Modal overlay `rgba(0,0,0,.6)` + blur, z-index 100. Dropdown backdrop 40, menü 50.
-
----
+- Titlebar 40px · Sidebar 240px (180–420 arası sürüklenebilir, 56px ikona daralır) ·
+  Status bar 24px · Modal 880px (max 94vw / 86vh) · Terminal ölçüsü 78ch
+- Pencere 1100×700, min 800×500, `decorations: false`
+- Modal overlay `rgba(0,0,0,.70)` + `blur(8px)`, z-index 300. Dropdown backdrop 200, menü 201
+- Duyarlılık: <1180px workspace chipi gizlenir · <1000px mesaj meta kolonu gizlenir ve
+  sidebar 200px'e iner · <860px durum çubuğunun sağ bölümü gizlenir
 
 ## 15. Mimari Kısıtlar (güncel)
 
@@ -1048,43 +1167,31 @@ Traffic light renkleri token DIŞI (bilerek soluk): `#3a2a2a`, `#3a362a`, `#2a3a
 13. **Faz 7 A1:** `sql:allow-execute` capability'de ZORUNLUDUR — yoksa `audit_log`/`pending_approvals`/`sessions` yazılmaz. DB açılamazsa `sqlError()` boot'ta `!` uyarısı olarak gösterilir (sessiz kalıcılık düşüşü yok).
 14. **Faz 7 A3:** Agent'ın metni tek assistant mesajına yazılır (`appendToMessage`); "son mesaj assistant olmalı" kuralı tool sonrası cevabı parçalıyordu.
 15. **Faz 7 A4:** Kullanım sayacı tur içi `mergeUsage` (max), tur arası `sumUsage` (toplam). `mergeUsage` tek istekte doğrudur, turlar arasında kullanılmaz.
-16. Compaction özeti **kalıcı transcript'e yazılmaz** (görünüm bozulmasın diye); bellek hafızasında
-    **ve** oturumun `compaction` alanında saklanır (Faz 12 P.3) → restart sonrası bağlam yeniden
-    kurulmaz, tekrar özetlenmez. `compactionMemo` oturum silinince/`/reset` ile temizlenir.
-17. **Faz 8 L3:** `exec` allowlist'i iki katmanlıdır — TS `policy.ts` (karar) + Rust `exec.rs`
-    (savunma). Kullanıcı tablosu (`customAllowList`) **her ikisine de** geçer; iki tablo
-    **birleşik (OR)** uygulanır. `rm` kuralları hiçbir tabloda gevşemez.
-18. **Faz 8 L1:** `subagent` aracı onaysız çalışır (salt-okunur) — token harcar, dosya yazmaz.
-    Alt-agent'ın kendi olayları ana akışa **metin dışında** geçer.
-19. **Faz 8 L7:** `auto-edit` modunda yazma araçları onaysız çalışır; bloklu dizinler
-    (`.git`, `node_modules`, …) Rust `resolve_rooted` + TS `isPathSafe` ile yine kapalıdır.
-    `exec` her modda onaylıdır.
-20. **Faz 9:** repo bağlamı system prompt'a **her istekte** gider (token maliyeti) →
-    harita modelin context penceresine göre ölçeklidir (pencere × %2, tavan 8k karakter);
-    anahtar dosya 2k, kalıcı not 4k karakter ile sınırlıdır. `.macrocode/context.md`
-    64KB'da durur (Rust tarafında sınır).
-21. **Faz 9:** `list_tree` yalnızca dosya listesi verir (göreli yol); bloklu dizinler,
-    secret dosyalar ve 256KB üstü dosyalar Rust tarafında elenir.
-22. **Faz 10 O2:** `proxy_fetch` yalnızca http/https + izinli metot/başlık; link-local/metadata
-    IP'leri (169.254/16, fe80::/10, 0.0.0.0/8, 100.64/10) engellenir (alan adı **çözülerek**
-    denetlenir). LAN (`192.168.x`, `10.x`) ve `localhost` serbesttir (Ollama). Timeout 120 sn,
-    yanıt sınırı 32 MB.
+16. Compaction özeti **kalıcı transcript'e yazılmaz** (görünüm bozulmasın diye); yalnızca bellek hafızasında tutulur. `compactionMemo` oturum silinince/`/reset` ile temizlenir.
+17. **Faz 8 L3:** `exec` allowlist'i iki katmanlıdır — TS `policy.ts` (karar) + Rust `exec.rs` (savunma). Kullanıcı tablosu (`customAllowList`) **her ikisine de** geçer; iki tablo **birleşik (OR)** uygulanır. `rm` kuralları hiçbir tabloda gevşemez.
+18. **Faz 8 L1:** `subagent` aracı onaysız çalışır (salt-okunur) — token harcar, dosya yazmaz. Alt-agent'ın kendi olayları ana akışa **metin dışında** geçer.
+19. **Faz 8 L7:** `auto-edit` modunda yazma araçları onaysız çalışır; bloklu dizinler (`.git`, `node_modules`, …) Rust `resolve_rooted` + TS `isPathSafe` ile yine kapalıdır. `exec` her modda onaylıdır.
+20. **Faz 9:** repo bağlamı system prompt'a **her istekte** gider (token maliyeti) → harita modelin context penceresine göre ölçeklidir (pencere × %2, tavan 8k karakter); anahtar dosya 2k, kalıcı not 4k karakter ile sınırlıdır. `.macrocode/context.md` 64KB'da durur (Rust tarafında sınır).
+21. **Faz 9:** `list_tree` yalnızca dosya listesi verir (göreli yol); bloklu dizinler, secret dosyalar ve 256KB üstü dosyalar Rust tarafından elenir.
+22. **Faz 10 O2:** `proxy_fetch` yalnızca http/https + izinli metot/başlık; link-local/metadata IP'leri (169.254/16, fe80::/10, 0.0.0.0/8, 100.64/10) engellenir (alan adı **çözülerek** denetlenir). LAN (`192.168.x`, `10.x`) ve `localhost` serbesttir (Ollama). Timeout 120 sn, yanıt sınırı 32 MB.
 23. **Faz 10 D1:** `keys.json` Unix'te `0600` (yalnızca sahibi okur).
-24. **Faz 10 D2c:** blok listeleri `engine/blocks.json`'dan gelir (TS import, Rust `include_str!`)
-    → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
-25. **Faz 10:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder**
-    (anahtar/token/JWT alan ve değer kalıpları) → API anahtarı loglanmaz.
-26. **Faz 12 P.4:** `auto-read` = **salt-okunur mod** → yazma araçları ve `exec` reddedilir
-    (onay istenmez). `manual` = yazma onaylı, `auto-edit` = yazma onaysız (exec onaylı).
-27. **Faz 12 P.5:** Bekleyen agent işi `pending_approvals.run_state` ile **kalıcıdır** → uygulama
-    yeniden başlatıldığında tur kaldığı yerden sürülür. `exec` yine de her zaman onaylıdır.
-28. **Faz 12:** `git` deposu + MIT `LICENSE` eklendi (11 fazın emeğinin geçmişi korunur).
-29. **Faz 12 P.2:** Çekirdek model sayısı 27 → **43** (`memorybank/Modeller.md`). Nano Banana ailesi
-    görsel çıktı üretir → 🛠 kapalı. — önek < 1024 token
-    (Haiku 2048) ise `cache_control` gönderilmez (API 400 döner). Tahmin char/4'tür;
-    güvenlik payı 160 token'dır.
-
----
+24. **Faz 10 D2c:** blok listeleri `engine/blocks.json`'dan gelir (TS import, Rust `include_str!`) → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
+25. **Faz 10:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder** (anahtar/token/JWT alan ve değer kalıpları) → API anahtarı loglanmaz.
+26. **Faz 11:** Prompt cache Anthropic'te **eşik kuralına bağlıdır** — önek < 1024 token (Haiku 2048) ise `cache_control` gönderilmez (API 400 döner). Tahmin char/4'tür; güvenlik payı 160 token'dır.
+27. **Görsel yeniden tasarım:** Emoji **kullanılmaz** — tüm ikonlar `components/icons.tsx` SVG setinden gelir
+    (16px, 1.5 stroke, `currentColor`). Model yetenek rozetleri de SVG'dir.
+28. **Görsel yeniden tasarım:** CSS token'ları **tek kaynaktan** (`styles/global.css` → `:root`)
+    gelir; bileşenlerde ham hex kullanılmaz. Yüksek kontrast `styles/high-contrast.css`
+    üzerinden token override'ıdır (yeni renk tanımlamaz).
+29. **Görsel yeniden tasarım:** Markdown render'ı **`innerHTML` kullanmaz** (XSS). Bağlantılarda
+    şema allowlist, görsellerde CSP uyumlu gömme kuralı vardır. Regresyon testi
+    `lib/markdown.test.ts` içinde kaynak düzeyindedir.
+30. **Görsel yeniden tasarım:** Yeni runtime bağımlılığı **yoktur** (sözdizimi renklendirici
+    elle yazılmıştır; ikon seti elle yazılmıştır). `package.json` dependencies değişmez.
+31. **Görsel yeniden tasarım:** Onay kartındaki "her zaman çalıştır" kutusu yalnızca `exec`
+    için görünür ve `customAllowList`'e yazar; `rm` kuralları gevşemez (K3 korunur).
+32. **Görsel yeniden tasarım:** Ayarlar `partialize`'ına eklenen alanlar (`contrast`, `uiFont`,
+    `clockFormat`, `sidebarWidth`, `sidebarCollapsed`) secret **içermez**.
 
 ## 16. Geliştirme & Build Komutları
 
@@ -1135,8 +1242,10 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Eski model ID migration | `providers/index.ts` → `REMOVED_MODEL_MAP` + `migrateModelId/migrateProviderModel`; uygulanır: `lib/db.ts` + `lib/commands.ts` |
 | Yeni slash komut | `lib/commands.ts` + gerekirse `App.tsx` CommandContext |
 | Hata mesajı | `lib/providers/common.ts` → `formatProviderError` |
-| Yeni token/renk | `styles/global.css` → `:root` |
-| Yeni UI davranışı | `components/*.tsx` + `styles/terminal.css` |
+| Yeni ikon | `components/icons.tsx` → `Icon` + `P` tablosu |
+| Markdown/sözdizimi | `lib/markdown.ts` (blok/satır içi) + `lib/highlight.ts` (renklendirme) |
+| Yeni token/renk | `styles/global.css` → `:root` (yüksek kontrast: `styles/high-contrast.css`) |
+| Yeni UI davranışı | `components/*.tsx` + `styles/{shell,message,markdown,agent,settings}.css` |
 | Kalıcılık şeması | `lib/db.ts` + `src-tauri/src/lib.rs` (migration) |
 | SSE okuma kuralı | `lib/providers/common.ts` → `feedSSELines` |
 | Anthropic akış yolu | `providers/anthropic.ts` + `rustStream.ts` + `commands/stream.rs` + `lib.rs` |

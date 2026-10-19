@@ -90,6 +90,16 @@ interface SettingsStore {
   customAllowList: string[];
   /** Faz 6: denetim kaydı tutulsun mu (default true). */
   auditEnabled: boolean;
+  /** Görünüm: yüksek kontrast paleti (token override). */
+  contrast: ContrastMode;
+  /** Görünüm: arayüz kabuğunun fontu (monospace ↔ Inter). */
+  uiFont: UiFontMode;
+  /** Görünüm: saat biçimi (terminal zaman damgaları). */
+  clockFormat: ClockFormat;
+  /** Görünüm: sidebar genişliği (px). */
+  sidebarWidth: number;
+  /** Görünüm: sidebar daraltılmış mı (ikon rayı). */
+  sidebarCollapsed: boolean;
 
   setApiKey: (provider: Provider, key: string) => void;
   setProvider: (provider: Provider) => void;
@@ -125,6 +135,11 @@ interface SettingsStore {
   clearMcpEnv: (serverId: string) => void;
   setCustomAllowList: (list: string[]) => void;
   setAuditEnabled: (v: boolean) => void;
+  setContrast: (v: ContrastMode) => void;
+  setUiFont: (v: UiFontMode) => void;
+  setClockFormat: (v: ClockFormat) => void;
+  setSidebarWidth: (px: number) => void;
+  setSidebarCollapsed: (v: boolean) => void;
   loadFromStore: () => Promise<void>;
   saveToStore: () => Promise<void>;
 }
@@ -136,6 +151,25 @@ const noopStorage = {
 };
 
 const EMPTY_STATUS = Object.fromEntries(PROVIDER_IDS.map((p) => [p, false])) as Record<Provider, boolean>;
+
+/* ── Görünüm tipleri ── */
+
+/** Yüksek kontrast paleti. */
+export type ContrastMode = 'normal' | 'high';
+/** Arayüz kabuğu fontu. */
+export type UiFontMode = 'mono' | 'inter';
+/** Saat biçimi (terminal zaman damgaları). */
+export type ClockFormat = '24h' | '12h';
+
+export const SIDEBAR_MIN = 180;
+export const SIDEBAR_MAX = 420;
+export const SIDEBAR_DEFAULT = 240;
+
+/** Sidebar genişliğini güvenli aralığa sıkıştır. */
+export function clampSidebarWidth(px: number): number {
+  if (!Number.isFinite(px)) return SIDEBAR_DEFAULT;
+  return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, px)));
+}
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
@@ -165,6 +199,11 @@ export const useSettingsStore = create<SettingsStore>()(
       mcpSecrets: {},
       customAllowList: [],
       auditEnabled: true,
+      contrast: 'normal',
+      uiFont: 'mono',
+      clockFormat: '24h',
+      sidebarWidth: SIDEBAR_DEFAULT,
+      sidebarCollapsed: false,
 
       setApiKey: (provider, key) => {
         const field = fieldOf(provider);
@@ -326,6 +365,12 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setAuditEnabled: (v) => set({ auditEnabled: v }),
 
+      setContrast: (v) => set({ contrast: v }),
+      setUiFont: (v) => set({ uiFont: v }),
+      setClockFormat: (v) => set({ clockFormat: v }),
+      setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+
       loadFromStore: async () => {
         if (!isTauri()) return;
         const next: Partial<ApiKeys> = {};
@@ -468,6 +513,11 @@ export const useSettingsStore = create<SettingsStore>()(
               mcpSecrets: {},
               customAllowList: s.customAllowList,
               auditEnabled: s.auditEnabled,
+              contrast: s.contrast,
+              uiFont: s.uiFont,
+              clockFormat: s.clockFormat,
+              sidebarWidth: s.sidebarWidth,
+              sidebarCollapsed: s.sidebarCollapsed,
             }
           : { ...s, modelsDevCatalog: null },
     },
