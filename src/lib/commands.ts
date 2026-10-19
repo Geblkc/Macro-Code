@@ -68,6 +68,7 @@ const HELP_LINES: CommandLine[] = [
   { type: 'sys', content: '  /undo [id]     son veya belirtilen yamayi geri al' },
   { type: 'sys', content: '  /skill         kayitli skill listesi' },
   { type: 'sys', content: '  /approval [m]  onay modu (manual|auto-read|auto-edit)' },
+  { type: 'sys', content: '                  manual=yazma onaylı · auto-read=salt-okunur · auto-edit=yazma onaysız' },
   { type: 'sys', content: '  /context        agent\'in bildigi proje baglamini goster' },
   { type: 'sys', content: '  /note <not>     kalici proje notu ekle (sonraki oturumlarda hatirlanir)' },
   { type: 'sys', content: '  /log [n]        son olay kayitlari (n varsayilan 30)' },
@@ -257,6 +258,11 @@ function normalizeSession(raw: unknown): Session {
   const rawModel = typeof v.model === 'string' && v.model ? v.model : '';
   // P0-3: JSON yedekteki eski model ID'lerini güncel karşılığa taşı.
   const migrated = migrateProviderModel(rawProvider, rawModel);
+  // Faz 12 B.6: kalıcı compaction özeti yedekle birlikte taşınır.
+  const compaction =
+    v.compaction && typeof v.compaction === 'object'
+      ? (v.compaction as Session['compaction'])
+      : undefined;
   return {
     id: v.id,
     name: typeof v.name === 'string' && v.name ? v.name : 'içe aktarılan session',
@@ -266,6 +272,7 @@ function normalizeSession(raw: unknown): Session {
     provider: migrated.provider,
     model: migrated.model,
     systemPrompt: typeof v.systemPrompt === 'string' ? v.systemPrompt : '',
+    ...(compaction ? { compaction } : {}),
   };
 }
 

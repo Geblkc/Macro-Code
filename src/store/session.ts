@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Message, Provider, Session } from '../types';
+import type { Message, Provider, Session, SessionCompaction } from '../types';
 import type { UsageLike } from '../lib/engine/types';
 import { DEFAULT_MODELS, useSettingsStore } from './settings';
 
@@ -56,6 +56,10 @@ interface SessionStore {
    * yazıyordu (cevap parçalanıyordu). Agent artık hedef mesajı sabit tutar.
    */
   appendToMessage: (sessionId: string, messageId: string, content: string) => void;
+  /**
+   * Faz 12 B.6: kalıcı compaction özetini yaz/temizle (restart sonrası bağlam korunur).
+   */
+  setCompaction: (sessionId: string, compaction: SessionCompaction | null) => void;
   clearSession: (sessionId: string) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   updateSessionModel: (sessionId: string, patch: { provider?: Provider; model?: string }) => void;
@@ -232,13 +236,26 @@ export const useSessionStore = create<SessionStore>()(
           }),
         })),
 
+      setCompaction: (sessionId, compaction) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) => {
+            if (sess.id !== sessionId) return sess;
+            if (!compaction) {
+              const { compaction: _drop, ...rest } = sess;
+              return { ...rest, updatedAt: Date.now() };
+            }
+            return { ...sess, compaction, updatedAt: Date.now() };
+          }),
+        })),
+
       clearSession: (sessionId) =>
         set((s) => ({
-          sessions: s.sessions.map((sess) =>
-            sess.id === sessionId
-              ? { ...sess, messages: [], updatedAt: Date.now() }
-              : sess,
-          ),
+          sessions: s.sessions.map((sess) => {
+            if (sess.id !== sessionId) return sess;
+            // Faz 12 B.6: sıfırlamada özet de düşer (eski bağlamın izi kalmasın).
+            const { compaction: _drop, ...rest } = sess;
+            return { ...rest, messages: [], updatedAt: Date.now() };
+          }),
         })),
 
       removeMessage: (sessionId, messageId) =>

@@ -388,17 +388,42 @@ function audit(
   }).catch(() => {});
 }
 
+/**
+ * Faz 12 B.8 — kalıcı agent durumu.
+ *
+ * Uygulama yeniden başlatıldığında bekleyen onaylı iş kayboluyordu
+ * ("yeniden başlatılamadı"). Durum JSON olarak `pending_approvals.run_state`
+ * kolonuna yazılır ve boot'ta geri yüklenir → tur kaldığı yerden sürer.
+ */
+export interface AgentRunState {
+  /** Konuşma geçmişi (mesajlar + araç sonuçları). */
+  msgs: AgentHistoryItem[];
+  /** Tamamlanmış tur sayısı (maxSteps sınırı korunur). */
+  steps: number;
+  /** O ana kadar üretilen metin. */
+  finalText: string;
+  /** Biriken kullanım (token). */
+  usage: UsageLike | null;
+  /** Onay bekleyen araç çağrıları. */
+  pending: Array<{ call: ToolCall; patchId?: string }>;
+}
+
 export function createAgentRun(
   history: AgentHistoryItem[],
   deps: AgentDeps,
+  resume?: Partial<AgentRunState>,
 ): AgentRun {
   const mode: ApprovalMode = deps.approvalMode ?? 'manual';
   const maxSteps = deps.maxSteps ?? 8;
-  const msgs: AgentHistoryItem[] = [...history];
-  let steps = 0;
-  let finalText = '';
-  let usage: UsageLike | undefined;
-  let pending: PendingEntry[] = [];
+  // Resume: kayıtlı durum varsa geçmiş ondan gelir (yoksa verilen history).
+  const msgs: AgentHistoryItem[] = resume?.msgs ? [...resume.msgs] : [...history];
+  let steps = resume?.steps ?? 0;
+  let finalText = resume?.finalText ?? '';
+  let usage: UsageLike | undefined = resume?.usage ?? undefined;
+  let pending: PendingEntry[] = (resume?.pending ?? []).map((p) => ({
+    call: p.call,
+    ...(p.patchId ? { patchId: p.patchId } : {}),
+  }));
   let aborted = false;
   const state = {
     get usage() { return usage; },
@@ -575,7 +600,17 @@ export function createAgentRun(
       return runLoop();
     },
     serialize(): string {
-      return JSON.stringify({ msgs, steps, finalText, usage: usage ?? null });
+      const state: AgentRunState = {
+        msgs,
+        steps,
+        finalText,
+        usage: usage ?? null,
+        pending: pending.map((p) => ({
+          call: p.call,
+          ...(p.patchId ? { patchId: p.patchId } : {}),
+        })),
+      };
+      return JSON.stringify(state);
     },
     abort(): void {
       aborted = true;

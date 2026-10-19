@@ -112,18 +112,20 @@ describe('Faz C — policy', () => {
     });
   });
 
-  it('manual, auto-read ve auto-edit modlarında exec her zaman onay ister (O6)', () => {
+  it('exec hiçbir modda otomatik onaylanmaz (O6)', () => {
     const dManual = decideTool('exec', { cmd: 'npm', args: ['--version'] }, 'manual');
     expect(dManual.allowed).toBe(true);
     expect(dManual.autoApproved).toBe(false);
 
-    const dAutoRead = decideTool('exec', { cmd: 'npm', args: ['--version'] }, 'auto-read');
-    expect(dAutoRead.allowed).toBe(true);
-    expect(dAutoRead.autoApproved).toBe(false);
-
     const dAutoEdit = decideTool('exec', { cmd: 'npm', args: ['--version'] }, 'auto-edit');
     expect(dAutoEdit.allowed).toBe(true);
     expect(dAutoEdit.autoApproved).toBe(false);
+
+    // Faz 12 B.7: `auto-read` artık gerçek bir salt-okunur mod → exec **reddedilir**
+    // (onay istenmez; hiç çalışmaz). O6 kuralı (otomatik onay yok) korunur.
+    const dAutoRead = decideTool('exec', { cmd: 'npm', args: ['--version'] }, 'auto-read');
+    expect(dAutoRead.allowed).toBe(false);
+    expect(dAutoRead.autoApproved).toBeFalsy();
   });
 
   it('O1 (Faz 4): dosya argümanı jaili decideTool\'da', () => {
@@ -188,6 +190,35 @@ describe('Faz C — policy', () => {
     const ex2 = parseCustomAllowList(['git fetch']);
     expect(isExecAllowed('git', ['fetch'], ex2)).toBe(true);
     expect(isExecAllowed('git', ['fetch'])).toBe(false);
+  });
+
+  it('Faz 12 B.7: auto-read = salt-okunur mod (yazma ve exec kapalı)', () => {
+    // Yazma araçları reddedilir (onay istenmez — hiç çalışmazlar).
+    for (const name of ['propose_patch', 'edit_file', 'write_file']) {
+      const d = decideTool(name, { path: 'a.ts', content: 'x' }, 'auto-read');
+      expect(d.allowed, name).toBe(false);
+      expect(d.reason).toMatch(/salt-okunur/);
+    }
+    // Komut çalıştırma kapalı.
+    const ex = decideTool('exec', { cmd: 'ls', args: [] }, 'auto-read');
+    expect(ex.allowed).toBe(false);
+    expect(ex.reason).toMatch(/salt-okunur/);
+    // Okuma araçları serbest (keşif modunun amacı).
+    const readArgs: Record<string, Record<string, unknown>> = {
+      read_file: { path: 'a.ts' },
+      list_dir: { path: '' },
+      grep: { pattern: 'x' },
+      glob: { pattern: '**/*.ts' },
+    };
+    for (const [name, args] of Object.entries(readArgs)) {
+      const d = decideTool(name, args, 'auto-read');
+      expect(d.allowed, name).toBe(true);
+      expect(d.autoApproved, name).toBe(true);
+    }
+    // Diğer modlar etkilenmez.
+    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'manual').autoApproved).toBe(false);
+    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'auto-edit').autoApproved).toBe(true);
+    expect(decideTool('exec', { cmd: 'ls' }, 'auto-edit').autoApproved).toBe(false);
   });
 
   it('Faz 8 L3: ek tablo tehlikeli kuralları gevşetmez (rm)', () => {

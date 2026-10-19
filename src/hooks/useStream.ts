@@ -16,7 +16,7 @@ import { createId, useSessionStore } from '../store/session';
 import { providerNeedsKey, useSettingsStore } from '../store/settings';
 import { budgetFor } from '../lib/engine/tokens';
 import { compactHistory, shouldCompact } from '../lib/engine/compact';
-import { applyMemo, getMemo, setMemo } from '../lib/engine/compactionMemo';
+import { applyMemo, memoToPersisted, resolveMemo, setMemo } from '../lib/engine/compactionMemo';
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
 import { logError, logInfo } from '../lib/logger';
 import { promptCacheKey } from '../lib/providers/promptCache';
@@ -186,8 +186,10 @@ export function useStream() {
     // Gecmis: sondaki bos placeholder haric tutulur (gorseller korunur).
     // Faz 7: compaction hafızası varsa "özet + o özetten sonraki mesajlar" kullanılır
     // (aynı özet her turda yeniden yapılmaz).
-    const memo = getMemo<ChatItem>(sessionId);
-    const sessionMessages = store().getActiveSession()?.messages ?? [];
+    const sess = store().getActiveSession();
+    // Faz 12 B.6: bellekte yoksa oturumdaki kalıcı kopya (restart sonrası).
+    const memo = resolveMemo<ChatItem>(sessionId, sess?.compaction);
+    const sessionMessages = sess?.messages ?? [];
     const tail = sessionMessages
       .filter((m) => m.id !== assistantId && (m.content.length > 0 || (m.images?.length ?? 0) > 0))
       .map((m) => ({
@@ -221,11 +223,18 @@ export function useStream() {
           });
           if (effHistory !== history) {
             // Faz 9 P9.5: kesim id tabanlı (zaman damgası riski).
-            setMemo(sessionId, Date.now(), effHistory, {
+            const memoForm = {
+              at: Date.now(),
+              items: effHistory,
               coveredIds: history
                 .map((h) => h.id)
                 .filter((x): x is string => typeof x === 'string'),
+            };
+            setMemo(sessionId, memoForm.at, effHistory, {
+              coveredIds: memoForm.coveredIds,
             });
+            // Faz 12 B.6: özet oturuma kalıcı yazılır (restart sonrası tekrar özetlenmez).
+            store().setCompaction(sessionId, memoToPersisted(memoForm));
             onSys?.('/// context özetlendi (compaction)');
           }
         }

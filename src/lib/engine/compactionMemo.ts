@@ -54,6 +54,80 @@ export function clearAllMemos(): void {
 }
 
 /**
+ * Faz 12 B.6 — kalıcılık.
+ *
+ * Bellek içi hafıza restart'ta kaybolur → uzun oturum tam bağlamı yeniden kurar
+ * ve **tekrar özetleme** yapar. Bu yüzden hafıza, oturumun JSON'unda
+ * (`Session.compaction`) saklanan bir kopya ile birlikte tutulur.
+ */
+export type PersistedCompaction = {
+  at: number;
+  items: Array<{
+    role: string;
+    content: string;
+    id?: string;
+    ts?: number;
+    toolCallId?: string;
+    toolName?: string;
+    isError?: boolean;
+  }>;
+  coveredIds?: string[];
+};
+
+/** Bellek içi hafızayı kalıcı (session) biçimine çevirir. */
+export function memoToPersisted<T extends { role: string; content: string }>(
+  memo: CompactionMemo<T>,
+): PersistedCompaction {
+  return {
+    at: memo.at,
+    coveredIds: memo.coveredIds ? [...memo.coveredIds] : undefined,
+    items: memo.items.map((i) => {
+      const it = i as unknown as {
+        role: string;
+        content: string;
+        id?: string;
+        ts?: number;
+        toolCallId?: string;
+        toolName?: string;
+        isError?: boolean;
+      };
+      return {
+        role: it.role,
+        content: it.content,
+        ...(it.id !== undefined ? { id: it.id } : {}),
+        ...(it.ts !== undefined ? { ts: it.ts } : {}),
+        ...(it.toolCallId !== undefined ? { toolCallId: it.toolCallId } : {}),
+        ...(it.toolName !== undefined ? { toolName: it.toolName } : {}),
+        ...(it.isError !== undefined ? { isError: it.isError } : {}),
+      };
+    }),
+  };
+}
+
+/** Kalıcı (session) biçimini bellek içi hafızaya çevirir. */
+export function memoFromPersisted<T>(form: PersistedCompaction): CompactionMemo<T> {
+  return {
+    at: form.at,
+    items: form.items as unknown as T[],
+    ...(form.coveredIds ? { coveredIds: [...form.coveredIds] } : {}),
+  };
+}
+
+/**
+ * Etkin hafıza: bellek içi kayıt varsa o, yoksa oturumdaki kalıcı kopya.
+ * (Restart sonrası bellek boştur → kalıcı kopya kullanılır.)
+ */
+export function resolveMemo<T>(
+  sessionId: string,
+  persisted?: PersistedCompaction | null,
+): CompactionMemo<T> | undefined {
+  const mem = getMemo<T>(sessionId);
+  if (mem) return mem;
+  if (persisted) return memoFromPersisted<T>(persisted);
+  return undefined;
+}
+
+/**
  * Hafızayı geçmişe uygula: "özet + özetten sonra eklenen öğeler".
  * Hafıza yoksa geçmiş olduğu gibi döner.
  *

@@ -2,19 +2,19 @@
 
 > Uygulamanın **model listesi** iki kaynaktan gelir:
 >
-> 1. **Elle çekirdek** (27 model) — `src/lib/providers/*.ts` → `ALL_MODELS`.
+> 1. **Elle çekirdek** (43 model) — `src/lib/providers/*.ts` → `ALL_MODELS`.
 >    Varsayılanlar, garantili çalışır, offline'da bile hazırdır.
 > 2. **models.dev kataloğu** (~467 model) — `https://models.dev/api.json`.
 >    Çekirdekle eşleşmeyen modeller otomatik listeye eklenir.
 >
-> Toplam: **~494 model / 7 sağlayıcı**. Kullanıcı tarafından eklenen modeller
+> Toplam: **~510 model / 7 sağlayıcı**. Kullanıcı tarafından eklenen modeller
 > (`customModels`) ve gizlenenler (`disabledModels`) cihazdaki store'da durur,
 > burada yer almaz.
 >
 > **Görünürlük kuralı:** API anahtarı olmayan sağlayıcının modelleri hiçbir
 > listede görünmez (`ollama` hariç — URL yeterli). Bkz. "API Anahtarı Kuralı".
 >
-> Son güncelleme: 2026-10-19 · Toplam: **~494 model / 7 sağlayıcı**
+> Son güncelleme: 2026-10-19 (Faz 12) · Toplam: **~510 model / 7 sağlayıcı**
 
 ## Başlıklar
 
@@ -32,16 +32,22 @@
 
 ---
 
-## Anthropic (4) — varsayılan: `claude-opus-5-5`
+## Anthropic (10) — varsayılan: `claude-opus-5-5`
 
 | Model id | Ad | ctx | max out | 🛠👁🧠 | models.dev |
 |---|---|---|---|---|---|
 | `claude-opus-5-5` ★ | Claude Opus 5.5 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($4/$20) |
 | `claude-sonnet-5-5` | Claude Sonnet 5.5 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti |
 | `claude-haiku-5-5` | Claude Haiku 5.5 | 1.000.000 | 128.000 | ✓✓✗ | eşleşti |
-| `claude-fable-5-1` | Claude Fable 5.1 | 1.000.000 | 128.000 | ✓✓✓ | eşleşmedi |
+| `claude-fable-5-1` | Claude Fable 5.1 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti |
+| `claude-opus-5` | Claude Opus 5 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($5/$25) |
+| `claude-sonnet-5` | Claude Sonnet 5 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($2/$10) |
+| `claude-fable-5` | Claude Fable 5 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($10/$50) |
+| `claude-mythos-5` | Claude Mythos 5 | 1.000.000 | 128.000 | ✓✓✓ | **eşleşmedi** (models.dev'de yok) |
+| `claude-opus-4-8` | Claude Opus 4.8 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($5/$25) |
+| `claude-opus-4-7` | Claude Opus 4.7 | 1.000.000 | 128.000 | ✓✓✓ | eşleşti ($5/$25) |
 
-## OpenAI (4) — varsayılan: `gpt-6.1-sol`
+## OpenAI (8) — varsayılan: `gpt-6.1-sol`
 
 | Model id | Ad | ctx | max out | 🛠👁🧠 | models.dev |
 |---|---|---|---|---|---|
@@ -49,14 +55,24 @@
 | `gpt-6-astra` | GPT-6 Astra | 1.050.000 | 128.000 | ✓✓✓ | eşleşti |
 | `gpt-6-sol` | GPT-6 Sol | 1.050.000 | 128.000 | ✓✓✓ | eşleşti |
 | `gpt-6-luna` | GPT-6 Luna | 1.050.000 | 128.000 | ✓✓✗ | eşleşti |
+| `gpt-5.6` | GPT-5.6 | 1.050.000 | 128.000 | ✓✓✓ | eşleşti ($4/$20) |
+| `gpt-5.6-sol` | GPT-5.6 Sol | 1.050.000 | 128.000 | ✓✓✓ | eşleşti ($4/$20) |
+| `gpt-5.6-terra` | GPT-5.6 Terra | 1.050.000 | 128.000 | ✓✓✓ | eşleşti ($2/$12) |
+| `gpt-5.6-luna` | GPT-5.6 Luna | 1.050.000 | 128.000 | ✓✓✓ | eşleşti ($0.2/$1.2) |
 
-## Gemini (3) — varsayılan: `gemini-3.8-flash`
+## Gemini (6) — varsayılan: `gemini-3.8-flash`
 
 | Model id | Ad | ctx | max out | 🛠👁🧠 | models.dev |
 |---|---|---|---|---|---|
 | `gemini-3.8-flash` ★ | Gemini 3.8 Flash | 1.000.000 | 65.536 | ✓✓✓ | eşleşti ($0.75/$3.75) |
 | `gemini-3.5-flash` | Gemini 3.5 Flash | 1.000.000 | 65.536 | ✓✓✓ | eşleşti |
 | `gemini-3-pro` | Gemini 3 Pro | 1.000.000 | 131.072 | ✓✓✓ | **eşleşmedi** |
+| `gemini-2.5-flash-image` | Nano Banana | 32.768 | 32.768 | ✗✓✓ | eşleşti ($0.3/$30) |
+| `gemini-3-pro-image` | Nano Banana Pro | 65.536 | 32.768 | ✗✓✓ | eşleşti ($2/$120) |
+| `gemini-3.1-flash-image` | Nano Banana 2 | 131.072 | 32.768 | ✗✓✓ | eşleşti ($0.5/$60) |
+
+> **Nano Banana ailesi görsel çıktı üretir** — uygulama yalnızca metin yanıtı işler
+> (🛠 = araç çağırma kapalı). Görsel sonuçlar terminalde görünmez.
 
 ## Ollama (6) — varsayılan: `llama3.3`
 
@@ -82,12 +98,15 @@
 | `deepseek/deepseek-chat` | DeepSeek Chat (via OR) | 128.000 | 8.192 | ✓✗✗ | eşleşti |
 | `x-ai/grok-4.7` | Grok 4.7 (via OR) | 256.000 | 16.384 | ✓✓✓ | eşleşti |
 
-## DeepSeek (2) — varsayılan: `deepseek-chat`
+## DeepSeek (5) — varsayılan: `deepseek-chat`
 
 | Model id | Ad | ctx | max out | 🛠👁🧠 | models.dev |
 |---|---|---|---|---|---|
 | `deepseek-chat` ★ | DeepSeek Chat | 128.000 | 8.192 | ✓✗✗ | **eşleşmedi** |
 | `deepseek-reasoner` | DeepSeek Reasoner | 128.000 | 8.192 | ✗✗✓ | **eşleşmedi** |
+| `deepseek-flash` | DeepSeek V4.1 Flash | 1.000.000 | 393.216 | ✓✓✓ | eşleşti ($0.15/$0.6) |
+| `deepseek-v4-flash` | DeepSeek V4 Flash | 1.000.000 | 393.216 | ✓✓✓ | eşleşti ($0.15/$0.6) |
+| `deepseek-v4-pro` | DeepSeek V4 Pro | 1.000.000 | 393.216 | ✓✗✓ | eşleşti ($0.66/$1.98) |
 
 ## xAI (3) — varsayılan: `grok-4.20`
 
@@ -103,14 +122,14 @@
 
 | Sağlayıcı | Çekirdek | models.dev eşleşmesi | Katalog + çekirdek toplam |
 |---|---|---|---|
-| anthropic | 4 | 4/4 | 17 |
-| openai | 4 | 4/4 | 37 |
-| gemini | 3 | 2/3 | 32 |
+| anthropic | 10 | 9/10 | 23 |
+| openai | 8 | 8/8 | 41 |
+| gemini | 6 | 5/6 | 35 |
 | ollama | 6 | — (yerel) | 6 |
 | openrouter | 5 | 5/5 | 388 |
-| deepseek | 2 | 0/2 | 4 |
+| deepseek | 5 | 3/5 | 7 |
 | xai | 3 | 1/3 | 10 |
-| **Toplam** | **27** | **16/27** | **494** |
+| **Toplam** | **43** | **31/43** | **510** |
 
 ## API Anahtarı Kuralı
 
@@ -151,13 +170,14 @@ aranır, "ekle" denilince `customModels`'e alınır. Ayrıntı:
 > Yukarıdaki tablo katalogun ham kayıt sayılarını gösterir; uygulamadaki toplam
 > listede çekirdek modeller de yer alır.
 
-### models.dev'de eşleşmeyen 11 model ve nedeni
+### models.dev'de eşleşmeyen 12 model ve nedeni
 
 | Model | Neden |
 |---|---|
 | `gemini-3-pro` | models.dev'de `google` altında yok (yalnız 3. taraf sağlayıcılarda) |
 | `deepseek-chat`, `deepseek-reasoner` | `deepseek` altında yok (yalnız 3. taraf sağlayıcılarda) |
 | `grok-4.20`, `grok-latest` | `xai` altında yok (`grok-4.20-0309-*` varyantları var) |
+| `claude-mythos-5` | models.dev'de yok (kullanıcı listesinden eklendi) |
 | 6 Ollama modeli | models.dev yerel modelleri listelemez |
 
 Eşleşmeyenlerde **yerleşik limit/fiyat bilgileri aynen korunur**, otomatik fiyat gelmez.
@@ -171,15 +191,22 @@ Eşleşmeyenlerde **yerleşik limit/fiyat bilgileri aynen korunur**, otomatik fi
   `src/lib/providers/modelsDevIntegration.test.ts` canlı doğrulama sağlar
 - Kullanıcıya özel modeller (`customModels`) ve gizlenenler (`disabledModels`)
   cihazda saklanır; bu dosyada yer almaz
-  
-  ## Eklenecek modeller
-  1 Deepseek V4.1 Flash
-  2 Deepseek V4 Flash
-  3 Deepseek V4 Pro
-  4 Claude Opus 5
-  5 Claude sonnet 5
-  6 Claude Fable 5 
-  7 Claude Mythos 5 
-  8 Claude Opus 4.8 ve 4.7
-  9 google nano banana
-  10 Openaı GPT-5.6 Modelleri
+
+## Faz 12'de eklenen modeller (istenen liste)
+
+| İstenen | Eklenen model id'leri | models.dev |
+|---|---|---|
+| Deepseek V4.1 Flash | `deepseek-flash` | ✓ |
+| Deepseek V4 Flash | `deepseek-v4-flash` | ✓ |
+| Deepseek V4 Pro | `deepseek-v4-pro` | ✓ |
+| Claude Opus 5 | `claude-opus-5` | ✓ |
+| Claude sonnet 5 | `claude-sonnet-5` | ✓ |
+| Claude Fable 5 | `claude-fable-5` | ✓ |
+| Claude Mythos 5 | `claude-mythos-5` | ✗ (yok) |
+| Claude Opus 4.8 / 4.7 | `claude-opus-4-8`, `claude-opus-4-7` | ✓ |
+| Google Nano Banana | `gemini-2.5-flash-image`, `gemini-3-pro-image`, `gemini-3.1-flash-image` | ✓ |
+| OpenAI GPT-5.6 | `gpt-5.6`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` | ✓ |
+
+> Model id'leri ve limit/fiyat bilgileri **models.dev gerçek verisinden** alındı
+> (tahmin edilmedi). `claude-mythos-5` models.dev'de bulunmadığı için yerleşik
+> limitleriyle (1M ctx / 128k out) eklendi; otomatik fiyat gelmez.

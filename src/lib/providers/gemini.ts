@@ -8,6 +8,11 @@ const MODELS: AIProvider['models'] = [
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
   { id: 'gemini-3-pro', name: 'Gemini 3 Pro', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 131072, capabilities: { tools: true, vision: true, reasoning: true } },
+  // Faz 12: "Nano Banana" görsel modelleri (models.dev verisiyle).
+  // Not: çıktıları **görsel** — uygulama yalnızca metin çıktısı işler.
+  { id: 'gemini-2.5-flash-image', name: 'Nano Banana', provider: 'gemini', contextWindow: 32768, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
+  { id: 'gemini-3-pro-image', name: 'Nano Banana Pro', provider: 'gemini', contextWindow: 65536, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
+  { id: 'gemini-3.1-flash-image', name: 'Nano Banana 2', provider: 'gemini', contextWindow: 131072, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
 ];
 
 export const geminiProvider: AIProvider = {

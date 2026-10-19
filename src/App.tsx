@@ -69,7 +69,7 @@ export default function App() {
   // Faz 7: önceki oturum id'leri (silinen oturumların compaction hafızası için).
   const prevSessionIdsRef = useRef<Set<string>>(new Set());
   const { send, abort: abortStream } = useStream();
-  const { sendAgent, resolvePending, abort: abortAgent } = useAgent();
+  const { sendAgent, resolvePending, restorePendingRuns, abort: abortAgent } = useAgent();
   const abort = () => {
     abortStream();
     abortAgent();
@@ -327,10 +327,10 @@ export default function App() {
         if (!arg) {
           const label =
             ws.approvalMode === 'manual'
-              ? 'manuel (her yazma onaylı)'
+              ? 'manuel (yazma onaylı)'
               : ws.approvalMode === 'auto-read'
-                ? 'otomatik okuma (yazma onaylı)'
-                : 'otomatik düzenleme (yazma onaysız!)';
+                ? 'salt-okunur (yazma ve komut kapalı)'
+                : 'otomatik düzenleme (yazma onaysız, komut onaylı)';
           pushExtra(sessionId, { type: 'sys', content: `/// onay modu: ${label} · /approval manual|auto-read|auto-edit` });
           return;
         }
@@ -348,6 +348,12 @@ export default function App() {
             type: 'warn',
             content:
               '! otomatik düzenleme: agent dosya yazma/düzenleme onayı almadan yapabilir (shell komutları hâlâ onaylı)',
+          });
+        }
+        if (mode === 'auto-read') {
+          pushExtra(sessionId, {
+            type: 'warn',
+            content: '! salt-okunur mod: agent dosya yazamaz, komut çalıştıramaz (yalnızca okuma/araştırma)',
           });
         }
         pushExtra(sessionId, {
@@ -662,6 +668,14 @@ export default function App() {
       } catch {
         // Onay geri yükleme hatası boot'u durdurmaz.
       }
+      // Faz 12 B.8: kayıtlı agent durumunu geri yükle → bekleyen iş kaldığı
+      // yerden sürülebilir (eskiden "yeniden başlatılamadı" deniyordu).
+      let resumedRuns = 0;
+      try {
+        resumedRuns = await restorePendingRuns();
+      } catch {
+        // Geri yükleme hatası boot'u durdurmaz.
+      }
       const st = useSessionStore.getState();
       let sess = st.getActiveSession();
       if (!sess) sess = st.createSession();
@@ -687,6 +701,12 @@ export default function App() {
           ? { type: 'sys', content: statusLine }
           : { type: 'sys', content: '/// api anahtarı için ⚙ ayarlar → settings' },
       );
+      if (resumedRuns > 0) {
+        pushExtra(id, {
+          type: 'sys',
+          content: `/// ${resumedRuns} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)`,
+        });
+      }
       // Faz 7 A1: DB açılamadıysa sessizce düşme — kullanıcıya sebebiyle birlikte bildir.
       // (ACL `sql:allow-execute` eksikliği, bozuk migration vb. burada görünür olur.)
       const dbErr = sqlError();

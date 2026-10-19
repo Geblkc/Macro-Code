@@ -79,6 +79,32 @@ export type Message = {
   isError?: boolean;
 };
 
+/**
+ * Faz 12 B.6 — kalıcı compaction özeti.
+ *
+ * Otomatik compaction özeti transcript'e **yazılmaz** (görünüm bozulmasın diye),
+ * ama oturum yeniden başlatıldığında kaybolursa uzun ajan oturumu tam bağlamı
+ * yeniden kurar ve **tekrar özetleme** (LLM çağrısı + maliyet) yapar. Bu kayıt
+ * özeti ve kapsanan mesaj id'lerini saklar → yeniden başlatma sonrası aynı
+ * sıkıştırılmış bağlam kullanılır.
+ */
+export type SessionCompaction = {
+  /** Özetleme anı (epoch ms). */
+  at: number;
+  /** Özetlenmiş geçmiş (özet mesajı + korunan mesajlar). */
+  items: Array<{
+    role: string;
+    content: string;
+    id?: string;
+    ts?: number;
+    toolCallId?: string;
+    toolName?: string;
+    isError?: boolean;
+  }>;
+  /** Özete dahil edilen mesajların id'leri. */
+  coveredIds?: string[];
+};
+
 export type Session = {
   id: string;
   name: string;
@@ -88,6 +114,8 @@ export type Session = {
   provider: Provider;
   model: string;
   systemPrompt: string;
+  /** Faz 12 B.6: kalıcı compaction özeti (yoksa otomatik compaction yok). */
+  compaction?: SessionCompaction;
 };
 
 export type ApiKeys = {

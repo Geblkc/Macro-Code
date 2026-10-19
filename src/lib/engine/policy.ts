@@ -226,6 +226,12 @@ export function decideTool(
     return { allowed: true, autoApproved: true };
   }
   if (name === 'propose_patch' || name === 'edit_file' || name === 'write_file') {
+    // Faz 12 B.7: `auto-read` = **salt-okunur keşif modu** — yazma araçları
+    // hiç çalışmaz (onay da istenmez). Önceden bu mod `manual` ile aynıydı
+    // (okuma araçları zaten hep serbest olduğu için) → anlamsızdı.
+    if (mode === 'auto-read') {
+      return { allowed: false, reason: 'salt-okunur mod: yazma araçları kapalı' };
+    }
     const p = typeof args.path === 'string' ? args.path : '';
     if (!p || !isPathSafe(p)) {
       return { allowed: false, reason: 'geçersiz dosya yolu' };
@@ -249,6 +255,10 @@ export function decideTool(
       : { allowed: false, reason: `bozuk mcp adı: ${name}` };
   }
   if (name === 'exec') {
+    // Faz 12 B.7: salt-okunur modda komut çalıştırılmaz.
+    if (mode === 'auto-read') {
+      return { allowed: false, reason: 'salt-okunur mod: komut çalıştırma kapalı' };
+    }
     const cmd = typeof args.cmd === 'string' ? args.cmd : '';
     const rawArgs = Array.isArray(args.args)
       ? args.args.filter((a): a is string => typeof a === 'string')

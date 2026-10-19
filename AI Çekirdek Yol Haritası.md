@@ -1,8 +1,8 @@
 # MacroCode — AI Çekirdeği Geliştirme Haritası (Detaylı)
 
 > **Kaynak inceleme:** 2026-10-14 · Kod durumu: 86 test yeşil (14 dosya, ~5.5k satır incelendi)
-> **Güncelleme (2026-10-19):** Denetim yeniden yapıldı — **347 test yeşil (53 dosya)** + 49 Rust test.
-> Yeni fazlar: **Faz 7 (Doğruluk) ✅**, **Faz 8 (Kalıntılar) ✅**, **Faz 9 (Bağlam) ✅**, **Faz 10 (Sertleştirme) ✅**, **Faz 11 (Prompt Cache) ✅** tamamlandı.
+> **Güncelleme (2026-10-19):** Denetim yeniden yapıldı — **372 test yeşil (56 dosya)** + 49 Rust test.
+> Yeni fazlar: **Faz 7–12 ✅** tamamlandı (12 = koruma + motor).
 > **Sürüm sabittir: `0.1.0`.** Bu belgedeki eski sürüm adımları (`v0.2`…`v0.7`) uygulanmaz.
 > **Kapsam:** `src/lib/engine/`, `src/lib/providers/`, `src/hooks/`, `src-tauri/src/commands/`
 > **Hedef:** Açık kaynak yayın kalitesinde, agent-tabanlı AI kodlama çekirdeği.
@@ -691,6 +691,7 @@ lib/engine/mcp/
 | 9 | Bağlam (repo haritası, skill, proje özeti) | ✅ **tamamlandı** | Repo haritası + AGENTS.md/README + kalıcı not + `/context`; CI fmt yeşil; auto-edit yazma hatası kapandı |
 | 10 | Sertleştirme (güvenlik, gözlemlenebilirlik, test) | ✅ **tamamlandı** | O2/D1/D2 kapandı, clippy temiz, smoke test betiği + CI işi, `/log` kanalı |
 | 11 | Prompt cache (maliyet) | ✅ **tamamlandı** | `cache_control` + `prompt_cache_key`, ayar (varsayılan açık), `/tokens` cache çıktısı |
+| 12 | Koruma + motor | ✅ **tamamlandı** | Git + MIT lisans, 10 model ailesi, kalıcı compaction, `auto-read` salt-okunur, `run_state` ile ajan devamı |
 
 **Kural:** Faz yalnızca (1) tüm testler yeşil, (2) kabul kriterleri karşılanmış,
 (3) `memorybank/memorybank.md` güncellenmişse kapanır.
@@ -998,6 +999,70 @@ Proxy'nin işi yalnızca CSP'yi aşmak; istek yüzeyi daraltıldı:
 3. ✅ Ayar (varsayılan açık) Sohbet sekmesinde; `partialize` ile kalıcı.
 4. ✅ `/tokens` önbellek kullanımını gösteriyor.
 5. ✅ Testler: `promptCache.test.ts` (10) + `promptCacheRequest.test.ts` (5) — istek gövdesi uçtan uca doğrulanıyor.
+
+---
+
+## BÖLÜM P — Faz 12: Koruma + Motor (✅ tamamlandı)
+
+> **Amaç:** (a) 11 fazın emeğini koruyan güvenlik ağı, (b) UI dosyalarına dokunmadan
+> motor tarafındaki kalan işler. Sürüm değişmedi (`0.1.0`).
+
+### P.1 Güvenlik ağı (git + lisans)
+
+- **`git init`** → ilk commit (`1cf588d`, 168 dosya). Bundan sonra her eşzamanlı
+  değişiklik `git diff` ile **görünür** ve `git checkout`/`stash` ile **geri alınabilir**.
+  (Bu faz öncesinde 11 fazın emeği tek kopya + sürüm kontrolü olmadan duruyordu.)
+- `.gitignore` genişletildi (`*.log`, `.idea/`, `.vscode/`, `*.db*`, `tmp/`, `*.bak`).
+- **`LICENSE`** (MIT) eklendi — README "MIT" diyordu, depoda lisans dosyası yoktu.
+- Git kimliği repo-yerel: `MacroCode Dev <dev@macrocode.local>` (global config'de kimlik yok).
+
+### P.2 Model registry (istenen liste, gerçek veriyle)
+
+`memorybank/Modeller.md` sonundaki "Eklenecek modeller" listesi registry'ye eklendi.
+Model id'leri ve limit/fiyat bilgileri **models.dev gerçek verisinden** alındı (tahmin edilmedi):
+
+| Sağlayıcı | Eklenenler |
+|---|---|
+| Anthropic | `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-mythos-5`*, `claude-opus-4-8`, `claude-opus-4-7` |
+| OpenAI | `gpt-5.6`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| DeepSeek | `deepseek-flash` (V4.1 Flash), `deepseek-v4-flash`, `deepseek-v4-pro` |
+| Google | `gemini-2.5-flash-image` (Nano Banana), `gemini-3-pro-image` (Pro), `gemini-3.1-flash-image` (NB2) |
+
+> `claude-mythos-5` models.dev'de **yok** → yerleşik limitlerle eklendi (otomatik fiyat gelmez).
+> Nano Banana ailesi **görsel** çıktı üretir; uygulama metin işlediği için 🛠 kapalı
+> ve tabloda not düşüldü.
+
+**Çekirdek model sayısı: 27 → 43** (toplam ~510).
+
+### P.3 Compaction kalıcılığı
+
+Özet artık **oturumun JSON'unda** (`Session.compaction`) saklanıyor → uygulama yeniden
+başlatıldığında bağlam yeniden kurulmuyor ve **tekrar özetleme (LLM çağrısı + maliyet) yapılmıyor**.
+`/reset` özeti de düşürür, JSON yedekle birlikte taşınır.
+
+### P.4 `auto-read` = gerçek salt-okunur mod
+
+Önceden `auto-read` pratikte `manual` ile aynıydı (okuma araçları zaten hep serbestti) →
+anlamsızdı. Artık: **yazma araçları ve `exec` reddedilir** (onay bile istenmez).
+O6 kuralı (exec hiçbir modda otomatik onaylanmaz) korunur.
+
+### P.5 `run_state` — ajan devamı (Faz 1'in açık kalan %10'u)
+
+`pending_approvals.run_state` kolonu artık **dolduruluyor**: onay beklerken agent
+durumu (geçmiş + adım + bekleyen çağrılar) JSON olarak yazılır; boot'ta geri yüklenir
+→ uygulama yeniden başlatıldığında bekleyen iş **kaldığı yerden sürülür**
+(eskiden "yeniden başlatılamadı" deniyordu). Yazma yolu `useAgent` içinde ortak
+olay işleyicisi ile paylaşılır (yeni tur ve geri yüklenen tur aynı mesaja yazar).
+
+### P.6 Faz 12 kabul kriterleri
+
+1. ✅ Git deposu + ilk commit + LICENSE (geçmiş korunuyor, lisans mevcut).
+2. ✅ İstenen 10 model ailesi registry'de (models.dev gerçek verisiyle).
+3. ✅ Compaction özeti restart'ta korunuyor (yeniden özetleme yok).
+4. ✅ `auto-read` modu anlamlı (yazma + exec kapalı).
+5. ✅ Bekleyen agent işi restart sonrası kaldığı yerden sürülüyor.
+6. ✅ 372 TS test + 49 Rust test yeşil; `tsc`/`vite build`/`fmt`/`clippy` temiz;
+   `scripts/smoke-test.sh` başarılı.
 
 ---
 

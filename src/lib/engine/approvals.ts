@@ -11,6 +11,11 @@ export interface PendingApproval {
   sessionId: string;
   call: ToolCall;
   createdAt: number;
+  /**
+   * Faz 12 B.8 — kalıcı agent durumu (JSON).
+   * Uygulama yeniden başlatıldığında bekleyen iş kaldığı yerden sürülsün.
+   */
+  runState?: string | null;
 }
 
 /** Tek kaynak: `db.ts` (şema `src-tauri/src/lib.rs` migration ile aynı). */
@@ -53,6 +58,7 @@ function rowToApproval(row: ApprovalRow): PendingApproval | null {
       sessionId: row.session_id,
       call,
       createdAt: typeof row.created_at === 'number' ? row.created_at : Date.now(),
+      ...(row.run_state ? { runState: row.run_state } : {}),
     };
   } catch {
     return null;
@@ -76,7 +82,7 @@ export async function queueApproval(p: PendingApproval, db?: ApprovalsDb): Promi
   await odb.execute(PENDING_APPROVALS_TABLE_SQL);
   await odb.execute(
     'INSERT OR REPLACE INTO pending_approvals (id, session_id, call_data, run_state, created_at) VALUES ($1, $2, $3, $4, $5)',
-    [p.id, p.sessionId, JSON.stringify(p.call), null, p.createdAt],
+    [p.id, p.sessionId, JSON.stringify(p.call), p.runState ?? null, p.createdAt],
   );
 }
 

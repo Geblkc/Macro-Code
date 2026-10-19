@@ -1048,7 +1048,9 @@ Traffic light renkleri token DIŞI (bilerek soluk): `#3a2a2a`, `#3a362a`, `#2a3a
 13. **Faz 7 A1:** `sql:allow-execute` capability'de ZORUNLUDUR — yoksa `audit_log`/`pending_approvals`/`sessions` yazılmaz. DB açılamazsa `sqlError()` boot'ta `!` uyarısı olarak gösterilir (sessiz kalıcılık düşüşü yok).
 14. **Faz 7 A3:** Agent'ın metni tek assistant mesajına yazılır (`appendToMessage`); "son mesaj assistant olmalı" kuralı tool sonrası cevabı parçalıyordu.
 15. **Faz 7 A4:** Kullanım sayacı tur içi `mergeUsage` (max), tur arası `sumUsage` (toplam). `mergeUsage` tek istekte doğrudur, turlar arasında kullanılmaz.
-16. Compaction özeti **kalıcı transcript'e yazılmaz** (görünüm bozulmasın diye); yalnızca bellek hafızasında tutulur. `compactionMemo` oturum silinince/`/reset` ile temizlenir.
+16. Compaction özeti **kalıcı transcript'e yazılmaz** (görünüm bozulmasın diye); bellek hafızasında
+    **ve** oturumun `compaction` alanında saklanır (Faz 12 P.3) → restart sonrası bağlam yeniden
+    kurulmaz, tekrar özetlenmez. `compactionMemo` oturum silinince/`/reset` ile temizlenir.
 17. **Faz 8 L3:** `exec` allowlist'i iki katmanlıdır — TS `policy.ts` (karar) + Rust `exec.rs`
     (savunma). Kullanıcı tablosu (`customAllowList`) **her ikisine de** geçer; iki tablo
     **birleşik (OR)** uygulanır. `rm` kuralları hiçbir tabloda gevşemez.
@@ -1072,7 +1074,13 @@ Traffic light renkleri token DIŞI (bilerek soluk): `#3a2a2a`, `#3a362a`, `#2a3a
     → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
 25. **Faz 10:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder**
     (anahtar/token/JWT alan ve değer kalıpları) → API anahtarı loglanmaz.
-26. **Faz 11:** Prompt cache Anthropic'te **eşik kuralına bağlıdır** — önek < 1024 token
+26. **Faz 12 P.4:** `auto-read` = **salt-okunur mod** → yazma araçları ve `exec` reddedilir
+    (onay istenmez). `manual` = yazma onaylı, `auto-edit` = yazma onaysız (exec onaylı).
+27. **Faz 12 P.5:** Bekleyen agent işi `pending_approvals.run_state` ile **kalıcıdır** → uygulama
+    yeniden başlatıldığında tur kaldığı yerden sürülür. `exec` yine de her zaman onaylıdır.
+28. **Faz 12:** `git` deposu + MIT `LICENSE` eklendi (11 fazın emeğinin geçmişi korunur).
+29. **Faz 12 P.2:** Çekirdek model sayısı 27 → **43** (`memorybank/Modeller.md`). Nano Banana ailesi
+    görsel çıktı üretir → 🛠 kapalı. — önek < 1024 token
     (Haiku 2048) ise `cache_control` gönderilmez (API 400 döner). Tahmin char/4'tür;
     güvenlik payı 160 token'dır.
 
@@ -1152,6 +1160,9 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Proxy sertleştirme | `commands/proxy.rs` (method/header/IP/timeout/boyut kısıtları) + `rustFetch.ts` |
 | CI | `.github/workflows/ci.yml` (tsc+vitest+build+fmt+**clippy**+cargo test) + `scripts/smoke-test.sh` |
 | Prompt cache | `providers/promptCache.ts` (eşik + işaretleme) + `anthropic.ts` (`cache_control`) + `openaiCompatible.ts` (`prompt_cache_key`) + ayar `cachePrompts` |
+| Kalıcı compaction | `engine/compactionMemo.ts` (memoToPersisted/memoFromPersisted/resolveMemo) + `Session.compaction` + `store/session.ts` (`setCompaction`) |
+| Ajan devamı (run_state) | `engine/agent.ts` (`AgentRunState` + `createAgentRun(..., resume)`) + `engine/approvals.ts` (`runState`) + `useAgent.ts` (`restorePendingRuns`) |
+| Model registry | `providers/{anthropic,openai,gemini,deepseek}.ts` → `MODELS` + `memorybank/Modeller.md` |
 
 ---
 

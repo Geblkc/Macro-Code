@@ -9,6 +9,45 @@
 
 ---
 
+## 2026-10-19 — Faz 12: Koruma (git + MIT) + Motor (model, compaction, auto-read, ajan devamı)
+
+> UI dosyalarına dokunmadan yapılan motor işi + eşzamanlı çalışma güvenlik ağı.
+> Sürüm değişmedi (`0.1.0`).
+
+- **A.1 Git güvenlik ağı:** `git init` (`main` dalı) + ilk commit `1cf588d` (168 dosya).
+  11 fazın emeği artık **tek kopyada** değil; eşzamanlı değişiklikler `git diff` ile
+  görünür, `git checkout`/`stash` ile geri alınabilir. Kimlik repo-yerel
+  (`MacroCode Dev <dev@macrocode.local>` — global config'de kimlik yok).
+- **A.2 `.gitignore`:** `*.log`, `.idea/`, `.vscode/`, `*.db*`, `tmp/`, `*.bak` eklendi.
+- **A.3 `LICENSE`:** MIT eklendi (README "MIT" diyordu, dosya yoktu).
+- **B.1 Model registry (istenen liste):** `memorybank/Modeller.md` sonundaki liste eklendi —
+  Anthropic: `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-mythos-5`,
+  `claude-opus-4-8`, `claude-opus-4-7` · OpenAI: `gpt-5.6{,-sol,-terra,-luna}` ·
+  DeepSeek: `deepseek-flash` (V4.1), `deepseek-v4-flash`, `deepseek-v4-pro` ·
+  Google: `gemini-2.5-flash-image` / `gemini-3-pro-image` / `gemini-3.1-flash-image`
+  (Nano Banana / Pro / NB2). **Model id'leri ve limit/fiyat bilgileri models.dev
+  gerçek verisinden alındı** (tahmin edilmedi). `claude-mythos-5` models.dev'de yok →
+  yerleşik limitlerle eklendi. Nano Banana ailesi görsel çıktı üretir (🛠 kapalı, not düşüldü).
+  **Çekirdek model: 27 → 43.**
+- **B.2 Compaction kalıcılığı:** özet artık `Session.compaction` alanında saklanıyor →
+  restart sonrası bağlam yeniden kurulmuyor, **tekrar özetleme (LLM çağrısı) yapılmıyor**.
+  `compactionMemo.ts`: `memoToPersisted` / `memoFromPersisted` / `resolveMemo`.
+  `store/session.ts`: `setCompaction` (+ `clearSession` özeti de düşürür).
+  JSON yedekle birlikte taşınır (`normalizeSession`).
+- **B.3 `auto-read` = gerçek salt-okunur mod:** önceden `manual` ile aynıydı (anlamsız);
+  artık **yazma araçları ve `exec` reddedilir** (onay istenmez). O6 korunur.
+- **B.4 `run_state` (Faz 1'in açık kalan %10'u):** onay beklerken agent durumu
+  (`pending_approvals.run_state`) JSON olarak yazılır; boot'ta `restorePendingRuns()`
+  ile geri yüklenir → bekleyen iş **kaldığı yerden sürülür** (eskiden "yeniden
+  başlatılamadı"). `useAgent` içinde ortak olay işleyicisi (`makeRunEventHandler`)
+  yeni tur ile geri yüklenen tur arasında paylaşıldı.
+- **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **372 test / 56 dosya yeşil**
+  (yeni: `compactionPersist.test.ts` 5, `agentRestore.test.ts` 4, policy auto-read testi) ·
+  `cargo test --lib` 49 yeşil · `cargo fmt --check` + `clippy -D warnings` temiz ·
+  `npm run build` temiz · `bash scripts/smoke-test.sh` BAŞARILI (uygulama boot + DB yazımı).
+
+---
+
 ## 2026-10-19 — Faz 11: Prompt Cache (Maliyet)
 
 > Token sayacı ve fiyatlandırma tarafı hazırdı, ancak **istek tarafı** eksikti:
