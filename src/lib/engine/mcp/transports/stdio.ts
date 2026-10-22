@@ -4,7 +4,7 @@
  * App çıkışında tüm child'lar öldürülür (RunEvent::Exit kancası lib.rs'te).
  */
 import { invoke } from '@tauri-apps/api/core';
-import { McpError, parseResponse } from '../protocol';
+import { McpError, parseResponse, isResponseLike } from '../protocol';
 import type { McpTransport } from '../client';
 
 export interface StdioTransportOptions {
@@ -32,8 +32,10 @@ async function readResponse(
     const t = line.trim();
     if (!t) continue;
     try {
-      const v = JSON.parse(t) as { id?: unknown };
-      if (v && typeof v === 'object' && 'id' in v) {
+      const v = JSON.parse(t) as { id?: unknown; method?: unknown };
+      // id karışması kapatılır: sunucu İSTEĞİ (id + method) yanıt değildir;
+      // desteklenmeyen istekler sessizce atlanır (tools/call yanıtı id eşleşmeli).
+      if (isResponseLike(v)) {
         parseResponse(t);
         return t;
       }

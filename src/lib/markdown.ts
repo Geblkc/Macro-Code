@@ -13,6 +13,7 @@
  */
 
 import { highlight } from './highlight';
+import { t } from './i18n/core';
 
 /* ══════════════════════════════════════════════════════════════════
    Eski (genişletilmemiş) API — geriye uyum için korunur
@@ -574,7 +575,7 @@ function buildCodeBlock(doc: Document, lang: string, code: string): HTMLElement 
   copy.addEventListener('click', (e) => {
     e.stopPropagation();
     void copyText(code).then((ok) => {
-      copy.textContent = ok ? 'kopyalandı ✓' : 'kopyalanamadı';
+      copy.textContent = ok ? t('message.copyOk') : t('message.copyFail');
       copy.classList.toggle('copied', ok);
       globalThis.setTimeout(() => {
         copy.textContent = 'kopyala';

@@ -8,11 +8,40 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::State;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 fn err(msg: impl Into<String>) -> String {
     msg.into()
 }
+
+/// O7 sertleştirmeleri — sınırlar (hasarsız: gerçekçi MCP mesajları KB'tır).
+/// Satır: JSON-RPC yanıtları Typ. <100 KB; 1 MB çok cömert bir tavan.
+const MAX_LINE_BYTES: usize = 1024 * 1024;
+/// Yazma: `mcp_write` gövdesi (istek + toString serialization) için tavan.
+const MAX_WRITE_BYTES: usize = 1024 * 1024;
+/// Eşzamanlı stdio sunucu sayısı (sızıntı/pompalama sınırlaması).
+const MAX_PROCS: usize = 32;
+
+/// O7 — çocuk sürece sızacak ebeveyn ortamı temizlenir; yalnızca stdout/stdin
+/// yeterli minimum izin listesi yeniden verilir (ANTHROPIC_API_KEY gibi
+/// launcher env'inde kalan anahtarlar çocuk sürece talimat olamaz).
+/// Windows için temel sistem ortamları korunur (`SystemRoot` olmadan olmaz).
+const ENV_PASSLIST: [&str; 14] = [
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "USER",
+    "USERNAME",
+    "SHELL",
+    "TERM",
+    "COMSPEC",
+    "SYSTEMROOT",
+    "WINDIR",
+    "APPDATA",
+    "LOCALAPPDATA",
+];
 
 struct McpProc {
     child: tokio::process::Child,
@@ -77,6 +106,13 @@ async fn spawn_inner(
             return Err(err("mcp: geçersiz argüman"));
         }
     }
+    // O7 — süreç sayısı üst sınırı: sızan/askıda kalan sunucular uygulamanın
+    // süreç tabanını şişiremez.
+    if state.procs.lock().unwrap().len() >= MAX_PROCS {
+        return Err(err(format!(
+            "mcp: eşzamanlı sunucu sınırı dolu ({MAX_PROCS}) · sunucuyu kapatıp tekrar deneyin"
+        )));
+    }
     let mut child_cmd = tokio::process::Command::new(&cmd);
     child_cmd
         .args(&args)
@@ -89,6 +125,14 @@ async fn spawn_inner(
             .canonicalize()
             .map_err(|e| err(format!("mcp: çalışma dizini geçersiz: {e}")))?;
         child_cmd.current_dir(&dir);
+    }
+    // O7 — env_clear + izin listesi: ebeveynin TAM ortamı (API anahtarları,
+    // proxy tokenler biri olabilir) çocuk sürece sızmaz.
+    child_cmd.env_clear();
+    for key in ENV_PASSLIST {
+        if let Ok(v) = std::env::var(key) {
+            child_cmd.env(key, v);
+        }
     }
     if let Some(vars) = env {
         child_cmd.envs(&vars);
@@ -117,6 +161,14 @@ async fn spawn_inner(
 }
 
 async fn write_inner(state: &McpState, id: &str, data: &str) -> Result<(), String> {
+    // O7 — yazma gövdesi sınırlı: göbeklenme/bellek pompanması kapıyı kapatır.
+    if data.len() > MAX_WRITE_BYTES {
+        return Err(err(format!(
+            "mcp: istek gövdesi çok büyük ({} > {} bayt)",
+            data.len(),
+            MAX_WRITE_BYTES
+        )));
+    }
     let proc = state.get(id)?;
     let mut p = proc.lock().await;
     p.writer
@@ -138,12 +190,25 @@ async fn read_inner(state: &McpState, id: &str, timeout_ms: Option<u64>) -> Resu
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(15_000).clamp(100, 60_000));
     let proc = state.get(id)?;
     let mut p = proc.lock().await;
-    let mut line = String::new();
-    tokio::time::timeout(timeout, p.reader.read_line(&mut line))
+    // O7 — satır boyutu sınırı: `take()` 1 MB'ı aşan akışı keser; sınırı
+    // aşan tek satır newline'sız döner → reddedilir (sonsuz satır büyümez).
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut limited = (&mut p.reader).take(MAX_LINE_BYTES as u64);
+    let n = tokio::time::timeout(timeout, limited.read_until(b'\n', &mut buf))
         .await
         .map_err(|_| err("mcp: yanıt zaman aşımı"))?
         .map_err(|e| err(format!("mcp: okunamadı: {e}")))?;
-    Ok(line.trim_end_matches(['\r', '\n']).to_owned())
+    if n == 0 {
+        return Err(err("mcp: akış kapandı"));
+    }
+    // Newline byte saw := `\n` in buf — yoksa tavan aşılı ve satır tamamlanmadı.
+    if !buf.contains(&b'\n') {
+        return Err(err("mcp: satır boyutu sınırı aşıldı"));
+    }
+    let line = String::from_utf8_lossy(&buf)
+        .trim_end_matches(['\r', '\n'])
+        .to_owned();
+    Ok(line)
 }
 
 async fn kill_inner(state: &McpState, id: &str) -> Result<(), String> {

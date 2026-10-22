@@ -14,6 +14,7 @@ import type { Model, Provider } from '../types';
 import { isTauri, useSettingsStore } from '../store/settings';
 import { useSessionStore } from '../store/session';
 import { useWorkspaceStore } from '../store/workspace';
+import { useT } from '../lib/i18n';
 import { Icon, type IconName } from './icons';
 
 interface Props {
@@ -24,10 +25,10 @@ interface Props {
   onOpenSettings?: () => void;
 }
 
-const CAP_ICONS: { key: 'tools' | 'vision' | 'reasoning'; icon: IconName; label: string }[] = [
-  { key: 'tools', icon: 'wrench', label: 'tools' },
-  { key: 'vision', icon: 'eye', label: 'görsel' },
-  { key: 'reasoning', icon: 'spark', label: 'reasoning' },
+const CAP_ICONS: { key: 'tools' | 'vision' | 'reasoning'; icon: IconName; labelKey: 'titlebar.capTools' | 'titlebar.capVision' | 'titlebar.capReasoning' }[] = [
+  { key: 'tools', icon: 'wrench', labelKey: 'titlebar.capTools' },
+  { key: 'vision', icon: 'eye', labelKey: 'titlebar.capVision' },
+  { key: 'reasoning', icon: 'spark', labelKey: 'titlebar.capReasoning' },
 ];
 
 /** Platform tespiti: macOS'ta traffic light, diğerinde kare düğmeler. */
@@ -43,6 +44,7 @@ export default function Titlebar({
   sessionModel,
   onOpenSettings,
 }: Props) {
+  const t = useT();
   const provider = useSettingsStore((s) => s.currentProvider);
   const model = useSettingsStore((s) => s.currentModel);
   const customModels = useSettingsStore((s) => s.customModels);
@@ -162,51 +164,51 @@ export default function Titlebar({
     <div className="titlebar" data-tauri-drag-region>
       {isTauri() ? (
         mac ? (
-          <span className="traffic no-drag" role="group" aria-label="Pencere denetimleri">
+          <span className="traffic no-drag" role="group" aria-label={t('titlebar.windowControls')}>
             <button
               className="tl-btn"
-              title="kapat"
-              aria-label="Kapat"
+              title={t('titlebar.close')}
+              aria-label={t('titlebar.close')}
               onClick={() => void getCurrentWindow().close().catch(() => {})}
             >
               <i className="tl tl-r" />
             </button>
             <button
               className="tl-btn"
-              title="küçült"
-              aria-label="Küçült"
+              title={t('titlebar.minimize')}
+              aria-label={t('titlebar.minimize')}
               onClick={() => void getCurrentWindow().minimize().catch(() => {})}
             >
               <i className="tl tl-y" />
             </button>
             <button
               className="tl-btn"
-              title="büyüt / eski boy"
-              aria-label="Büyüt"
+              title={t('titlebar.maximize')}
+              aria-label={t('titlebar.maximize')}
               onClick={() => void getCurrentWindow().toggleMaximize().catch(() => {})}
             >
               <i className="tl tl-g" />
             </button>
           </span>
         ) : (
-          <span className="winctl no-drag" role="group" aria-label="Pencere denetimleri">
+          <span className="winctl no-drag" role="group" aria-label={t('titlebar.windowControls')}>
             <button
-              title="küçült"
-              aria-label="Küçült"
+              title={t('titlebar.minimize')}
+              aria-label={t('titlebar.minimize')}
               onClick={() => void getCurrentWindow().minimize().catch(() => {})}
             >
               <Icon name="chevron-down" size="sm" className="rot-90" />
             </button>
             <button
-              title="büyüt / eski boy"
-              aria-label="Büyüt"
+              title={t('titlebar.maximize')}
+              aria-label={t('titlebar.maximize')}
               onClick={() => void getCurrentWindow().toggleMaximize().catch(() => {})}
             >
               <Icon name="panel" size="sm" />
             </button>
             <button
-              title="kapat"
-              aria-label="Kapat"
+              title={t('titlebar.close')}
+              aria-label={t('titlebar.close')}
               onClick={() => void getCurrentWindow().close().catch(() => {})}
             >
               <Icon name="x" size="sm" />
@@ -243,7 +245,7 @@ export default function Titlebar({
           <span
             className="workspace-chip"
             title={workspaceRoot}
-            aria-label={`Çalışma alanı: ${workspaceLabel || workspaceRoot}`}
+            aria-label={t('titlebar.workspace', { name: workspaceLabel || workspaceRoot })}
           >
             <Icon name="folder" size="sm" />
             {workspaceLabel || workspaceRoot.split('/').filter(Boolean).pop() || workspaceRoot}
@@ -254,7 +256,7 @@ export default function Titlebar({
           className="model-pill"
           title={
             differs
-              ? `${displayProvider} / ${displayModel} (bu konuşma) · varsayılan: ${model}`
+              ? `${displayProvider} / ${displayModel} (${t('titlebar.thisChat')}) · ${t('titlebar.defaultModel', { model })}`
               : `${displayProvider} / ${displayModel}`
           }
           aria-haspopup="listbox"
@@ -270,14 +272,14 @@ export default function Titlebar({
         {open && (
           <>
             <div className="dropdown-backdrop" onClick={() => setOpen(false)} />
-            <div className="model-dropdown" role="listbox" aria-label="Model seç">
+            <div className="model-dropdown" role="listbox" aria-label={t('titlebar.modelSelect')}>
               <div className="model-search-row">
                 <Icon name="search" size="sm" />
                 <input
                   ref={searchRef}
                   className="model-search"
                   type="text"
-                  placeholder="model ara (id, ad, aile)…"
+                  placeholder={t('titlebar.searchPlaceholder')}
                   value={query}
                   spellCheck={false}
                   autoComplete="off"
@@ -290,7 +292,7 @@ export default function Titlebar({
               <div className="model-dropdown-list" ref={listRef}>
                 {groups.length === 0 ? (
                   <div className="model-group-title">
-                    {query ? 'eşleşen model yok' : 'görünür model yok'}
+                    {query ? t('titlebar.noMatch') : t('titlebar.noVisible')}
                   </div>
                 ) : (
                   groups.map(([p, models]) => (
@@ -321,7 +323,7 @@ export default function Titlebar({
                                   <span
                                     key={c.key}
                                     className={caps[c.key] ? 'on' : 'off'}
-                                    title={c.label}
+                                    title={t(c.labelKey)}
                                   >
                                     <Icon name={c.icon} size="sm" />
                                   </span>
@@ -336,19 +338,19 @@ export default function Titlebar({
                 )}
                 {locked.length > 0 ? (
                   <div className="model-group">
-                    <div className="model-group-title">anahtar gereken sağlayıcılar</div>
+                    <div className="model-group-title">{t('titlebar.lockedProviders')}</div>
                     {locked.map((p) => (
                       <button
                         key={p}
                         className="model-item model-item-lock"
-                        title={`${PROVIDER_DEFS[p as Provider]?.label ?? p} için API anahtarı gir`}
+                        title={t('titlebar.needKey', { provider: PROVIDER_DEFS[p as Provider]?.label ?? p })}
                         onClick={() => {
                           setOpen(false);
                           onOpenSettings?.();
                         }}
                       >
                         <Icon name="key" size="sm" />
-                        {PROVIDER_DEFS[p]?.label ?? p} — anahtar ekle
+                        {PROVIDER_DEFS[p]?.label ?? p} — {t('titlebar.addKey')}
                       </button>
                     ))}
                   </div>

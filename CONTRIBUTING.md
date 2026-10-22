@@ -27,7 +27,7 @@ Bir faz yalnızca şunlar tamamsa kapanır:
 
 1. Tüm testler yeşil (`npm test` + `cargo test --lib`).
 2. Yol haritasındaki kabul kriterleri karşılanmış.
-3. `memorybank/memorybank.md` güncel (mimari sonucu) + `memorybank/Değişiklik Raporu.md`
+3. `docs/ARCHITECTURE.md` güncel (mimari sonucu) + `docs/DEVLOG.md`
    tarihli giriş eklenmiş. Sürüm politikası ayrıca belirtilmedikçe numara oynatılmaz.
 
 ## Allowlist değiştirme prosedürü (TS + Rust)
@@ -41,7 +41,13 @@ Bir faz yalnızca şunlar tamamsa kapanır:
 
 ## Kod uzlaşımları
 
-- UI metinleri Türkçe; kod yorumları kısa.
-- Yeni renk eklenmez (`styles/global.css` token'ları kullanılır).
+- **UI metinleri `src/lib/i18n/locales/` altındadır** — bileşende doğrudan Türkçe
+  metin yazma. `tr.ts` **kaynak gerçektir**; yeni anahtar eklendiğinde diğer 4
+  sözlüğe (`en/de/fr/es`) de karşılığı eklenir (TS `Record` + bütünlük testi
+  eksik anahtarı yakalar). React'te `useT()`, React dışı modüllerde
+  `lib/i18n/core` → `t()` kullan.
+- **Modele giden metinler** (`toolspec.ts` tool açıklamaları) İngilizce ve
+  sabittir — dil değişiminden etkilenmez.
+- Kod yorumları kısa; yeni renk eklenmez (`styles/global.css` token'ları kullanılır).
 - `Message`/`Session` şema değişikliği = `normalizeSession` roundtrip testi zorunlu.
 - Yeni invoke komutu = `mod.rs` + `lib.rs` kaydı + Rust testi.

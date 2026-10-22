@@ -1,5 +1,10 @@
 {
   "_note": "Faz 3 (K3) — exec allowlist tek kaynağı. TS policy.ts import eder, Rust exec.rs include_str! ile gömer. Boş liste = serbest argüman (tehlikeli karakter kontrolü hariç); diğerleri prefix eşleşmesi. exec her zaman manuel onaylıdır (O6). O1 (Faz 4): dosya argümanı alan komutlar (FILE_ARG_CMDS + rm) workspace-relative jail'e tabidir — mutlak yol, ../ ve bloklu dosya/dizin argümanlarda reddedilir; allowlist 'hangi komut'u kısıtlar, 'ne yaptığını' değil — yapı gereği kod çalıştıran komutlar (npm run/test, git commit/push, pip install…) onay ekranında açık uyarıyla işaretlenir.",
+  "_predicates": {
+    "_note": "O7 — serbest-argüman komutlarda 'yapı gereği KOMUT ÇALIŞTIRAN' flagler. Allowlist bu komutları salt-okunur gibi listeler; bu flagler keyfi süreç başlatır (find -exec sh -c '…'; rg -- preprocessing). Hem TS (policy.ts) hem Rust (exec.rs) bu tabloyu okur; tam veya '<flag>=' biçiminde görülünce reddedilir (onay kartsına düşmez, önce hata).",
+    "find": ["-exec", "-execdir", "-ok", "-okdir"],
+    "rg": ["--pre", "--pre-glob"]
+  },
   "npm": [["--version"], ["ls"], ["run"], ["test"], ["run", "build"], ["run", "dev"]],
   "npx": [["--version"]],
   "node": [["--version"]],

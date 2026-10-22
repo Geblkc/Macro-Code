@@ -94,6 +94,32 @@ describe('Faz 10 D2c — blok listesi tek kaynak', () => {
   });
 });
 
+describe('O7 — CSP simetrisi (tauri.conf.json)', () => {
+  const CONF_PATH = resolve(ROOT, 'src-tauri/tauri.conf.json');
+
+  it('connect-src ws/wss çiftleri localhost + 127.0.0.1 için simetrik', () => {
+    const conf = JSON.parse(readFileSync(CONF_PATH, 'utf8')) as {
+      app: { security: { csp: string } };
+    };
+    const csp = conf.app.security.csp;
+    // Düzeltme öncesi "ws://localhost:* wss://127.0.0.1:*" çifti simetriksizdi.
+    expect(csp).toContain('ws://localhost:*');
+    expect(csp).toContain('ws://127.0.0.1:*');
+    expect(csp).toContain('wss://localhost:*');
+    expect(csp).toContain('wss://127.0.0.1:*');
+  });
+
+  it('exec allowlist tek kaynağı hâlâ allowlist.json (O7 predicate tablosu dahil)', () => {
+    const allowlist = JSON.parse(
+      readFileSync(resolve(ROOT, 'src/lib/engine/allowlist.json'), 'utf8'),
+    ) as { _predicates: Record<string, string[]> };
+    expect(allowlist._predicates['find']).toEqual(
+      expect.arrayContaining(['-exec', '-execdir', '-ok', '-okdir']),
+    );
+    expect(allowlist._predicates['rg']).toEqual(expect.arrayContaining(['--pre', '--pre-glob']));
+  });
+});
+
 describe('Rust migration sözleşmesi (Faz 7 A1)', () => {
   const libRs = readFileSync(LIB_RS_PATH, 'utf8');
 

@@ -1,11 +1,372 @@
 # MacroCode — Değişiklik Raporu
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
-> Güncel mimari için bkz. `memorybank.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-10-19
+> Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
+> Son güncelleme: 2026-10-21
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
-`memorybank.md`'ye sadece mimari sonucu yansıtılır.
+`ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-10-21 — Faz 13 · Kaydet Geri Bildirimi (toast) + Sürüm Tek Kaynak (Faz 4 + 5)
+
+> Kullanıcı talebi: "Faz 4 ve 5'i aynı anda yap". Bu kayıt iki fazı kapsar:
+> **(4)** Kaydet geri bildirimi + keystore hata yutmayı bırakma,
+> **(5)** Sürüm tek kaynak + Hakkında sekmesi tam.
+
+### A. Toast bildirim kanalı (Faz 4)
+
+- **`src/lib/toast.ts`** (yeni): sıfır bağımlılık, React dışı modüllerden de
+  çağrılabilir — `showToast(msg, kind)` · `toast.ok/err/info` · `dismissToast(id)` ·
+  `subscribeToasts(listener)` · `toastItems()` · `clearToasts()`.
+  Süre: başarı 3 sn / hata 6 sn / `0` = elle kapanır. **Flood koruması:** en fazla 4.
+- **`src/components/Toast.tsx`** (yeni): `ToastHost` — uygulama kökünde bir kez
+  mount (`App.tsx`). `role="status"` + `aria-live="polite"` (ekran okuyucu).
+  Konum: sağ alt, durum çubuğunun üstünde (`styles/toast.css`).
+- **Kritik düzeltme — `save()` artık hata yutmuyor:**
+  Önceden tüm keystore yazmaları `.catch(() => {})` ile sessizce yutuluyordu;
+  kullanıcı "kaydettim" sanıp **API anahtarını kaybedebiliyordu**.
+  Artık: her iş `Promise.allSettled` ile toplanır, başarısız olanlar **etiketiyle**
+  (hangi sağlayıcı) hata toast'ında gösterilir ve **modal açık kalır** (tekrar
+  deneyebilir). Başarılıysa "Ayarlar kaydedildi" toast'ı + modal kapanır.
+- Hakkında sekmesindeki pano kopyalama da toast ile bildiriliyor.
+
+### B. Sürüm tek kaynak (Faz 5)
+
+- **`vite.config.ts`** → `package.json` okunur, `define` ile gömülür:
+  `__APP_VERSION__` · `__REPO_URL__` (repository.url veya homepage).
+- **`src/vite-env.d.ts`** → global bildirimler (`declare const`).
+- **`src/lib/appInfo.ts`** (yeni): `APP_VERSION` · `REPO_URL` · `LICENSE` ·
+  `PLATFORMS` · `APP_NAME`. Uygulama içinde **sabit sürüm yazılmaz** —
+  `AboutTab.tsx`'deki `const APP_VERSION = '0.1.0'` kaldırıldı.
+- **`src/lib/version.test.ts`** (yeni): package.json ↔ tauri.conf.json sürüm
+  senkronu + ürün adı + bundle telif hakkı + gömülen sürüm eşleşmesi.
+- `package.json` → `license` · `homepage` · `repository` alanları eklendi
+  (repo URL'si kullanıcı tarafından doldurulacak — bağlantı boşsa Hakkında'da
+  "Kaynak kod" butonu **gizlenir**).
+
+### C. Hakkında sekmesi tamamlandı
+
+- **Logo** artık inline SVG kopya değil → `public/macrocode-logo.svg` (tek kaynak).
+- **Bilgi ızgarası:** Sürüm · Lisans (MIT) · Platform · Model kataloğu
+  (43 model · 7 sağlayıcı — `settings.about.modelCount` **ölü anahtardan canlıya**).
+- **Veri konumları:** Rust `get_app_paths` komutu (`commands/paths.rs`, yeni) →
+  `app_data_dir` + `keys.json` + `sessions.db` yollarını döndürür; About
+  sekmesinde **kopyalanabilir** olarak gösterilir. Tarayıcı-dev'de konum yoksa
+  açıklama satırı gösterilir.
+- **Kaynak kod** bağlantısı (`REPO_URL` doluysa) + **Lisans · MIT** bağlantısı.
+- **Ölü UI kaldırıldı:** devre dışı "Güncelleme yok" butonu (updater altyapısı yok).
+- **Ölü i18n anahtarları silindi** (6 × 5 dil): `settings.about.title` ·
+  `noUpdate` · `noUpdateTitle` · `noUpdateNote` · `licenseValue` · `privacyTitle`.
+
+### D. i18n
+
+- 11 yeni anahtar × 5 dil (`settings.save.ok` · `settings.save.failed` ·
+  `settings.about.*`).
+- `settings.save.failed` `{count}` taşıyor → İngilizcede **çoğul nesnesi**
+  (i18n sözleşmesi) — 5 dilde çoğul biçim.
+
+### E. Test & doğrulama
+
+- `src/lib/toast.test.ts` (yeni, 9 test): ekleme · abonelik · dismiss · flood
+  koruması · süreler · otomatik kapanma · kısa yollar.
+- `src/lib/version.test.ts` (yeni, 8 test): sürüm senkronu / ürün adı / telif /
+  gömülen sürüm / repo URL biçimi.
+- `npm run test` → **65 dosya / 495 test geçti** (Faz 3'den sonra 63 / 478).
+- `npm run build` → temiz · `cargo fmt/clippy/test` → temiz.
+- **Playwright + Firefox:** Kaydet → "Settings saved." toast'ı · modal kapandı ·
+  Hakkında sürüm rozeti `v0.1.0` · 4 bilgi hücresi · logo `<img>` ·
+  sürüm kopyalama toast'ı · toast 3 sn sonra kapandı · konsol hatası yok.
+- README'ye **yayın öncesi kontrol listesi** eklendi (sürüm senkronu + repo URL).
+
+---
+
+## 2026-10-21 — Faz 13 · Sekme İçeriklerinin Ayrıntılandırılması (Faz 3)
+
+> Faz 2'de bölünen sekmelerin içi bu fazda dolduruldu: sağlayıcı kartlarına
+> konsol bağlantısı + toplu test, MCP sekmesi native checkbox yerine `Switch` +
+> maskeli env + araç listesi, shell allowlist doğrulaması.
+
+### A. Sağlayıcılar
+
+- **4 bölüm:** Bulut sağlayıcıları (6 kart) · Yerel sağlayıcı (Ollama) ·
+  Özel taban URL · Özel uçlar. (Önceden hepsi tek ızgara + alt alta listeydi.)
+- **`PROVIDER_DEFS` zenginleştirildi** (7 sağlayıcı): `keyUrl` (konsol bağlantısı) ·
+  `keyUrlLabel` (görünen alan adı) · `defaultBaseUrl` (fabrika adresi).
+  → Her kartta **"Anahtar al · console.anthropic.com"** gibi bir dış bağlantı.
+- **"Tümünü test et"** butonu: 7 sağlayıcıyı sırayla test eder (test sırasında
+  buton "test ediliyor…" durumuna geçer).
+- **Aktif sağlayıcı rozeti:** kayıtlı `currentProvider` ile eşleşen kartta
+  yeşil "aktif" çipi.
+- **Base URL override:** placeholder artık **fabrika adresini** gösteriyor;
+  dolu olduğunda **"sıfırla"** butonu çıkıyor (kaydetmede de temizleniyor).
+- **Durum rozeti ipucu:** "bağlı / anahtar geçersiz (kopyalarken boşluk olmasın) /
+  ağ hatası (internet bağlantısı)".
+- **Erişilebilirlik:** her alan `id` + `<label htmlFor>` ile eşleşiyor;
+  `SecretCard.fieldId` ölü prop'u kaldırıldı.
+- Ollama etiketi "Ollama URL" → **"Ollama"** (sağlayıcı adı; adres ayrı alanda).
+
+### B. MCP
+
+- Native `<input type="checkbox">` → **`Switch`** bileşeni (uygulama ile tutarlı).
+- **Env değerleri maskeleniyor:** `maskEnvText()` (8 karakterlik `•`) — alan
+  varsayılan **salt-okunur ve gizli**, "Göster/Gizle" butonu ile açılır.
+- **Keşif artık araç listesi döndürüyor:** `McpDiscovery.tools` (ad + açıklama).
+  Keşif yapıldıysa "İzinli araçlar" **çoklu seçim** listesine dönüşüyor;
+  keşif yoksa serbest metin alanı kalıyor.
+
+### C. Sohbet
+
+- **Shell allowlist doğrulaması:** geçersiz satırlar kırmızı uyarı olarak
+  gösteriliyor ("1 satır geçersiz ve yok sayılıyor: rm -rf /").
+  Kural **motorla aynı** — `engine/policy.ts` → `parseCustomLine` tek kaynak;
+  `rm` hiçbir tabloda gevşemez.
+
+### D. i18n
+
+- 17 yeni anahtar × 5 dil (`settings.providers.*` · `settings.mcp.*` ·
+  `settings.chat.allowListInvalid`).
+- `settings.chat.allowListInvalid` `{count}` taşıyor → **İngilizcede çoğul nesnesi**
+  (i18n sözleşmesi) — 5 dilde çoğul biçime alındı.
+
+### E. Test & doğrulama
+
+- `SettingsModal/env.test.ts` (yeni, 15 test): `maskEnvText` (maske/gizleme) ·
+  `allowListIssues` (rm/geçersiz komut/boş-yorum) · `parseEnvText`/`serializeEnv`
+  gidiş-dönüş.
+- `npm run test` → **63 dosya / 478 test geçti** (Faz 2'den sonra 62 / 463).
+- `npm run build` → temiz · `cargo fmt/clippy/test` → temiz.
+- **Playwright + Firefox:** 4 sağlayıcı bölümü · 7 "Anahtar al" bağlantısı ·
+  "Test all" butonu · base URL "sıfırla" çalışıyor · MCP'de 0 native checkbox ·
+  env alanı varsayılan salt-okunur ve maskeli (`API_KEY=••••••••`) ·
+  allowlist uyarısı görünüyor · konsol hatası yok.
+
+---
+
+## 2026-10-21 — Faz 13 · Ayarlar Kabuğu: Kullanıcı Dostu Modal (Faz 1)
+
+> Kullanıcı talebi: "ayarları detaylıca düzenleyelim, daha kullanıcı dostu hale
+> getirelim, yayına hazır hale getirelim". Kararlar: **7 sekme + iç alt sekmeler**,
+> sürüm `0.1.0` (ilk halka yayını), yayın kapsamı = sürüm tek kaynak + Hakkında
+> sekmesi + Kaydet geri bildirimi (toast). Bu kayıt **Faz 1'i** (modal kabuğu) kapsar.
+
+### A. Kaydedilmemiş değişiklikle kapatma
+
+- `Escape` · overlay tıklaması · **yeni X butonu** · "Vazgeç" → hepsi `requestClose()`
+  üzerinden geçer; `dirty` ise `ConfirmDialog` açılır.
+- `components/SettingsModal/ConfirmDialog.tsx` (yeni): `Escape` → iptal,
+  `Enter` → onay, `role="alertdialog"`, odak döngüsü. **Güvenli varsayılan:**
+  odak "Değişiklikleri iptal et" butonundadır (kazara kaydetme olmaz).
+- Diyalog overlay'i dış katmana sızmaz (`stopPropagation`) — çift tetiklenme düzeltildi.
+
+### B. Odak döngüsü (focus trap)
+
+- `hooks/useFocusTrap.ts` (yeni): `FOCUSABLE_SELECTOR` · `focusableElements()` ·
+  `cycleFocus()` · `useFocusTrap()`.
+- Modal açılışında **aktif sekme düğmesine** odaklanır (`data-autofocus`),
+  kapanışta modal öncesi öğeye odak döner.
+- `Tab`/`Shift+Tab` modal içinde döngüde kalır.
+- **Tasarım kararı:** döngü native `addEventListener` değil **React `onKeyDown`**
+  üzerinden sürülür — böylece iç içe diyaloglar `stopPropagation` ile üstteki
+  Escape/Tab işleyicisini iptal edebilir.
+
+### C. Sekme klavye navigasyonu + state korunumu
+
+- `role="tablist"` + roving `tabindex` + `aria-selected` / `aria-controls` /
+  `aria-labelledby` bağlantıları. `↑↓ ←→ Home End` ile sekme değişimi (odak da taşınır).
+- Saf fonksiyon: `SettingsModal/types.ts` → `nextTabIndex()` (test edilebilir).
+- **Sekme state korunumu:** ziyaret edilen sekmeler mount'ta kalır, `hidden` ile
+  gizlenir (`visited` dizisi + `TabPanel` sarmalayıcısı) → Modeller sekmesindeki
+  arama metni / süzgeç ve MCP keşif sonuçları sekme değiştirince **kaybolmaz**.
+- `styles/global.css` → `[hidden] { display: none !important; }` (author `display`
+  kuralları `hidden`'ı ezebilir).
+- Sekme değişince içerik kaydırması başa döner.
+- **Davranış değişikliği:** modal açılışında sekme artık `providers`'a **sıfırlanmaz** —
+  son kullanılan sekmede açılır (odak tutarlılığı + "kaldığın yerden devam et").
+
+### D. Ölçü ve görsel
+
+- Modal 880 → **960px**, `max-height` 86vh → **88vh**.
+- Başlığa **X kapatma butonu** (`.head-right` sarmalayıcısı — "kaydedilmemiş" rozeti
+  artık `margin-left:auto` taşımıyor).
+- `styles/settings.css` → onay kutusu stilleri (`.confirm*`), `.tab-panel`, `.modal-close`.
+
+### E. i18n
+
+- 4 yeni anahtar **5 dilde** eklendi: `settings.discard.title` ·
+  `settings.discard.message` · `settings.discard.save` · `settings.discard.discard`.
+
+### F. Test & doğrulama
+
+- `components/SettingsModal/tabs.test.ts` (yeni, 10 test): `nextTabIndex`
+  (döngü / Home / End / geçersiz tuş), `mergeVisited`, `TABS` bütünlüğü.
+- `npm run test` → **61 dosya / 449 test geçti** (öncesi 60 / 439).
+- `npm run build` (tsc --noEmit + vite build) → temiz.
+- **Playwright + Firefox ile uçtan uca doğrulama:**
+  dirty rozeti görünür · `Escape` onay kutusunu açar · "Değişiklikleri iptal et"
+  modalı kapatır · Modeller arama metni sekme değiştirince korunur · ok tuşu sekmeyi
+  değiştirir ve odağı taşır · 40 ardışık `Tab` sonrası odak modal içinde kalır ·
+  konsol hatası yok.
+
+---
+
+## 2026-10-21 — Faz 13 · Ayarlar Sekme Yeniden Yapılandırması (Faz 2)
+
+> Kullanıcı kararı: **7 sekme + iç alt sekmeler**. "Modeller" sekmesi önceden 6 ayrı
+> işi tek sayfada barındırıyordu; işler bölündü. Aynı kayıtta: çift tanım
+> (`clockFormat`/`contrast`) tek yere toplandı, ölü UI kaldırıldı, yeni
+> `showTimestamps` ayarı eklendi.
+
+### A. Sekme yapısı (6 → 7)
+
+| # | Sekme | İkon | Not |
+|---|---|---|---|
+| 1 | Sağlayıcılar | key | değişmedi |
+| 2 | Modeller | cpu | **3 alt sekme**: Liste │ Katalog & keşif │ Elle ekle |
+| 3 | **Parametreler** | sliders | **yeni sekme** — 2 alt sekme: Model parametreleri │ Fiyatlar |
+| 4 | Sohbet | message | görünüm bloğu çıkarıldı |
+| 5 | **Görünüm & Dil** | globe | `LangTab` → `AppearanceTab` (yeniden adlandırıldı + genişletildi) |
+| 6 | MCP | activity | değişmedi |
+| 7 | Hakkında | info | değişmedi |
+
+- `types.ts` → `TabId` genişletildi (`params`, `appearance` eklendi; `lang` kaldırıldı).
+- `icons.tsx` → yeni **`sliders`** ikonu (16px ızgara, 1.5 stroke, `currentColor`).
+
+### B. Alt sekmeler
+
+- `components/Segmented.tsx` (yeni): segment kontrolü — `role="tablist"`,
+  roving `tabindex`, **aynı klavye kuralı** (↑↓ ←→ Home End).
+- `lib/tabNav.ts` (yeni): `nextTabIndex()` — tek kaynak (hem sekme rayı hem
+  segmented kullanır; `SettingsModal/types.ts` re-export eder).
+- Alt sekme panelleri de mount'ta kalır → **alt sekme state'i de korunur**.
+
+### C. İçerik düzenlemesi
+
+- **Varsayılan model seçimi** tablonun üstüne taşındı (önce altta idi).
+- **Model tablosu** artık **görünür ad + id** gösteriyor (önce yalnız id).
+- **Fiyat tablosu**: sütun başlıkları (girdi/çıktı/cache) + **kendi arama/süzgeci**
+  + "N / M model gösteriliyor" sayacı (eski 120 satır kırpma yerine).
+- **Elle model ekleme** artık tam: id · **görünür ad** · sağlayıcı · **bağlam penceresi** ·
+  **azami çıktı** · yetenekler (SVG ikonlu) — ölü i18n anahtarları kullanıma alındı.
+- **Katalog rozetleri** emoji (`🛠👁🧠`) yerine **SVG ikon** (memorybank kuralı 27 ihlali giderildi).
+- **Çift tanım kaldırıldı:** `clockFormat` + `contrast` artık **yalnızca** "Görünüm & Dil" sekmesinde.
+- **Ölü UI kaldırıldı:** "Sayı biçimi" bölümündeki iki `disabled` buton → tek satır not.
+- **Yinelenen aç/kapa listesi** kaldırıldı (tablo zaten anahtar içeriyor).
+- **Yeni ayar `showTimestamps`:** terminalde mesaj saati göster/gizle.
+  `store/settings.ts` (varsayılan `true`) + `partialize`'ın **iki dalı** da güncellendi
+  (aksi halde Tauri'de sıfırlanırdı) + `Terminal.tsx` (`toViewLine` + extras log satırları).
+
+### D. Ortak model listesi mantığı
+
+- `SettingsModal/modelList.ts` (yeni): `keyedProviders` · `modelView` · `filterModels`.
+  Modeller · Parametreler · Sohbet sekmeleri artık **aynı** görünürlük kuralını
+  kullanıyor (anahtarı olmayan sağlayıcı gizli, `ollama` hariç).
+
+### E. i18n
+
+- **Yeni anahtar:** 36 adet (`settings.tab.params`, `settings.models.sub.*`,
+  `settings.params.*`, `settings.appearance.*`, `settings.chat.answerSection` …) — 5 dilde.
+- **Yeniden adlandırma:** `settings.models.params.*` → `settings.params.*` ·
+  `settings.models.fallback*` / `price*` → `settings.params.*` ·
+  `settings.lang.*` + `settings.chat.*` (görünüm bloğu) → `settings.appearance.*` ·
+  `settings.tab.lang` → `settings.tab.appearance`.
+- **Silinen anahtar:** 12 adet (yinelenen aç/kapa listesi, kırpma notları, ölü
+  `settings.models.params`, `settings.chat.viewSection`, `settings.lang.accessibility` …).
+- **Çakışma düzeltmesi:** `settings.lang.clock24` ve `settings.chat.clock24` aynı
+  yeni anahtara taşınıyordu → yinelenen girişler temizlendi (ilk occurrence korundu).
+- `{count}` taşıyan yeni anahtar (`settings.chat.systemPromptCount`) İngilizcede
+  **çoğul nesnesi** — i18n sözleşmesi gereği (5 dilde).
+
+### F. Test & doğrulama
+
+- `SettingsModal/modelList.test.ts` (yeni, 14 test): `keyedProviders` (yazılan/ipucu/
+  silinmiş/ollama) · `modelView` (gizleme/kilit listesi/ollama istisnası) ·
+  `filterModels` (arama/süzgeç/birlikte).
+- `npm run test` → **62 dosya / 463 test geçti** (Faz 1'den sonra 61 / 449).
+- `npm run build` (tsc --noEmit + vite build) → temiz.
+- **Playwright + Firefox uçtan uca:** 7 sekme doğru sırada · Modeller'de 3 alt sekme ·
+  Parametreler'de 2 alt sekme · Modeller arama metni sekme değiştirince korunuyor ·
+  konsol hatası yok.
+- README'deki bayat ayar yolları güncellendi (⚙ Ayarlar → **Görünüm & Dil**,
+  ⚙ Ayarlar → Modeller → **Katalog & keşif**).
+
+---
+
+## 2026-10-21 — Çoklu Dil (i18n): TR / EN / DE / FR / ES
+
+> Kullanıcı talebi: uygulamaya çoklu dil seçeneği. Kararlar: 5 dil, kapsam =
+> "UI + terminal mesajları", modele giden tool açıklamaları İngilizce sabit,
+> **sıfır bağımlılık** (elle yazılmış motor). Sürüm değişmedi (`0.1.0`).
+
+### A. Motor (`src/lib/i18n/`) — sıfır runtime bağımlılığı
+
+- `types.ts` — `Locale` (`tr|en|de|fr|es`), `LanguageSetting` (`'auto' | Locale`),
+  `Message` (`string | PluralForms`), `TranslateParams`, `LOCALE_META`.
+- `format.ts` — `interpolate()` (`{ad}` yer tutucu) + `selectForm()`
+  (`Intl.PluralRules` ile de/fr/es çoğul seçimi).
+- `core.ts` — `t()` · `makeT()` · `translate()` · `setLocale()` · `getLocale()` ·
+  `detectLocale()` · `resolveLocale()`. **Store bağımsızdır** (döngüsel import yok).
+- `hook.ts` — `useT()`: store'daki dile reaktif bağlı (`useSettingsStore` aboneliği).
+- `locales/` — `tr.ts` **kaynak gerçek** (`as const` → `TranslationKey` türü buradan
+  türer) + `en/de/fr/es.ts` (`Record<TranslationKey, Message>` → eksik/fazla anahtar
+  TS hatası verir).
+- **Fallback zinciri:** aktif dil → İngilizce → Türkçe → anahtarın kendisi.
+
+### B. Çeviri sınırı
+
+- ✅ Çevrilen: tüm bileşen metinleri (`title`/`aria-label`/`placeholder` dahil),
+  ayarlar modalı (6 sekme), slash komut çıktıları, `formatProviderError`,
+  ajan tool/onay/görev kartları, `policy.ts` red gerekçeleri, `engine/tools/*`
+  hata metinleri, markdown export başlıkları, oturum varsayılan adı.
+- 🔒 **İngilizce sabit:** `engine/toolspec.ts` tool + parametre açıklamaları
+  (modele gider, kullanıcıya gösterilmez — model performansı ve araç çağrı
+  tutarlılığı için). Önceden Türkçeydi; artık İngilizce.
+- 🔒 Türkçe kalan: Rust backend hataları (`fs.rs`/`exec.rs`/`keystore.rs`),
+  `engine/skills.ts` prompt'u, agent system prompt'u, log kayıtları.
+
+### C. Entegrasyon
+
+- `store/settings.ts` → `language: LanguageSetting` (varsayılan `'auto'`) +
+  `setLanguage()`. `partialize`'ın **iki dalına** da eklendi (Tauri dalı alanları
+  açık listeliyor — eklenmezse dil Tauri'de sıfırlanırdı).
+- `App.tsx` → `useEffect(() => setLocale(resolveLocale(language)), [language])`:
+  modül geneli locale + `<html lang>` senkronu.
+- `SettingsModal/LangTab.tsx` → dil seçimi **aktif** (önceden `disabled`, sadece TR).
+- `SettingsModal/types.ts` → `TABS` artık `labelKey` taşır (statik `label` yerine);
+  `Draft.language` eklendi. Ölü `TEST_CONN_LABEL` kaldırıldı.
+- `lib/commands.ts` → `HELP_LINES` sabiti yerine `helpLines()` fonksiyonu
+  (dil değişince yeniden üretilir).
+
+### D. Testler
+
+- `lib/i18n/i18n.test.ts` (24) — anahtar bütünlüğü (5 dil), interpolasyon, çoğul,
+  fallback, locale çözümleme.
+- `lib/i18n/integration.test.ts` (9) — store entegrasyonu, `<html lang>` senkronu,
+  modül geneli locale.
+- **Çoğul denetimi:** `{count}` taşıyan her anahtar İngilizcede **çoğul nesnesi**
+  olmak zorunda (düz metin "1 days ago" gibi hatalar üretirdi). Test bunu zorlar.
+  23 sayaç anahtarı 5 dilde çoğul biçimine çevrildi.
+- **Mevcut testler kırılmadı:** `t()` varsayılan locale'i `tr` → Türkçe çıktı
+  birebir aynı (`commands.test.ts`, `pricing.test.ts`, `policy.test.ts` dahil).
+
+### E. Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 hata |
+| `npm test` | ✅ **60 dosya / 439 test** yeşil (400 → 439) |
+| `npm run build` | ✅ yeşil · CSS 45.2 kB (gzip 8.7) · JS 573 kB (gzip 169) |
+| Tarayıcı (headless Firefox) | ✅ TR/EN/DE/FR/ES render; **kalıcı ayar** (`localStorage` → store → `useT`) doğrulandı; ayarlar modalı 6 sekme + dil sekmesi doğrulandı |
+| Rust | ⚪ etkilenmedi (`cargo test --lib` → 57 test yeşil) |
+
+### F. Notlar
+
+- `package.json` dependencies **değişmedi** (i18n motoru elle yazıldı).
+- `CONTRIBUTING.md` "UI metinleri Türkçe" kuralı → i18n kuralıyla değiştirildi.
+- `README.md`'ye "Çoklu dil (i18n)" bölümü eklendi.
+- Ayar modalındaki dil değişimi **Kaydet** ile uygulanır (taslak/iptal mantığı
+  korunur) — yeniden başlatma gerekmez.
 
 ---
 
@@ -159,7 +520,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
   (`MacroCode Dev <dev@macrocode.local>` — global config'de kimlik yok).
 - **A.2 `.gitignore`:** `*.log`, `.idea/`, `.vscode/`, `*.db*`, `tmp/`, `*.bak` eklendi.
 - **A.3 `LICENSE`:** MIT eklendi (README "MIT" diyordu, dosya yoktu).
-- **B.1 Model registry (istenen liste):** `memorybank/Modeller.md` sonundaki liste eklendi —
+- **B.1 Model registry (istenen liste):** `docs/MODELS.md` sonundaki liste eklendi —
   Anthropic: `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-mythos-5`,
   `claude-opus-4-8`, `claude-opus-4-7` · OpenAI: `gpt-5.6{,-sol,-terra,-luna}` ·
   DeepSeek: `deepseek-flash` (V4.1), `deepseek-v4-flash`, `deepseek-v4-pro` ·
@@ -390,7 +751,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
   `connect-src` genişletmeye gerek kalmıyor.
 - **Dokümantasyon:** `AI Çekirdek Yol Haritası.md` → Bölüm J sürüm politikası
   (sürüm sabit `0.1.0`), Bölüm K (Faz 7 kaydı), Bölüm L/M/N (Faz 8/9/10 planı).
-  `memorybank.md` → capability, provider sistem rolü kuralı, akış kontrolü ve kısıtlar güncellendi.
+  `ARCHITECTURE.md` → capability, provider sistem rolü kuralı, akış kontrolü ve kısıtlar güncellendi.
 - **Doğrulama:** `npx tsc --noEmit` temiz · `npx vitest run` → **289 test / 43 dosya yeşil**
   (yeni: `tauri-config.test.ts`, `usage.test.ts`, `systemMessages.test.ts`,
   `compactionMemo.test.ts`, `session.test.ts` A3 testleri, `http.test.ts` A5 testleri) ·
@@ -435,7 +796,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
 
 ## 2026-10-18 — Faz 1: Güvenlik Denetimi K1 → `undo_patch` Manifest Doğrulaması
 
-> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` K1 (Kritik). 7 fazlık planın 1/7'si.
+> Kaynak: `docs/Güvenlik Denetim Raporu.md` K1 (Kritik). 7 fazlık planın 1/7'si.
 
 - **Kök neden:** `undo_patch`, `.macrocode/backups/manifest.json` içindeki `backup_file`
   alanını doğrulamadan `backup_dir.join(...)` ile çözüyordu. Manifest workspace içinde
@@ -461,7 +822,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
 
 ## 2026-10-18 — Faz 2: Güvenlik Denetimi Y1 → Bloklu Dizin Zorlaması
 
-> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` Y1 (Yüksek). 7 fazlık planın 2/7'si.
+> Kaynak: `docs/Güvenlik Denetim Raporu.md` Y1 (Yüksek). 7 fazlık planın 2/7'si.
 
 - **Kök neden:** `BLOCKED_DIRS` (`.git`, `node_modules`, `dist`, `target`, `.tauri`,
   `coverage`, `.vite`, `.macrocode`) yalnızca `list_dir`/`walk`/`glob` çocuk filtrelerinde
@@ -488,7 +849,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
 
 ## 2026-10-18 — Faz 3: Güvenlik Denetimi Y2 → Exec Onay Akışı Yeniden Kuruldu
 
-> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` Y2 (Yüksek). 7 fazlık planın 3/7'si.
+> Kaynak: `docs/Güvenlik Denetim Raporu.md` Y2 (Yüksek). 7 fazlık planın 3/7'si.
 
 - **Kök neden:** `decideTool('exec', …)` her modda `autoApproved: false` döner (O6 bilinçli
   karar); `toolExec` ise `if (!d.autoApproved) throw` yapıyordu ve `resolve` onaylayınca
@@ -521,7 +882,7 @@ bileşenlerde ise bırakılmıştı. Bu turda kapatıldı.
 
 ## 2026-10-18 — Faz 4: Güvenlik Denetimi O1 → Exec Dosya Jail'i + Onay Ekranı
 
-> Kaynak: `memorybank/Güvenlik Denetim Raporu.md` O1 (Orta → Y2 sonrası Yüksek). 7 fazlık planın 4/7'si.
+> Kaynak: `docs/Güvenlik Denetim Raporu.md` O1 (Orta → Y2 sonrası Yüksek). 7 fazlık planın 4/7'si.
 
 - **Kök neden:** `check_cmd` yalnız `\n`/`\0` reddediyordu → `cat /etc/passwd`,
   `find /`, `cat .env` allowlist'ten geçiyordu (read_file'daki `.env`/secret koruması
@@ -692,9 +1053,9 @@ Her `npm run test` / `npm run build` / `cargo check` koşusundan sonra bu tablo 
 
 ## 2026-10-09 — Dokümantasyon ayrımı (bu işlem)
 
-- `memorybank.md` sadece **güncel proje mimarisi** olacak şekilde sadeleştirildi: tarihli faz anlatımları (§18), doğrulama kayıtları (§19), güvenlik işlem detayları (§20) ve `~~çözüldü~~` geçmişleri (§15) buraya taşındı.
+- `ARCHITECTURE.md` sadece **güncel proje mimarisi** olacak şekilde sadeleştirildi: tarihli faz anlatımları (§18), doğrulama kayıtları (§19), güvenlik işlem detayları (§20) ve `~~çözüldü~~` geçmişleri (§15) buraya taşındı.
 - Stale mimari bilgiler güncellendi: shell plugin kaldırma, 7 provider'lı keystore, güncel model ID'leri, model bazlı `maxOutput`, `Message.images`, `workspace` store, `tauri.ts` tekilleştirmesi, dinamik boot satırı, extras cap, terminal sort kaldırma.
-- Yeni kural: mimari değişikliği = `memorybank.md` güncelle + buraya tarihli işlem ekle.
+- Yeni kural: mimari değişikliği = `ARCHITECTURE.md` güncelle + buraya tarihli işlem ekle.
 
 ## 2026-10-09 — Logo değişimi + bundle ikonları üretildi
 

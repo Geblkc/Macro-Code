@@ -4,6 +4,7 @@
  */
 import type { Message } from '../../types';
 import type { AgentHistoryItem } from './agent';
+import { t } from '../i18n/core';
 import { approxHistoryTokens, approxMessageTokens, type TokenCountable } from './tokens';
 
 /** Bütçenin %75'i aşılınca compaction tetiklenir. */
@@ -92,7 +93,7 @@ export function buildSummaryContent(summary: string, nowTs: number): string {
   const d = new Date(nowTs);
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `[özet · ${stamp}] ${summary.slice(0, SUMMARY_MAX_CHARS)}`;
+  return `${t('agent.summaryPrefix', { date: stamp })} ${summary.slice(0, SUMMARY_MAX_CHARS)}`;
 }
 
 /**

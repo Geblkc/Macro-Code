@@ -2,10 +2,9 @@
  * Faz 5 — HTTP/SSE MCP transport (WebView fetch).
  * Yanıt tek JSON ya da SSE akışı olabilir; eşleşen id'li mesaj alınır.
  */
-import { McpError, parseResponse } from '../protocol';
+import { McpError, parseResponse, isResponseLike } from '../protocol';
 import type { McpTransport } from '../client';
 import { fetchFor } from '../../../providers/rustFetch';
-
 export interface HttpTransportOptions {
   url: string;
   headers?: Record<string, string>;
@@ -14,6 +13,43 @@ export interface HttpTransportOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** O7 — HTTP gövde tavanı: hızlı uygulama sonsuz SSE akışı açamaz. */
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+/** O7 — gövdeyi bayt-sayarak sınırlı okur; tavan aşılırsa akış iptal edilir. */
+async function readCappedBody(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    // Gövde stream'i yoksa (polyfill/test fake'i) text() üzerinden denetlenir.
+    const t = await res.text();
+    if (t.length > MAX_BODY_BYTES) throw new McpError('mcp: yanıt gövdesi çok büyük');
+    return t;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      try {
+        await reader.cancel();
+      } catch {
+        // iptal hatası yoksayılır
+      }
+      throw new McpError('mcp: yanıt gövdesi çok büyük');
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    merged.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
 
 /** Gövdeyi tek JSON-RPC yanıt metnine indirger (SSE `data:` satırları dahil). */
 export function extractResponseText(body: string, id: number | string): string {
@@ -27,8 +63,8 @@ export function extractResponseText(body: string, id: number | string): string {
     const payload = t.slice(5).trim();
     if (!payload || payload === '[DONE]') continue;
     try {
-      const v = JSON.parse(payload) as { id?: unknown };
-      if (v && typeof v === 'object' && (v as { id?: unknown }).id === id) return payload;
+      const v = JSON.parse(payload) as { id?: unknown; method?: unknown };
+      if (isResponseLike(v) && v.id === id) return payload;
       fallback ??= payload;
     } catch {
       // bozuk satır atlanır
@@ -84,7 +120,7 @@ export function createHttpTransport(opts: HttpTransportOptions): McpTransport {
         if (!res.ok) {
           throw new McpError(`mcp: http ${res.status}`);
         }
-        const body = await res.text();
+        const body = await readCappedBody(res);
         // Yanıtı sakla; read() teslim eder (SSE gövdesi dahil).
         pending.push(extractResponseText(body, lastId ?? 0));
       } catch (e) {

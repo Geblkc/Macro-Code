@@ -19,7 +19,7 @@
 .modal {
   width: 880px;
   max-width: 94vw;
-  max-height: 86vh;
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -35,7 +35,7 @@
   to { opacity: 1; transform: none; }
 }
 
-.modal-wide { width: 880px; max-width: 94vw; }
+.modal-wide { width: 960px; max-width: 94vw; }
 
 .modal-head {
   display: flex;
@@ -55,8 +55,15 @@
 
 .modal-head .head-icon { color: var(--accent); }
 
-.modal-head .dirty {
+/* Başlık sağı: kaydedilmemiş rozeti + kapatma butonu. */
+.head-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.modal-head .dirty {
   font-size: var(--fs-xs);
   color: var(--col-warn);
   display: flex;
@@ -64,6 +71,28 @@
   gap: 6px;
 }
 .modal-head .dirty .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--col-warn); }
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+.modal-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-overlay);
+  border-color: var(--border-default);
+}
+.modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .modal-body { flex: 1; display: flex; min-height: 0; }
 
@@ -115,6 +144,61 @@
   padding: var(--sp-5);
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Sekme paneli — ziyaret edilen sekmeler mount'ta kalır, gizlenir.
+   Böylece arama metni, süzgeç ve keşif sonuçları sekme değiştirince kaybolmaz. */
+.tab-panel { display: block; }
+
+/* ── Alt sekmeler (segmented control) ── */
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--sp-5);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 26px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.seg-btn:hover { color: var(--text-primary); }
+.seg-btn.active {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-weight: 500;
+  box-shadow: var(--sh-1);
+}
+.seg-btn.active > svg { color: var(--accent); }
+.seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.seg-btn.on { color: var(--accent); border-color: var(--accent-line); }
+
+/* ── Kaydırıcı ölçeği (min/max etiketi) ── */
+
+.slider-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
 }
 
 .modal-foot {
@@ -324,6 +408,45 @@ select.input option { background: var(--bg-raised); color: var(--text-primary); 
 .st.no { color: var(--text-tertiary); }
 .st.err { color: var(--col-err); }
 
+/* "Anahtar al" dış bağlantısı (konsol). */
+.key-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: var(--sp-3);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: color var(--dur-1) var(--ease-out);
+}
+.key-link:hover { color: var(--accent); }
+.key-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* MCP keşfedilen araçlardan izin seçimi. */
+.tool-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  max-height: 190px;
+  overflow-y: auto;
+}
+.tool-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+.tool-pick-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
 .endpoint-card {
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-md);
@@ -364,9 +487,47 @@ select.input option { background: var(--bg-raised); color: var(--text-primary); 
 }
 .table tr:hover td { background: var(--bg-inset); }
 .table .m { color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-sm); }
+.table .m .model-name {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.table .m .model-id {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
 .table .caps { display: flex; gap: 6px; color: var(--text-tertiary); }
 .table .caps .on { color: var(--accent); }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Satır içi yetenek rozetleri (katalog listesi). */
+.caps.inline {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+  gap: 5px;
+}
+
+/* Fiyat tablosu başlık satırı (girdi / çıktı / cache). */
+.price-head {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  padding-bottom: 5px;
+  margin-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.price-head > span:not(.price-head-model) { flex: 1; text-align: right; }
+.price-head-model { flex: 2; }
 
 .chip {
   display: inline-flex;
@@ -424,3 +585,56 @@ input[type='number']::-webkit-inner-spin-button {
   margin: 0;
 }
 input[type='number'] { -moz-appearance: textfield; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Onay kutusu (ayarlar modalı içinde)
+   ══════════════════════════════════════════════════════════════════ */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 310;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  animation: modal-fade var(--dur-2) var(--ease-out);
+}
+
+.confirm {
+  width: 420px;
+  max-width: 92vw;
+  padding: var(--sp-5);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+  animation: modal-in var(--dur-2) var(--ease-out);
+}
+
+.confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.confirm-icon { color: var(--col-warn); flex-shrink: 0; }
+.confirm-title {
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.confirm-msg {
+  margin: 0 0 var(--sp-5);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.confirm-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}

@@ -130,7 +130,10 @@ export async function loadSessionsFromDb(provided?: SqlDatabase): Promise<Loaded
       activeSessionId = sessions[0]?.id ?? null;
     }
     return { sessions, activeSessionId: activeSessionId ?? sessions[0]?.id ?? null };
-  } catch {
+  } catch (e) {
+    // O7: sessiz hata yolu kapandı — hatayı hem kaydet hem gözlemlenebilir log'a yaz.
+    lastDbError = e instanceof Error ? e.message : String(e);
+    logError('db.load.failed', { error: lastDbError });
     return null;
   }
 }
@@ -180,7 +183,10 @@ export async function saveSessionsToDb(
       throw inner;
     }
     return true;
-  } catch {
+  } catch (e) {
+    // O7: sessiz hata yolu kapandı — `sqlError()` ile boot uyarısı okunabilir.
+    lastDbError = e instanceof Error ? e.message : String(e);
+    logError('db.save.failed', { error: lastDbError });
     return false;
   }
 }

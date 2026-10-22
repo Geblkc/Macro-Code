@@ -72,6 +72,12 @@ export function createNotification(method: string, params?: unknown): JsonRpcNot
   };
 }
 
+/** Yanıt-ADAYI mı? (id'li ve sunucu-İSTEĞİ değil — `method`'lu satır
+ *  istemcinin kendi isteğinin yanıtı değildir; id karışması kapatılır.) */
+export function isResponseLike(v: unknown): v is { id: unknown } {
+  return !!v && typeof v === 'object' && 'id' in v && !('method' in v);
+}
+
 /** Ham metni JSON-RPC yanıtına çevirir; bozuksa McpError fırlatır. */
 export function parseResponse(text: string): JsonRpcResponse {
   let v: unknown;

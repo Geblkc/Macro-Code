@@ -5,13 +5,47 @@
 import rawAllowlist from './allowlist.json';
 import rawBlocks from './blocks.json';
 import { parseMcpName } from './mcp/registry';
+import { t } from '../i18n/core';
 import type { ApprovalMode, PolicyDecision, ToolName } from './types';
 
-const { _note: _allowNote, ...ALLOWED_CMDS } = rawAllowlist as unknown as Record<
-  string,
-  string[][]
-> & { _note: string };
+const {
+  _note: _allowNote,
+  // O7 — komut-çalıştıran flag tablosu komut DEĞİLDİR; ayrı ayrıştırılır,
+  // aksi halde `ALLOWED_CMDS["_predicates"]` obje kalırdı ve prefix
+  // eşleşmesi obje üzerinde `.some()` ile çökerdi.
+  _predicates: _predRaw,
+  ...ALLOWED_CMDS
+} = rawAllowlist as unknown as Record<string, string[][]> & {
+  _note: string;
+  _predicates: Record<string, string[]>;
+};
 void _allowNote;
+void _predRaw;
+
+/**
+ * O7 — serbest-argüman komutlarda "bu flag komut çalıştırır" tablosu.
+ * Tek kaynak: `allowlist.json` `_predicates` bölümü; Rust `exec.rs`
+ * `check_predicates` aynı tabloyu include_str! ile okur. Bu flagler
+ * kullanıcı ek-allowlist'iyle bile GEÇEMEZ (rm kuralıyla aynı sertlik).
+ */
+const EXEC_PREDICATES: Readonly<Record<string, readonly string[]>> = (_predRaw ?? {}) as Record<
+  string,
+  string[]
+>;
+
+/** O7 — ihlal varsa okunur sebep, yoksa null (Rust `check_predicates` ile senkron). */
+export function execPredicateViolation(cmd: string, args: string[]): string | null {
+  const bad = EXEC_PREDICATES[cmd.trim()];
+  if (!bad || bad.length === 0) return null;
+  for (const a of args) {
+    for (const f of bad) {
+      if (a === f || a.startsWith(`${f}=`)) {
+        return t('policy.predicateViolation', { cmd: cmd.trim(), arg: a });
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Faz 10 (D2c) — blok listelerinin **tek kaynağı**: `blocks.json`.
@@ -26,10 +60,13 @@ const BLOCKED_DATA_EXTS = new Set<string>(
   (rawBlocks as unknown as { dataExts: string[] }).dataExts ?? [],
 );
 
-/** Dosya uzantısı bloklu mu? (gizli/veri uzantıları — tek kaynak). */
+/** Dosya uzantısı bloklu mu? (gizli/veri uzantıları — tek kaynak).
+ *  O7: Rust `is_blocked_name_ext` ile senkron — son `.` sonrası uzantı;
+ *  `.pem` tarzı dotfile'lar da yakalanır, uzantısız ad ("key") yakalanmaz. */
 export function isBlockedExt(name: string): boolean {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (!ext) return false;
+  const dot = name.lastIndexOf('.');
+  if (dot < 0 || dot === name.length - 1) return false;
+  const ext = name.slice(dot + 1).toLowerCase();
   return BLOCKED_SECRET_EXTS.has(ext) || BLOCKED_DATA_EXTS.has(ext);
 }
 
@@ -65,11 +102,11 @@ export function execFileArgViolation(cmd: string, args: string[]): string | null
   if (cmd === 'rm') {
     const files = args.filter((a) => !a.startsWith('-'));
     const bad = files.find((a) => !isFileArgSafe(a));
-    return bad ? `argüman jail dışı: ${bad}` : null;
+    return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
   }
   if (!FILE_ARG_CMDS.has(cmd)) return null;
   const bad = args.filter((a) => !a.startsWith('-')).find((a) => !isFileArgSafe(a));
-  return bad ? `argüman jail dışı: ${bad}` : null;
+  return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
 }
 
 /**
@@ -79,26 +116,38 @@ export function execFileArgViolation(cmd: string, args: string[]): string | null
 export function execApprovalWarning(cmd: string, args: string[]): string | null {
   if (cmd === 'npm') {
     if (args[0] === 'run' || args[0] === 'test') {
-      return 'npm script çalıştırır — package.json içeriği doğrudan kod çalıştırır';
+      return t('policy.warnNpmScript');
     }
   }
-  if (cmd === 'npx') return 'paket indirip çalıştırabilir';
-  if (cmd === 'pip' && args[0] === 'install') return 'paket kurulumu çalıştırma içerir';
-  if (cmd === 'go' && args[0] === 'test') return 'go test kod çalıştırır';
+  if (cmd === 'npx') return t('policy.warnNpx');
+  if (cmd === 'pip' && args[0] === 'install') return t('policy.warnPip');
+  if (cmd === 'go' && args[0] === 'test') return t('policy.warnGoTest');
   if (cmd === 'cargo' && ['run', 'build', 'test', 'check', 'clippy'].includes(args[0] ?? '')) {
     if (args[0] === 'build' || args[0] === 'run') {
-      return 'cargo build/run build script ve kod çalıştırabilir';
+      return t('policy.warnCargoBuild');
     }
-    return 'cargo test koşusu kod çalıştırır';
+    return t('policy.warnCargoTest');
   }
-  if (cmd === 'pytest' || cmd === 'tsc') return 'test/denetleyici koşusu eklenti kodu çalıştırabilir';
+  if (cmd === 'pytest' || cmd === 'tsc') return t('policy.warnTestRunner');
   if (cmd === 'git') {
     if (['commit', 'push', 'add', 'stash'].includes(args[0] ?? '')) {
-      return 'git deposunu değiştirir (commit/push kalıcı olabilir)';
+      return t('policy.warnGitChange');
+    }
+    // O7: --no-index workspace DIŞINDAN da okur; --output çıktıyı jail
+    // dışına yazabilir — onay ekranında açıkça işaretlenir (flag reddedilmez:
+    // workspace içindeki meşru klasör diff'i çalışmaya devam eder).
+    if (args[0] === 'diff' && args.includes('--no-index')) {
+      return t('policy.warnGitNoIndex');
+    }
+    if (
+      ['diff', 'log', 'show'].includes(args[0] ?? '') &&
+      args.some((a) => a === '--output' || a.startsWith('--output='))
+    ) {
+      return t('policy.warnGitOutput');
     }
     return null;
   }
-  if (cmd === 'prettier' || cmd === 'eslint') return 'ayar dosyalarındaki eklentiler çalışabilir';
+  if (cmd === 'prettier' || cmd === 'eslint') return t('policy.warnLinter');
   return null;
 }
 
@@ -110,10 +159,8 @@ export function isBlockedFile(path: string): boolean {
   const base = path.split('/').pop() ?? path;
   if (BLOCKED_FILES.has(base)) return true;
   if (base.startsWith('.env.')) return true;
-  // Uzantılar da tek kaynaktan (Rust `is_blocked_ext` ile aynı).
-  const ext = base.split('.').pop()?.toLowerCase() ?? '';
-  if (ext && (BLOCKED_SECRET_EXTS.has(ext) || BLOCKED_DATA_EXTS.has(ext))) return true;
-  return false;
+  // Uzantılar da tek kaynaktan (Rust `is_blocked_ext` ile aynı — O7 senkronu).
+  return isBlockedExt(base);
 }
 
 /** Client-side jail: mutlak yol ve ../ reddedilir. */
@@ -138,7 +185,13 @@ export function isRmSafe(args: string[]): boolean {
   if (args[0] !== '-i') return false;
   for (const a of args.slice(1)) {
     if (a === '--force' || a === '--recursive' || a === '--no-preserve-root') return false;
-    if (/^-[a-zA-Z]*[frR][a-zA-Z]*$/.test(a)) return false;
+    // O7: Rust `is_rm_safe` char-üyeliğiyle senkron — kısa bayrak kümesinde
+    // f/r/R VARLIĞI reddeder (regex değil: "-1f" gibi biçimlerde de yakalanır).
+    if (a.startsWith('-') && !a.startsWith('--')) {
+      for (const ch of a.slice(1)) {
+        if (ch === 'f' || ch === 'r' || ch === 'R') return false;
+      }
+    }
   }
   return true;
 }
@@ -201,27 +254,27 @@ export function decideTool(
   if (name === 'glob') {
     const p = typeof args.path === 'string' ? args.path : '';
     if (p && isBlockedFile(p)) {
-      return { allowed: false, reason: `yasaklı dosya: ${p}` };
+      return { allowed: false, reason: t('policy.forbiddenFile', { path: p }) };
     }
     if (p && !isPathSafe(p)) {
-      return { allowed: false, reason: 'root dışına çıkılamaz · workspace-relative yol kullan' };
+      return { allowed: false, reason: t('policy.outsideRoot') };
     }
     const pat = typeof args.pattern === 'string' ? args.pattern.trim().replace(/\\/g, '/') : '';
     if (!pat) {
-      return { allowed: false, reason: 'desen gerekli' };
+      return { allowed: false, reason: t('policy.patternRequired') };
     }
     if (pat.startsWith('/') || pat.split('/').some((s) => s === '..')) {
-      return { allowed: false, reason: 'root dışına çıkılamaz · workspace-relative desen kullan' };
+      return { allowed: false, reason: t('policy.outsideRootPattern') };
     }
     return { allowed: true, autoApproved: true };
   }
   if (name === 'read_file' || name === 'list_dir' || name === 'grep') {
     const p = typeof args.path === 'string' ? args.path : '';
     if (p && isBlockedFile(p)) {
-      return { allowed: false, reason: `yasaklı dosya: ${p}` };
+      return { allowed: false, reason: t('policy.forbiddenFile', { path: p }) };
     }
     if (p && !isPathSafe(p)) {
-      return { allowed: false, reason: 'root dışına çıkılamaz · workspace-relative yol kullan' };
+      return { allowed: false, reason: t('policy.outsideRoot') };
     }
     return { allowed: true, autoApproved: true };
   }
@@ -230,11 +283,11 @@ export function decideTool(
     // hiç çalışmaz (onay da istenmez). Önceden bu mod `manual` ile aynıydı
     // (okuma araçları zaten hep serbest olduğu için) → anlamsızdı.
     if (mode === 'auto-read') {
-      return { allowed: false, reason: 'salt-okunur mod: yazma araçları kapalı' };
+      return { allowed: false, reason: t('policy.readOnlyWrite') };
     }
     const p = typeof args.path === 'string' ? args.path : '';
     if (!p || !isPathSafe(p)) {
-      return { allowed: false, reason: 'geçersiz dosya yolu' };
+      return { allowed: false, reason: t('policy.invalidPath') };
     }
     // Önizleme her zaman serbest; uygulama onayı agent.ts'te sorulur.
     return { allowed: true, autoApproved: mode === 'auto-edit' };
@@ -252,19 +305,25 @@ export function decideTool(
     // Faz 5: MCP araçları her zaman manuel onaylıdır (K2 akışı).
     return parseMcpName(name)
       ? { allowed: true, autoApproved: false }
-      : { allowed: false, reason: `bozuk mcp adı: ${name}` };
+      : { allowed: false, reason: t('policy.badMcpName', { name }) };
   }
   if (name === 'exec') {
     // Faz 12 B.7: salt-okunur modda komut çalıştırılmaz.
     if (mode === 'auto-read') {
-      return { allowed: false, reason: 'salt-okunur mod: komut çalıştırma kapalı' };
+      return { allowed: false, reason: t('policy.readOnlyExec') };
     }
     const cmd = typeof args.cmd === 'string' ? args.cmd : '';
     const rawArgs = Array.isArray(args.args)
       ? args.args.filter((a): a is string => typeof a === 'string')
       : [];
     if (cmd.trim() === 'rm' && !isRmSafe(rawArgs)) {
-      return { allowed: false, reason: 'yasaklı komut: rm yalnızca -i ile · -f/-r reddedilir' };
+      return { allowed: false, reason: t('policy.rmBlocked') };
+    }
+    // O7: komut-çalıştıran flagler (find -exec, rg --pre …) — ek allowlist
+    // dâhil hiçbir yoldan geçemez (Rust `check_predicates` çift savunma).
+    const pred = execPredicateViolation(cmd, rawArgs);
+    if (pred) {
+      return { allowed: false, reason: pred };
     }
     // O1 (Faz 4): dosya argümanı jail'i (Rust ile senkron — çift savunma).
     const jailBreak = execFileArgViolation(cmd.trim(), rawArgs);
@@ -272,11 +331,11 @@ export function decideTool(
       return { allowed: false, reason: jailBreak };
     }
     if (!isExecAllowed(cmd, rawArgs, extraAllow)) {
-      return { allowed: false, reason: `yasaklı komut: ${cmd} · allowlist dışı` };
+      return { allowed: false, reason: t('policy.forbiddenCommand', { cmd }) };
     }
     // Güvenlik (O6 düzeltmesi): exec hiçbir standart modda (manual/auto-read/auto-edit)
     // otomatik onaylanamaz; kabuk komutları her zaman kullanıcı onayı gerektirir.
     return { allowed: true, autoApproved: false };
   }
-  return { allowed: false, reason: `bilinmeyen araç: ${name}` };
+  return { allowed: false, reason: t('policy.unknownTool', { name }) };
 }

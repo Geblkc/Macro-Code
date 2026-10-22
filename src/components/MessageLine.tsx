@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { renderMarkdown } from '../lib/markdown';
 import type { LineType } from '../types';
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 interface Props {
@@ -36,6 +37,7 @@ function MessageLineInner({
   showThinking,
   onCopy,
 }: Props) {
+  const t = useT();
   const mdRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -76,7 +78,7 @@ function MessageLineInner({
           <details className="reasoning">
             <summary>
               <Icon name="spark" size="sm" />
-              düşünüyor
+              {t('message.thinking')}
               <Icon name="chevron-down" size="sm" className="chev" />
             </summary>
             <pre className="reasoning-body">{reasoning}</pre>
@@ -91,7 +93,7 @@ function MessageLineInner({
                 <i />
                 <i />
               </span>
-              <span className="sr-only">düşünüyor</span>
+              <span className="sr-only">{t('message.thinking')}</span>
             </span>
           ) : (
             <div ref={mdRef} className={`card-ai${isStreaming ? ' streaming' : ''}`} />
@@ -103,7 +105,7 @@ function MessageLineInner({
         {images && images.length > 0 && (
           <div className="msg-images">
             {images.map((src, i) => (
-              <img key={i} src={src} alt={`görsel ${i + 1}`} />
+              <img key={i} src={src} alt={t('message.imageAlt', { n: i + 1 })} />
             ))}
           </div>
         )}
@@ -115,8 +117,8 @@ function MessageLineInner({
         <div className="msg-actions">
           <button
             className="msg-action"
-            title="Yanıtı kopyala"
-            aria-label="Yanıtı kopyala"
+            title={t('message.copy')}
+            aria-label={t('message.copy')}
             onClick={() => onCopy(content)}
           >
             <Icon name="copy" size="sm" />

@@ -163,7 +163,7 @@ Uygulama mantığı: `src/lib/providers/visibility.ts` → `hasProviderKey()`,
 
 Bu 483 model registry'ye **girmez** — Modeller sekmesi → "models.dev kataloğu" ile
 aranır, "ekle" denilince `customModels`'e alınır. Ayrıntı:
-`memorybank/memorybank.md` § 7.6.
+`docs/ARCHITECTURE.md` § 7.6.
 
 > **Güncelleme:** models.dev kataloğu artık doğrudan registry'ye de giriyor —
 > çekirdekle eşleşmeyen ~467 model `resolveModels()` ile otomatik listelenir.

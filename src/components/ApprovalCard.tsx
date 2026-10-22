@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 interface Props {
@@ -24,13 +25,14 @@ export default function ApprovalCard({
   onAlways,
   always = false,
 }: Props) {
+  const t = useT();
   const [checked, setChecked] = useState(always);
 
   return (
     <div className="approval">
       <div className="approval-head">
         <Icon name="alert-triangle" size="sm" />
-        Onay bekleniyor
+        {t('approval.pending')}
       </div>
 
       <div className="approval-cmd">
@@ -47,10 +49,10 @@ export default function ApprovalCard({
 
       <div className="approval-actions">
         <button className="btn btn-primary btn-sm" onClick={onApprove}>
-          Onayla <span className="kbd">Enter</span>
+          {t('approval.approve')} <span className="kbd">Enter</span>
         </button>
         <button className="btn btn-danger btn-sm" onClick={onReject}>
-          Reddet <span className="kbd">Esc</span>
+          {t('approval.reject')} <span className="kbd">Esc</span>
         </button>
         {onAlways ? (
           <label className="chk">
@@ -62,7 +64,7 @@ export default function ApprovalCard({
                 if (e.target.checked) onAlways?.();
               }}
             />
-            Bu komutu her zaman çalıştır
+            {t('approval.alwaysRun')}
           </label>
         ) : null}
       </div>

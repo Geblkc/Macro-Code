@@ -55,6 +55,10 @@ export interface ProviderDefinition {
   needsKey: boolean;
   /** OpenAI-compatible chat/completions tabanlı mı (tool mapping reuse). */
   openAICompatible: boolean;
+  /** API anahtarı alınacak konsol bağlantısı (ayarlarda "Anahtar al" butonu). */
+  keyUrl?: string;
+  /** Konsol sayfasının adı ("Anahtar al" ipucu metni için). */
+  keyUrlLabel?: string;
 };
 
 export type Message = {

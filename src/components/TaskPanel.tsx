@@ -1,3 +1,4 @@
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 export interface TaskItem {
@@ -12,25 +13,26 @@ interface Props {
 }
 
 export default function TaskPanel({ items }: Props) {
+  const t = useT();
   if (items.length === 0) return null;
-  const done = items.filter((t) => t.done).length;
+  const done = items.filter((t2) => t2.done).length;
 
   return (
     <div className="tasks">
       <div className="tasks-head">
         <Icon name="list-checks" size="sm" />
-        Görevler
+        {t('task.title')}
         <span className="cnt">
-          {done}/{items.length} tamamlandı
+          {t('task.progress', { done, total: items.length })}
         </span>
       </div>
-      {items.map((t) => (
+      {items.map((task) => (
         <div
-          key={t.id}
-          className={`task-item${t.done ? ' done' : ''}${t.active && !t.done ? ' active' : ''}`}
+          key={task.id}
+          className={`task-item${task.done ? ' done' : ''}${task.active && !task.done ? ' active' : ''}`}
         >
           <span className="box" aria-hidden="true" />
-          <span>{t.text}</span>
+          <span>{task.text}</span>
         </div>
       ))}
     </div>

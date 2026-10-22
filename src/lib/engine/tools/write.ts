@@ -5,6 +5,7 @@
 import { strArg } from '../toolspec';
 import type { ToolCall } from '../types';
 import { decideTool } from '../policy';
+import { t } from '../../i18n/core';
 
 async function invokeRust<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -20,7 +21,7 @@ export async function toolWriteFile(
   writeImpl?: (root: string, path: string, content: string) => Promise<void>,
 ): Promise<string> {
   const d = decideTool('write_file', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const path = strArg(call.args, 'path', '');
   if (!path) throw new Error('path gerekli');
   if (typeof call.args.content !== 'string') throw new Error('content gerekli');

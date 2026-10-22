@@ -48,11 +48,25 @@ pub(crate) fn is_blocked_file_name(name: &str) -> bool {
 /// Faz 10 (D2b): gizli/veri uzantıları (`.pem`, `.key`, `.db` …) **her** fs
 /// aracında kapalıdır (eskiden yalnızca walk/glob'da uygulanıyordu).
 pub(crate) fn is_blocked_ext(path: &std::path::Path) -> bool {
-    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    is_blocked_name_ext(name)
+}
+
+/// O7 — **ad-bazlı** uzantı denetimi (exec.rs `check_file_arg` de bunu kullanır).
+/// Düzeltmeler: (1) `.pem` tarzı **dotfile**'lar — Rust `Path::extension()`
+/// bunlarda `None` döndürür, kaçabiliyorlardı (TS `isBlockedExt` yakalıyordu);
+/// (2) `CERT.PEM` — büyük/küçük harf farkı kaçıyordu. Son `.` sonrasını uzantı
+/// sayar; sonuç küçük harfe indirilip `blocks.json` listelerinde aranır.
+pub(crate) fn is_blocked_name_ext(name: &str) -> bool {
+    let Some(dot) = name.rfind('.') else {
         return false;
     };
-    let lower = ext.to_ascii_lowercase();
-    blocks().secret_exts.contains(&lower) || blocks().data_exts.contains(&lower)
+    if dot == name.len() - 1 {
+        return false; // "foo." → boş uzantı
+    }
+    let ext = name.split_at(dot + 1).1.to_ascii_lowercase();
+    let b = blocks();
+    b.secret_exts.iter().any(|e| e == &ext) || b.data_exts.iter().any(|e| e == &ext)
 }
 
 fn err(msg: impl Into<String>) -> String {

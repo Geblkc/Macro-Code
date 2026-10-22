@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useKeyHistory } from '../hooks/useKeyHistory';
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 interface Props {
@@ -56,6 +57,7 @@ export default function InputBar({
   onApprove,
   onReject,
 }: Props) {
+  const t = useT();
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<string[]>([]);
   const [attachErr, setAttachErr] = useState<string | null>(null);
@@ -91,22 +93,22 @@ export default function InputBar({
       setAttachErr(null);
       const room = MAX_IMAGES - pending.length;
       if (room <= 0) {
-        setAttachErr(`en fazla ${MAX_IMAGES} görsel`);
+        setAttachErr(t('input.maxImages', { count: MAX_IMAGES }));
         return;
       }
       const batch = [...files].filter((f) => f.type.startsWith('image/')).slice(0, room);
       if (batch.length === 0) {
-        setAttachErr('yalnızca görsel dosyası');
+        setAttachErr(t('input.onlyImages'));
         return;
       }
       try {
         const urls = await Promise.all(batch.map(downscaleImage));
         setPending((p) => [...p, ...urls].slice(0, MAX_IMAGES));
       } catch {
-        setAttachErr('görsel işlenemedi');
+        setAttachErr(t('input.imageFailed'));
       }
     },
-    [pending.length],
+    [pending.length, t],
   );
 
   const moveHistory = useCallback(
@@ -132,11 +134,11 @@ export default function InputBar({
           <div className="pending-images">
             {pending.map((url, i) => (
               <span key={i} className="pending-thumb">
-                <img src={url} alt={`ek ${i + 1}`} />
+                <img src={url} alt={t('input.imageAlt', { n: i + 1 })} />
                 <button
                   className="pending-remove"
-                  title="kaldır"
-                  aria-label={`${i + 1}. görseli kaldır`}
+                  title={t('input.removeImage')}
+                  aria-label={t('input.removeImageAria', { n: i + 1 })}
                   onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
                 >
                   <Icon name="x" size="sm" />
@@ -158,8 +160,8 @@ export default function InputBar({
             autoFocus
             spellCheck={false}
             autoComplete="off"
-            aria-label="Mesaj girişi"
-            placeholder={streaming ? 'yanıt bekleniyor…' : 'mesajını yaz veya /help yaz'}
+            aria-label={t('input.ariaLabel')}
+            placeholder={streaming ? t('input.placeholderWaiting') : t('input.placeholder')}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               // Faz 1 K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
@@ -212,8 +214,8 @@ export default function InputBar({
           {!streaming && (
             <button
               className="attach-btn"
-              title="görsel ekle (en fazla 4)"
-              aria-label="Görsel ekle"
+              title={t('input.attachTitle', { count: MAX_IMAGES })}
+              aria-label={t('input.addImage')}
               disabled={streaming || pending.length >= MAX_IMAGES}
               onClick={() => fileRef.current?.click()}
             >
@@ -221,18 +223,18 @@ export default function InputBar({
             </button>
           )}
           {streaming ? (
-            <button className="btn btn-danger btn-sm" onClick={onAbort} title="durdur">
+            <button className="btn btn-danger btn-sm" onClick={onAbort} title={t('input.stopTitle')}>
               <Icon name="square" size="sm" />
-              Dur
+              {t('input.stop')}
             </button>
           ) : (
             <button
               className="btn btn-primary btn-sm"
               disabled={!canSend}
               onClick={submit}
-              title="gönder (Enter)"
+              title={t('input.sendTitle')}
             >
-              Gönder
+              {t('input.send')}
             </button>
           )}
         </div>
@@ -241,29 +243,29 @@ export default function InputBar({
           <span className="keys">
             {hasPending ? (
               <span className="warn-text">
-                {pendingCount} onay bekleniyor · Enter onayla · Esc reddet
+                {t('input.pendingHint', { count: pendingCount ?? 0 })}
               </span>
             ) : (
               <>
                 <span>
-                  <kbd>Enter</kbd> gönder
+                  <kbd>Enter</kbd> {t('input.hint.send')}
                 </span>
                 <span>
-                  <kbd>Shift+Enter</kbd> satır
+                  <kbd>Shift+Enter</kbd> {t('input.hint.newline')}
                 </span>
                 <span>
-                  <kbd>↑↓</kbd> geçmiş
+                  <kbd>↑↓</kbd> {t('input.hint.history')}
                 </span>
                 <span>
-                  <kbd>Ctrl+L</kbd> temizle
+                  <kbd>Ctrl+L</kbd> {t('input.hint.clear')}
                 </span>
               </>
             )}
             {attachErr ? <span className="warn-text">{attachErr}</span> : null}
           </span>
           <span>
-            {value.length} karakter · ~{approxTokens} token
-            {pending.length > 0 ? ` · ${pending.length} görsel` : ''}
+            {t('input.meta', { count: value.length, tokens: approxTokens })}
+            {pending.length > 0 ? t('input.metaImages', { count: pending.length }) : ''}
           </span>
         </div>
       </div>

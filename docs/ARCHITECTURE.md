@@ -3,7 +3,8 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-19 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-10-21 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 
 ---
@@ -22,7 +23,7 @@ açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 | Model | **BYOK** (Bring Your Own Key) — abonelik yok, kullanıcı kendi anahtarını kullanır |
 | Hedef kullanıcı | Geliştirici (terminal arayüzü seven, gizliliğine değer veren) |
 | Platform | Windows, macOS, Linux (cross-platform) |
-| Dil / UI dili | TypeScript (kod yorumları İngilizce-Türkçe karışık), UI metinleri **Türkçe** |
+| Dil / UI dili | TypeScript (kod yorumları İngilizce-Türkçe karışık), UI metinleri **5 dilde** (TR/EN/DE/FR/ES — `lib/i18n/`) |
 | Lisans (bundle meta) | MIT |
 
 ### Marka / Logo
@@ -69,7 +70,7 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 | İskelet | Tauri + React + Vite + Zustand, özel Titlebar, sidebar, terminal |
 | Keystore + settings | 7 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
 | Provider katmanı | 7 sağlayıcı SSE streaming, registry + capability lookup |
-| Model kataloğu | `memorybank/Modeller.md` — registry listesi (27 model) + models.dev eşleşmesi |
+| Model kataloğu | `docs/MODELS.md` — registry listesi (27 model) + models.dev eşleşmesi |
 | Slash komutları + streaming hook | 15 komut + `/export` varyantları, abort + usage kaydı |
 | Terminal UI | Markdown render, boot sequence, SQLite persist (debounce) |
 | Rust proxy | `stream_anthropic` (tool-use + vision + thinking, saf proxy) |
@@ -136,9 +137,10 @@ tokio = { version = "1", features = ["process", "time"] }  # exec_cmd timeout + 
 
 ```
 MacroCode/
-├── memorybank/
-│   ├── memorybank.md            ← BU BELGE (güncel mimari)
-│   └── Değişiklik Raporu.md     ← tarihli işlem kayıtları
+├── docs/
+│   ├── ARCHITECTURE.md          ← BU BELGE (güncel mimari)
+│   ├── MODELS.md                ← model kataloğu
+│   └── DEVLOG.md                ← tarihli işlem kayıtları
 ├── README.md                    # Kurulum / build / kalıcılık notları
 ├── index.html                   # HTML girişi — JetBrains Mono font linki, favicon (/macrocode-logo.svg), lang="tr"
 ├── public/macrocode-logo.svg     # favicon (src-tauri/icons kaynağının kopyası, Vite root'tan servis edilir)
@@ -161,21 +163,37 @@ MacroCode/
 │   ├── hooks/
 │   │   ├── useStream.ts         # AI mesaj gönderimi (stream + abort + hata yönetimi + usage kaydı)
 │   │   ├── useAgent.ts          # Agent'lı gönderim (createAgentRun + tool eventleri + repo bağlamı)
-│   │   └── useKeyHistory.ts     # ↑↓ komut geçmişi (50 öğe, saf fonksiyonlar + hook)
+│   │   ├── useKeyHistory.ts     # ↑↓ komut geçmişi (50 öğe, saf fonksiyonlar + hook)
+│   │   └── useFocusTrap.ts      # Modal odak döngüsü + açılış odaklaması (Faz 13)
+│   ├── lib/
+│   │   └── tabNav.ts            # Sekme/alt-seme klavye navigasyonu (nextTabIndex) — Faz 13
 │   ├── components/
 │   │   ├── Titlebar.tsx         # Traffic lights, orta başlık, logo + model badge + dropdown
 │   │   ├── Sidebar.tsx          # Session listesi + footer butonları + JSON import/export
 │   │   ├── Terminal.tsx         # Mesaj görünümü, scroll stick, clearedBefore, thumbnail
 │   │   ├── MessageLine.tsx      # Tek satır: prefix, markdown render, thinking/cursor, reasoning dim blok
 │   │   ├── InputBar.tsx         # ❯ input, [SEND]/[DUR], [IMG] görsel ekleme, kısayollar, meta bar
-│   │   └── SettingsModal/       # Sekmeli ayarlar: index (kabuk+draft+Kaydet) + types + 5 sekme
+│   │   ├── Segmented.tsx        # Alt sekme kontrolü (segmented) — Faz 13
+│   │   └── SettingsModal/       # Sekmeli ayarlar: index (kabuk+draft+Kaydet) + types + 7 sekme
+│   │       ├── ConfirmDialog.tsx # Kaydedilmemiş değişiklik onayı (Faz 13)
+│   │       ├── modelList.ts      # Ortak model listesi mantığı (görünürlük + süzgeç) — Faz 13
 │   │       ├── ProvidersTab.tsx # Maskeli anahtarlar, test et, özel URL, özel uçlar, Ollama keşfi
-│   │       ├── ModelsTab.tsx    # Varsayılan model + yenile/ekle/parametre/yedek/fiyat/aç-kapa
-│   │       ├── ChatTab.tsx      # System prompt + yazı boyutu + özetleyici model (Faz 2) + düşünme bloğu (Faz 4)
-│   │       └── LangTab.tsx + AboutTab.tsx  # Yer tutucular (Faz 4)
+│   │       ├── ModelsTab.tsx    # Alt sekmeler: Liste │ Katalog & keşif │ Elle ekle
+│   │       ├── ParamsTab.tsx    # Alt sekmeler: Model parametreleri │ Fiyatlar
+│   │       ├── ChatTab.tsx      # System prompt + özetleyici model + düşünme/cache + shell allowlist
+│   │       ├── AppearanceTab.tsx # Görünüm (font/kontrast/saat/zaman damgası) + Dil
+│   │       └── AboutTab.tsx     # Logo, sürüm, lisans, gizlilik notu
 │   ├── lib/
+│   │   ├── i18n/                # Çoklu dil motoru (sıfır bağımlılık) — §18
+│   │   │   ├── index.ts         # genel API (t/useT/setLocale/...)
+│   │   │   ├── core.ts          # t(), makeT(), setLocale(), detectLocale() (store bağımsız)
+│   │   │   ├── hook.ts          # useT() — store'daki dile bağlı (reaktif)│   │   │   ├── types.ts         # Locale/LanguageSetting/Message/PluralForms
+│   │   │   ├── format.ts        # {placeholder} interpolasyon + Intl.PluralRules
+│   │   │   └── locales/         # tr.ts (KAYNAK GERÇEK) + en/de/fr/es.ts
 │   │   ├── tauri.ts             # Tek isTauri() tanımı (tüm modüller buradan import eder)
 │   │   ├── logger.ts            # Faz 10: log kanalı (halka arabellek + redaksiyon) · `/log` komutu
+│   │   ├── toast.ts             # Faz 13: kısa bildirim kanalı (showToast/toast.*) — sıfır bağımlılık
+│   │   ├── appInfo.ts           # Faz 13: sürüm/kaynak bağlantısı (package.json'dan gömülür)
 │   │   ├── db.ts                # SQLite oku/yaz + debounce persister + model migration + sqlError (Faz 7 A1)
 │   │   ├── tauri-config.test.ts # capability/migration sözleşme koruması (Faz 7 A1)
 │   │   ├── commands.ts          # /slash komut işleyici + /export(md|json) + /backup + /tokens(gerçek+yaklaşık+maliyet) + backup parse/build
@@ -224,6 +242,7 @@ MacroCode/
 │       ├── markdown.css         # Markdown blokları, kod bloğu, sözdizimi renklendirme
 │       ├── agent.css            # Araç kartları, onay kartı, görev paneli
 │       ├── settings.css         # Modal kabuğu, sekme rayı, form kontrolleri, tablolar
+│       ├── toast.css            # Kısa bildirimler (sağ alt) — Faz 13
 │       └── utilities.css        # Yardımcı sınıflar (boşluk/flex/görünürlük)
 │
 └── src-tauri/                   # ─── RUST BACKEND ───
@@ -236,8 +255,9 @@ MacroCode/
         ├── main.rs              # fn main() { macrocode_lib::run() }
         ├── lib.rs               # Tauri Builder: pluginler + invoke_handler (keystore + stream_anthropic + fs/exec/mcp) + McpState + exit hook
         └── commands/
-            ├── mod.rs           # pub mod keystore/stream/fs/exec/mcp + re-export'lar
+            ├── mod.rs           # pub mod keystore/stream/fs/exec/mcp/paths + re-export'lar
             ├── keystore.rs      # set/get/delete_api_key, key_status, has_any_key, key_hint (7 + custom_*)
+            ├── paths.rs         # get_app_paths (app_data_dir + keys.json + sessions.db) — Faz 13
             ├── stream.rs        # stream_anthropic Rust SSE proxy (Channel<StreamEvent>)
             ├── mcp.rs           # mcp_spawn/write/read/kill (tokio subprocess, kill_on_drop)
             ├── fs.rs            # list_dir/read_file(offset)/grep_files(regex)/glob_files/write_file(O_EXCL)/apply_patch (root jail, backup+atomic) + undo_patch manifest doğrulaması (safe_backup_name, K1) + list_tree (Faz 9 repo haritası) + memory_read/memory_append (Faz 9 kalıcı not)
@@ -440,6 +460,7 @@ interface SettingsStore {
   mcpSecrets: Record<string, Record<string, string>>; // Faz 5: env değerleri, SADECE bellek + keystore `custom_<id>`
   customAllowList: string[]; // Faz 6: kullanıcı shell uzantıları
   auditEnabled: boolean;     // Faz 6: denetim kaydı (default true)
+  language: LanguageSetting; // i18n: 'auto' (sistem dili) | 'tr'|'en'|'de'|'fr'|'es'
 
   setApiKey(provider, key): void;
   setProvider(provider): void;    // ← model'i o sağlayıcının DEFAULT'INA sıfırlar
@@ -463,6 +484,7 @@ interface SettingsStore {
   refreshModelsDevCatalog(): Promise<ModelsDevCatalog>; // ağdan yeniler
   loadFromStore(): Promise<void>;            // + özel uç secret'larını keystore'dan yükler
   saveToStore(): Promise<void>;              // + özel uç secret'larını keystore'a yazar
+  setLanguage(v: LanguageSetting): void;     // i18n: dil ayarı (persist'li)
 }
 ```
 
@@ -942,17 +964,80 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 
 ### 11.8 `SettingsModal/` — sekmeli ayarlar
 
-- Kabuk: 880px modal, **ikonlu sekme rayı** (200px + arama), sağ içerik, sticky alt bar
-  ("kaydedilmemiş değişiklikler" + Vazgeç/Kaydet).
-- **Sağlayıcılar**: 2 kolon **kart ızgarası** — durum noktası (bağlı / anahtar yok /
-  bağlanamadı), maskeli anahtar + göz ikonu, Test et / Temizle butonları.
-- **Modeller**: arama yapılabilir `ModelPicker` (native `datalist` — 500+ modelde
-  `<select>` kullanılamaz), **tablo** (model · sağlayıcı · yetenek ikonları · bağlam ·
-  fiyat · aç/kapat anahtarı).
-- **Sohbet**: Görünüm (yazı boyutu, yüksek kontrast, arayüz fontu, saat biçimi),
-  Davranış (system prompt, özetleyici model), Araçlar (shell allowlist, denetim).
-- **Dil ve bölge**: saat biçimi, sayı biçimi (iskelet), erişilebilirlik.
-- **Hakkında**: logo, sürüm, lisans, gizlilik notu.
+**Kabuk (Faz 13 — kullanıcı dostu ayarlar):**
+
+- 960px modal (max 94vw / 88vh), **ikonlu sekme rayı** (200px + arama), sağ içerik,
+  sticky alt bar ("kaydedilmemiş değişiklikler" + Vazgeç/Kaydet) + **X kapatma butonu**.
+- **Kaydedilmemiş değişiklikle kapatma:** `Escape` · overlay tıklaması · X · Vazgeç →
+  `dirty` ise `ConfirmDialog` ("Kaydet ve kapat" / "Değişiklikleri iptal et").
+  Odağı güvenli tarafa (iptal) verilir; `Enter` onaylar, `Escape` iptal eder.
+- **Odak döngüsü (focus trap):** `hooks/useFocusTrap.ts` — modal açılışında aktif sekme
+  düğmesine odaklanır, `Tab`/`Shift+Tab` modal içinde döngüde kalır, kapanışta odak
+  modal öncesi öğeye döner. Diyalog kendi döngüsünü kurar ve tuş olaylarını
+  `stopPropagation` ile modalın Escape/Tab işleyicisine sızdırmaz.
+- **Sekme klavye navigasyonu:** `role="tablist"` + roving `tabindex` (`↑↓ ←→ Home End`),
+  `aria-selected` / `aria-controls` / `aria-labelledby` bağlantıları. Mantık saf
+  fonksiyondur: `SettingsModal/types.ts` → `nextTabIndex()`.
+- **Sekme state korunumu:** ziyaret edilen sekmeler mount'ta kalır, `hidden` ile
+  gizlenir (`visited` dizisi) → arama metni, süzgeç ve keşif sonuçları sekme
+  değiştirince kaybolmaz. Sekme değişince içerik kaydırması başa döner.
+- **Sekme sıfırlanmaz:** modal her açılışta son kullanılan sekmede açılır
+  (odaklama tutarlılığı + kullanıcı kaldığı yerden devam eder).
+
+**Sekme içerikleri (Faz 13 — yeniden yapılandırılmış):**
+
+| Sekme | İkon | İçerik |
+|---|---|---|
+| **Sağlayıcılar** | key | 4 bölüm: *Bulut sağlayıcıları* (2 kolon kart + "Tümünü test et" + "Anahtar al" bağlantısı + aktif rozeti) · *Yerel sağlayıcı* (Ollama) · *Özel taban URL* (fabrika adresi placeholder + "sıfırla") · *Özel uçlar* |
+| **Modeller** | cpu | 3 **alt sekme**: `Liste` (varsayılan model + arama/süzgeç + model tablosu) · `Katalog & keşif` (openrouter/ollama/openai/gemini/models.dev) · `Elle ekle` (id · ad · sağlayıcı · bağlam · çıktı · yetenekler) |
+| **Parametreler** | sliders | 2 **alt sekme**: `Model parametreleri` (temperature/top_p/max tokens/thinking + "Varsayılanlara dön" + **yedek model**) · `Fiyatlar` (arama + süzgeç + girdi/çıktı/cache başlıklı tablo + katalog fiyatları) |
+| **Sohbet** | message | Davranış (system prompt + karakter sayacı, özetleyici sağlayıcı/model) · Cevap davranışı (düşünme bloğu, prompt önbelleği) · Araçlar (shell allowlist + **geçersiz satır uyarısı**, denetim) |
+| **Görünüm & Dil** | globe | Görünüm (yazı boyutu + ölçek, yüksek kontrast, arayüz fontu, saat biçimi, **zaman damgası**) · Dil (arayüz dili, sayı biçimi) |
+| **MCP** | activity | MCP sunucu listesi (ad, transport, komut/URL, **anahtar (Switch)**, keşif, **maskeli env**, **keşfedilen araçlardan izin seçimi**) |
+| **Hakkında** | info | logo, sürüm, lisans, gizlilik notu |
+
+**Yeniden yapılandırma kararları:**
+
+- **Sekme sayısı 6 → 7.** Önceden "Modeller" sekmesi **6 ayrı işi** tek sayfada
+  barındırıyordu (varsayılan model · 200 satırlık tablo · keşif/katalog · elle
+  ekleme · parametreler · yedek model · 120 satırlık fiyat tablosu · 120 satırlık
+  aç/kapa listesi). Artık işler bölündü.
+- **Çift tanım kaldırıldı:** `clockFormat` ve `contrast` hem `ChatTab`'te hem
+  `LangTab`'ta tanımlıydı → artık **yalnızca** "Görünüm & Dil" sekmesinde.
+- **`LangTab.tsx` silindi** → `AppearanceTab.tsx` (görünüm + dil birlikte).
+- **Ölü UI kaldırıldı:** `LangTab`'daki "Sayı biçimi" iki adet `disabled`
+  butondu (hiçbir işlevi yok) → tek satır not.
+- ** Yinelenen aç/kapa listesi kaldırıldı** — tablo zaten anahtar içeriyor.
+- **Alt sekmeler** `components/Segmented.tsx` (segmented control) ile; aynı
+  klavye kuralı (↑↓ ←→ Home End) `lib/tabNav.ts` → `nextTabIndex()`.
+- **Model tablosu** artık **görünür adı + id**'yi birlikte gösterir (önce yalnız id).
+- **Fiyat tablosu** sütun başlıklarını (girdi/çıktı/cache) gösterir (önce yalnız
+  placeholder) ve **kendi arama/süzgecini** kullanır.
+- **Yeni ayar:** `showTimestamps` — terminalde mesaj saati gösterilir/gizlenir.
+  `store/settings.ts` → `partialize`'ın **iki dalına** da eklenmiştir.
+- **Ortak model listesi mantığı** `SettingsModal/modelList.ts` →
+  `keyedProviders` · `modelView` · `filterModels` (3 sekme aynı kuralı kullanır).
+
+**Faz 3 — içerik ayrıntılandırması:**
+
+- **Sağlayıcılar 4 bölüme ayrıldı:** Bulut sağlayıcıları (6 kart) · Yerel sağlayıcı
+  (Ollama, ayrı kart) · Özel taban URL · Özel uçlar.
+- **`PROVIDER_DEFS` → `keyUrl` + `keyUrlLabel` + `defaultBaseUrl`** (7 sağlayıcı).
+  Her kartta **"Anahtar al"** dış bağlantısı (konsol adresiyle) görünür.
+- **"Tümünü test et"** butonu — 7 sağlayıcıyı sırayla test eder.
+- **Aktif sağlayıcı rozeti** (sağlayıcının başlığında yeşil "aktif" çipi).
+- **Base URL override**: placeholder artık **fabrika adresini** gösterir; dolu
+  olduğunda **"sıfırla"** butonu çıkar. (Override yalnız OpenAI-uyumlu 4
+  sağlayıcıda desteklenir — Anthropic Rust proxy, Gemini kendi URL şeması.)
+- **Durum rozetine ipucu** (`title`): "bağlı / anahtar geçersiz / ağ hatası" sebebi.
+- **Erişilebilirlik:** her alan `id` + `<label htmlFor>` ile eşleşiyor.
+- **MCP:** native `<input type=checkbox>` → **`Switch`** bileşeni; **env değerleri
+  maskeleniyor** (`maskEnvText`, varsayılan gizli + "Göster/Gizle"); **keşif sonucu
+  araç listesi** döndürüyor (`McpDiscovery.tools`) ve izinler listeden **çoklu
+  seçim** ile atanabiliyor (keşif yoksa serbest metin).
+- **Sohbet:** shell allowlist **geçersiz satırları** uyarı olarak gösteriyor —
+  kural motorla aynı (`engine/policy.ts` → `parseCustomLine`); `rm` gevşemez.
+
 - Kaydet → store + keystore senkronu (silinenler `delete_api_key`, özel uçlar `custom_<id>`).
 
 ### 11.9 Yeni bileşenler
@@ -967,6 +1052,37 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 | `TaskPanel.tsx` | görev checklist paneli |
 | `Switch.tsx` | native checkbox yerine özel anahtar |
 | `ModelPicker.tsx` | arama yapılabilir model seçici (`datalist`) |
+| `Segmented.tsx` | alt sekme kontrolü (segmented) — Faz 13 |
+| `Toast.tsx` | kısa bildirim konteyneri (sağ alt) — Faz 13 |
+
+### 11.10 Toast bildirimleri (`lib/toast.ts` + `components/Toast.tsx`)
+
+- **Sıfır bağımlılık**, React dışı modüllerden de çağrılabilir:
+  `showToast(msg, kind)` · `toast.ok/err/info` · `dismissToast(id)` ·
+  `subscribeToasts(listener)`.
+- Süre: başarı **3 sn**, hata **6 sn** (ayar `0` → elle kapanır).
+- **Flood koruması:** aynı anda en fazla **4** toast (en eski atılır).
+- `ToastHost` uygulama kökünde bir kez mount edilir (`App.tsx`);
+  `role="status"` + `aria-live="polite"` → ekran okuyucular duyurur.
+- **Kritik kullanım:** ayarların kaydedilmesi. `save()` artık keystore yazma
+  hatalarını **yutmaz** — başarısız işler toplanır, hata toast'ı gösterilir ve
+  **modal açık kalır** (tekrar deneyebilir). Başarılıysa "Ayarlar kaydedildi"
+  toast'ı + modal kapanır.
+
+### 11.11 Uygulama kimliği (`lib/appInfo.ts`) — sürüm tek kaynak
+
+- `package.json` → `version` **tek kaynaktır**. `vite.config.ts` build sırasında
+  `__APP_VERSION__` ve `__REPO_URL__` sabitlerini `define` ile gömülür
+  (`src/vite-env.d.ts` → global bildirimler).
+- `APP_VERSION` · `REPO_URL` · `LICENSE` · `PLATFORMS` · `APP_NAME` —
+  uygulama içinde **sabit sürüm yazılmaz**.
+- `src-tauri/tauri.conf.json` → `version` elle tutulur; senkron olduğu
+  `src/lib/version.test.ts` ile doğrulanır (CI'da kırılır).
+- `package.json` → `repository.url` / `homepage` boşsa Hakkında sekmesinde
+  "Kaynak kod" bağlantısı **gösterilmez** (yayın öncesi doldurulmalı).
+- **Veri konumları:** Rust `get_app_paths` komutu (`commands/paths.rs`) →
+  `app_data_dir` + `keys.json` + `sessions.db` yollarını döndürür; Hakkında
+  sekmesinde kopyalanabilir olarak gösterilir.
 
 ## 12. Boot (App.tsx)
 
@@ -1145,7 +1261,7 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 ### 14.3 Ölçüler
 
 - Titlebar 40px · Sidebar 240px (180–420 arası sürüklenebilir, 56px ikona daralır) ·
-  Status bar 24px · Modal 880px (max 94vw / 86vh) · Terminal ölçüsü 78ch
+  Status bar 24px · Modal 960px (max 94vw / 88vh) · Terminal ölçüsü 78ch
 - Pencere 1100×700, min 800×500, `decorations: false`
 - Modal overlay `rgba(0,0,0,.70)` + `blur(8px)`, z-index 300. Dropdown backdrop 200, menü 201
 - Duyarlılık: <1180px workspace chipi gizlenir · <1000px mesaj meta kolonu gizlenir ve
@@ -1203,6 +1319,25 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 35. **Görsel yeniden tasarım:** Native form kontrolleri temayla eşleşir —
     `accent-color: var(--accent)` (checkbox/radio), `input[type=number]` artı/eksi
     okları gizlenir (koyu temada okunmuyordu).
+36. **i18n:** Kaynak sözlük `lib/i18n/locales/tr.ts`'dir; diğer diller aynı anahtar
+    kümesini **taşımak zorundadır** (TS `Record<TranslationKey, Message>` +
+    `lib/i18n/i18n.test.ts` bütünlük testi). Yeni metin eklenirken 5 sözlüğe de
+    eklenir.
+37. **i18n:** Modele giden tool açıklamaları (`engine/toolspec.ts`) **İngilizce ve
+    sabittir** — arayüz dilinden bağımsız (model performansı + araç çağrı
+    tutarlılığı). `engine/skills.ts` prompt'u ve agent system prompt'u da
+    modele gider; bunlar kapsam dışı bırakıldı (Türkçe kalır).
+38. **i18n:** `t()` **modül geneli locale** ile çalışır (varsayılan `tr`) —
+    React dışı modüller (`lib/commands.ts`, `providers/common.ts`, `engine/*`)
+    `lib/i18n/core` → `t()` kullanır. React bileşenleri `useT()` hook'unu
+    kullanır (store'daki dile **reaktif** bağlıdır). `App.tsx` her dil
+    değişiminde `setLocale(resolveLocale(language))` çağırır → modül geneli
+    locale ile `<html lang>` senkronlanır.
+39. **i18n:** Sıfır yeni runtime bağımlılığı (i18n motoru elle yazıldı —
+    `package.json` dependencies değişmez).
+40. **i18n:** Rust backend hata mesajları (`fs.rs`, `exec.rs`, `keystore.rs`)
+    çeviri **kapsamı dışındadır** — Türkçe kalır. Locale'in invoke ile Rust'a
+    taşınması ayrı bir çalışma gerektirir.
 
 ## 16. Geliştirme & Build Komutları
 
@@ -1282,7 +1417,102 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Prompt cache | `providers/promptCache.ts` (eşik + işaretleme) + `anthropic.ts` (`cache_control`) + `openaiCompatible.ts` (`prompt_cache_key`) + ayar `cachePrompts` |
 | Kalıcı compaction | `engine/compactionMemo.ts` (memoToPersisted/memoFromPersisted/resolveMemo) + `Session.compaction` + `store/session.ts` (`setCompaction`) |
 | Ajan devamı (run_state) | `engine/agent.ts` (`AgentRunState` + `createAgentRun(..., resume)`) + `engine/approvals.ts` (`runState`) + `useAgent.ts` (`restorePendingRuns`) |
-| Model registry | `providers/{anthropic,openai,gemini,deepseek}.ts` → `MODELS` + `memorybank/Modeller.md` |
+| Model registry | `providers/{anthropic,openai,gemini,deepseek}.ts` → `MODELS` + `docs/MODELS.md` |
+| Yeni UI metni | `lib/i18n/locales/tr.ts` → anahtar ekle → `en/de/fr/es.ts` aynı anahtarı ekle → bileşende `t()`/`useT()` |
+| Yeni dil | `lib/i18n/types.ts` (`LOCALES`) + `LOCALE_META` + `locales/<dil>.ts` + `core.ts` (`DICTIONARIES`) |
+| Modal odak döngüsü | `hooks/useFocusTrap.ts` (`useFocusTrap`/`cycleFocus`) + bileşende `onKeyDown` |
+| Onay kutusu | `components/SettingsModal/ConfirmDialog.tsx` (Escape/Enter + odak döngüsü) |
+| Alt sekme (segmented) | `components/Segmented.tsx` + `lib/tabNav.ts` (`nextTabIndex`) |
+| Model listesi filtresi | `SettingsModal/modelList.ts` (`keyedProviders`/`modelView`/`filterModels`) |
+| Toast bildirimi | `lib/toast.ts` (`toast.ok/err/info`) + `components/Toast.tsx` (`ToastHost`) |
+| Sürüm / kimlik | `lib/appInfo.ts` (`APP_VERSION`/`REPO_URL`) + `vite.config.ts` (`define`) + `lib/version.test.ts` |
+| Veri konumu | Rust `commands/paths.rs` → `get_app_paths` + About sekmesi |
+
+---
+
+## 18. Çoklu Dil (i18n) — `src/lib/i18n/`
+
+**Durum:** TR · EN · DE · FR · ES. Sıfır runtime bağımlılığı (elle yazıldı).
+
+### 18.1 Mimari
+
+```
+lib/i18n/
+├── types.ts     Locale · LanguageSetting · Message · PluralForms · LOCALE_META
+├── format.ts    interpolate() ({ad}) + selectForm() (Intl.PluralRules)
+├── core.ts      t() · makeT() · translate() · setLocale() · getLocale()
+│                detectLocale() · resolveLocale()   ← store bağımsız
+├── hook.ts      useT()  ← store'daki dile reaktif bağlı
+├── index.ts     genel API (barrel)
+└── locales/     tr.ts (KAYNAK GERÇEK) · en.ts · de.ts · fr.ts · es.ts
+```
+
+### 18.2 Sözlük sözleşmesi
+
+```typescript
+// tr.ts — as const → anahtar tipleri buradan türer
+export const tr = { 'common.save': 'Kaydet', 'status.pendingCount': { one: '{count} onay', other: '{count} onay' } } as const;
+export type TranslationKey = keyof typeof tr;
+
+// diğer diller — anahtar kümesi BİREBİR aynı olmak zorunda (TS zorunlu kılar)
+export const en: Record<TranslationKey, Message> = { ... };
+```
+
+- **Eksik anahtar** → TS hatası (derleme zamanı).
+- **Fazla anahtar** → TS hatası.
+- **Çalışma zamanı** bütünlük testi (`i18n.test.ts`) ayrıca doğrular.
+- **Fallback zinciri:** aktif dil → İngilizce → Türkçe → anahtarın kendisi.
+
+### 18.3 Yer tutucu + çoğul
+
+- Yer tutucu: `{ad}` → `interpolate()` ile doldurulur (bilinmeyen yer tutucu boşaltılmaz).
+- Çoğul: değer `{ one, other, zero? }` nesnesi olabilir;
+  seçim `new Intl.PluralRules(locale).select(count)` ile yapılır.
+  de/fr/es için zorunludur ("1 Bestätigung" / "2 Bestätigungen").
+  **Kural:** `{count}` taşıyan her anahtar İngilizcede çoğul nesnesi olmalıdır
+  (düz metin "1 days ago" gibi hatalar üretir) — `i18n.test.ts` bunu zorlar.
+- `count` **sayı** olmalıdır; biçimlenmiş sayı için `{amount}` gibi ayrı bir yer
+  tutucu kullanılır (bkz. `tokens.reasoning`).
+
+### 18.4 Locale kaynağı ve senkron
+
+| Katman | Mekanizma |
+|---|---|
+| Tek kaynak | `useSettingsStore.language` (`LanguageSetting = 'auto' \| Locale`), persist'li (`macrocode-settings`) |
+| React | `useT()` → `useSettingsStore((s) => s.language)` → `resolveLocale()` → `translate()` |
+| React dışı | `t()` → modül geneli `currentLocale` (`core.ts`) |
+| Senkron | `App.tsx`: `useEffect(() => setLocale(resolveLocale(language)), [language])` |
+| `<html lang>` | `setLocale()` içinde `document.documentElement.lang = LOCALE_META[l].htmlLang` |
+
+`'auto'` ayarı `detectLocale()` ile çözülür: `navigator.languages` → `navigator.language`
+→ en yakın desteklenen dil → `tr`.
+
+### 18.5 Çeviri sınırı
+
+| Yüzey | Durum |
+|---|---|
+| Bileşen metinleri, `title`/`aria-label`/`placeholder` | ✅ çevrilir |
+| Slash komut çıktıları (`/help`, `/model`, …) | ✅ çevrilir |
+| Provider hata mesajları (`formatProviderError`) | ✅ çevrilir |
+| Ajan tool/onay/görev kartları | ✅ çevrilir |
+| `policy.ts` red gerekçeleri, `engine/tools/*` hata metinleri | ✅ çevrilir (tool çıktısında görünür) |
+| Markdown export başlıkları | ✅ çevrilir |
+| **`engine/toolspec.ts` tool + parametre açıklamaları** | 🔒 **İngilizce, sabit** (modele gider) |
+| `engine/skills.ts` prompt'u, agent system prompt'u | 🔒 Türkçe (modele gider — kapsam dışı) |
+| Rust backend hataları | 🔒 Türkçe (kapsam dışı) |
+| Log kayıtları (`lib/logger.ts`), kod yorumları | 🔒 değişmez |
+
+### 18.6 Ayarlar ekranı
+
+`Ayarlar → Dil ve bölge` sekmesi (`LangTab.tsx`):
+
+- **Arayüz dili**: `Sistem dili` + 5 dil (kendi dilinde adıyla).
+- Saat biçimi (24h/12h) — mevcut.
+- Sayı biçimi — dile göre otomatik (`Intl.NumberFormat`; dil değişince yerel ayar değişir).
+- Erişilebilirlik (yüksek kontrast) — mevcut.
+
+Dil değişimi **yeniden başlatma gerektirmez**; ayar modalı "Kaydet" ile
+store'a yazılır (kaydetmeden iptal edilirse dil değişmez).
 
 ---
 

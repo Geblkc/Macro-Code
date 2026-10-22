@@ -1,127 +1,73 @@
 import { useMemo } from 'react';
-import { PROVIDER_DEFS, PROVIDER_IDS, resolveModels, visibleModels } from '../../lib/providers';
-import type { ApiKeys, Provider } from '../../types';
+import { PROVIDER_DEFS, PROVIDER_IDS } from '../../lib/providers';
+import { useT } from '../../lib/i18n';
+import type { Provider } from '../../types';
 import Switch from '../Switch';
 import type { Draft } from './types';
+import { modelView } from './modelList';
+import { allowListIssues } from './types';
 
 interface Props {
   draft: Draft;
   patch: (p: Partial<Draft>) => void;
 }
 
-const EMPTY_KEYS: ApiKeys = {
-  anthropic: '',
-  openai: '',
-  gemini: '',
-  ollamaUrl: '',
-  openrouter: '',
-  deepseek: '',
-  xai: '',
-};
-
-/** Sohbet davranışı + görünüm ayarları. */
+/**
+ * Sohbet davranışı: system prompt, özetleyici model, düşünme bloğu,
+ * prompt önbelleği, shell allowlist ve denetim kaydı.
+ *
+ * Görünüm ayarları (yazı boyutu, kontrast, saat) `AppearanceTab`'e taşındı —
+ * önceden burada ve `LangTab`'da **iki kez** tanımlıydı.
+ */
 export default function ChatTab({ draft, patch }: Props) {
-  const all = resolveModels(draft.customModels);
+  const t = useT();
   // API anahtarı olmayan sağlayıcının modelleri listelenmez.
-  const keyed = useMemo(() => {
-    const keys = { ...EMPTY_KEYS } as ApiKeys;
-    for (const p of PROVIDER_IDS) {
-      if (p === 'ollama') continue;
-      const sec = draft.secrets[p];
-      keys[p] = sec && !sec.deleted ? sec.value.trim() || sec.hint : '';
-    }
-    return keys;
-  }, [draft.secrets]);
-  const visible = useMemo(() => visibleModels(all, keyed), [all, keyed]);
-  const summarizerKnown =
-    !draft.summarizerModel || all.some((m) => m.id === draft.summarizerModel);
+  const view = useMemo(() => modelView(draft), [draft]);
+  const summarizerKnown = !draft.summarizerModel || view.all.some((m) => m.id === draft.summarizerModel);
+  // Geçersiz allowlist satırları motor tarafında yok sayılır — kullanıcıya bildir.
+  const badAllowLines = useMemo(
+    () => allowListIssues(draft.customAllowList),
+    [draft.customAllowList],
+  );
 
   return (
     <div>
       <div className="sec">
-        <div className="sec-title">Görünüm</div>
+        <div className="sec-title">{t('settings.chat.behaviorSection')}</div>
 
         <div className="field">
-          <label className="field-label">Yazı boyutu — {draft.fontSize}px</label>
-          <input
-            className="slider"
-            type="range"
-            min={11}
-            max={20}
-            value={draft.fontSize}
-            onChange={(e) => patch({ fontSize: Number(e.target.value) })}
-          />
-        </div>
-
-        <div className="checkrow">
-          <Switch
-            checked={draft.contrast === 'high'}
-            onChange={(v) => patch({ contrast: v ? 'high' : 'normal' })}
-            label="Yüksek kontrast"
-          />
-          <span>Yüksek kontrast modu</span>
-        </div>
-
-        <div className="checkrow">
-          <Switch
-            checked={draft.uiFont === 'inter'}
-            onChange={(v) => patch({ uiFont: v ? 'inter' : 'mono' })}
-            label="Arayüz fontu"
-          />
-          <span>Arayüz fontu: {draft.uiFont === 'inter' ? 'Inter' : 'JetBrains Mono'}</span>
-        </div>
-
-        <div className="checkrow">
-          <Switch
-            checked={draft.clockFormat === '12h'}
-            onChange={(v) => patch({ clockFormat: v ? '12h' : '24h' })}
-            label="12 saat biçimi"
-          />
-          <span>Saat biçimi: {draft.clockFormat === '12h' ? '12 saat' : '24 saat'}</span>
-        </div>
-
-        <div className="checkrow">
-          <Switch
-            checked={draft.showThinking}
-            onChange={(v) => patch({ showThinking: v })}
-            label="Düşünme bloğu"
-          />
-          <span>Düşünme (reasoning) bloğunu göster</span>
-        </div>
-
-        <div className="checkrow">
-          <Switch
-            checked={draft.cachePrompts}
-            onChange={(v) => patch({ cachePrompts: v })}
-            label="Prompt önbelleği"
-          />
-          <span>Prompt önbelleği (token maliyetini düşürür · sağlayıcı tarafında saklanır)</span>
-        </div>
-      </div>
-
-      <div className="sec">
-        <div className="sec-title">Sohbet davranışı</div>
-
-        <div className="field">
-          <label className="field-label">System prompt</label>
+          <label className="field-label">{t('settings.chat.systemPrompt')}</label>
           <textarea
             className="input input-area-lg"
             value={draft.systemPrompt}
             spellCheck={false}
             rows={3}
-            placeholder="örn: Türkçe, kısa ve net cevap ver"
+            placeholder={t('settings.chat.systemPromptPlaceholder')}
             onChange={(e) => patch({ systemPrompt: e.target.value })}
           />
+          <div className="field-row mt-1">
+            <span className="status-dim">
+              {t('settings.chat.systemPromptCount', { count: draft.systemPrompt.length })}
+            </span>
+            <span className="sp" />
+            <button
+              className="mini-btn"
+              disabled={!draft.systemPrompt}
+              onClick={() => patch({ systemPrompt: '' })}
+            >
+              {t('settings.chat.systemPromptReset')}
+            </button>
+          </div>
         </div>
 
         <div className="field">
-          <label className="field-label">Özetleyici model — sağlayıcı</label>
+          <label className="field-label">{t('settings.chat.summarizerProvider')}</label>
           <select
             className="input"
             value={draft.summarizerProvider}
             onChange={(e) => patch({ summarizerProvider: e.target.value as Provider | '' })}
           >
-            <option value="">aktif modeli kullan</option>
+            <option value="">{t('settings.chat.useActiveModel')}</option>
             {PROVIDER_IDS.map((p) => (
               <option key={p} value={p}>
                 {PROVIDER_DEFS[p]?.label ?? p}
@@ -131,18 +77,20 @@ export default function ChatTab({ draft, patch }: Props) {
         </div>
 
         <div className="field">
-          <label className="field-label">Özetleyici model — model</label>
+          <label className="field-label">{t('settings.chat.summarizerModel')}</label>
           <select
             className="input"
             value={draft.summarizerModel}
             onChange={(e) => patch({ summarizerModel: e.target.value })}
           >
-            <option value="">aktif modeli kullan</option>
+            <option value="">{t('settings.chat.useActiveModel')}</option>
             {!summarizerKnown && (
-              <option value={draft.summarizerModel}>{draft.summarizerModel} (özel)</option>
+              <option value={draft.summarizerModel}>
+                {t('settings.chat.customModel', { model: draft.summarizerModel })}
+              </option>
             )}
             {PROVIDER_IDS.map((p) => {
-              const models = visible.filter((m) => m.provider === p);
+              const models = view.visible.filter((m) => m.provider === p);
               if (models.length === 0) return null;
               return (
                 <optgroup key={p} label={PROVIDER_DEFS[p]?.label ?? p}>
@@ -155,17 +103,37 @@ export default function ChatTab({ draft, patch }: Props) {
               );
             })}
           </select>
-          <span className="field-note">
-            Boş bırakılırsa özetlemede aktif model kullanılır. Ucuz bir model seçmek maliyeti düşürür.
-          </span>
+          <span className="field-note">{t('settings.chat.summarizerNote')}</span>
         </div>
       </div>
 
       <div className="sec">
-        <div className="sec-title">Araçlar</div>
+        <div className="sec-title">{t('settings.chat.answerSection')}</div>
+
+        <div className="checkrow">
+          <Switch
+            checked={draft.showThinking}
+            onChange={(v) => patch({ showThinking: v })}
+            label={t('settings.chat.thinkingBlock')}
+          />
+          <span>{t('settings.chat.thinkingBlockNote')}</span>
+        </div>
+
+        <div className="checkrow">
+          <Switch
+            checked={draft.cachePrompts}
+            onChange={(v) => patch({ cachePrompts: v })}
+            label={t('settings.chat.cachePrompts')}
+          />
+          <span>{t('settings.chat.cachePromptsNote')}</span>
+        </div>
+      </div>
+
+      <div className="sec">
+        <div className="sec-title">{t('settings.chat.toolsSection')}</div>
 
         <div className="field">
-          <label className="field-label">Ek shell komutları (satır başına bir, örn: docker ps)</label>
+          <label className="field-label">{t('settings.chat.allowList')}</label>
           <textarea
             className="input input-area-md"
             value={draft.customAllowList.join('\n')}
@@ -174,18 +142,24 @@ export default function ChatTab({ draft, patch }: Props) {
             placeholder={'docker ps\nhtop'}
             onChange={(e) => patch({ customAllowList: e.target.value.split('\n') })}
           />
-          <span className="field-note">
-            Bu komutlar onay ekranındaki “her zaman çalıştır” kutusuyla otomatik eklenir.
-          </span>
+          <span className="field-note">{t('settings.chat.allowListNote')}</span>
+          {badAllowLines.length > 0 ? (
+            <div className="form-err">
+              {t('settings.chat.allowListInvalid', {
+                count: badAllowLines.length,
+                lines: badAllowLines.slice(0, 3).join(', '),
+              })}
+            </div>
+          ) : null}
         </div>
 
         <div className="checkrow">
           <Switch
             checked={draft.auditEnabled}
             onChange={(v) => patch({ auditEnabled: v })}
-            label="Denetim kaydı"
+            label={t('settings.chat.audit')}
           />
-          <span>Denetim kaydını tut</span>
+          <span>{t('settings.chat.auditNote')}</span>
         </div>
       </div>
     </div>

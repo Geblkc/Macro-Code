@@ -5,6 +5,7 @@ import { strArg } from '../toolspec';
 import type { ToolCall } from '../types';
 import { decideTool } from '../policy';
 import type { ApprovalMode } from '../types';
+import { t } from '../../i18n/core';
 
 export interface ExecResult {
   stdout: string;
@@ -33,7 +34,7 @@ export async function toolExec(
   },
 ): Promise<string> {
   const d = decideTool('exec', call.args, mode, opts?.extraAllow ?? {});
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı komut');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenCommand'));
   if (!d.autoApproved && !opts?.approved) {
     throw new Error(`onay gerekli: ${strArg(call.args, 'cmd')} · /apply ile onayla`);
   }
@@ -51,7 +52,7 @@ export async function toolExec(
     'exec_cmd',
     { cmd, args: rawArgs, cwd, timeoutMs: 15000, root, extraAllow },
   );
-  const tail = out.truncated ? '\n…[çıktı kesildi]' : '';
+  const tail = out.truncated ? `\n${t('tool.outputTruncated')}` : '';
   const errPart = out.stderr ? `\n[stderr]\n${out.stderr}` : '';
   return `[exit ${out.code}]\n${out.stdout}${errPart}${tail}`;
 }

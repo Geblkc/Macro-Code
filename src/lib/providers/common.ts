@@ -1,5 +1,6 @@
 import type { Model, ModelParams, Provider } from '../../types';
 import type { ToolCall, ToolDefinition, UsageLike } from '../engine/types';
+import { t } from '../i18n/core';
 
 export type { UsageLike };
 
@@ -341,30 +342,30 @@ export function formatProviderError(err: unknown): string | null {
   if (err instanceof ProviderError) {
     const s = err.status ?? 0;
     if (s === 401 || s === 403) {
-      return '✗ api hatası (401): geçersiz API anahtarı · /key ile güncelleyebilirsin';
+      return t('errors.apiKeyInvalid');
     }
     if (s === 429) {
-      return '✗ rate limit: çok fazla istek · birkaç saniye bekle';
+      return t('errors.rateLimit');
     }
     if (s === 400 || s === 413) {
       const d = err.message.toLowerCase();
       if (d.includes('context') || d.includes('token') || d.includes('length') || d.includes('maximum')) {
-        return '✗ context limit: konuşma çok uzadı · /reset ile sıfırla';
+        return t('errors.contextLimit');
       }
-      return `✗ istek hatası (${s}): ${err.message} · /help ile komutlara bak`;
+      return t('errors.requestFailed', { status: s, message: err.message });
     }
     if (s >= 500) {
-      return `✗ sunucu hatası (${s}): sağlayıcı şu an yanıt vermiyor · sonra tekrar dene`;
+      return t('errors.serverFailed', { status: s });
     }
     if (s > 0) {
-      return `✗ api hatası (${s}): ${err.message}`;
+      return t('errors.apiFailed', { status: s, message: err.message });
     }
   }
   if (err instanceof TypeError) {
-    return '✗ ağ hatası: sunucuya ulaşılamıyor · internet bağlantını kontrol et';
+    return t('errors.network');
   }
   const msg = err instanceof Error ? err.message : String(err);
-  return `✗ bilinmeyen hata: ${msg}`;
+  return t('errors.unknown', { message: msg });
 }
 
 /** Faz 1 G6 (K8): retry+backoff. Yalnızca 429/≥500 ProviderError ve TypeError retry eder. */

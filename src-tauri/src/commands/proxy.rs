@@ -122,6 +122,66 @@ async fn check_host_not_metadata(url: &reqwest::Url) -> Result<(), String> {
     }
 }
 
+/// O7 — yönlendirme hedefi yeniden denetlenir (SSRF: `Location` başlığı
+/// başlangıç denetimini atlayabilir). DNS tabanlı host denetimi (async)
+/// sync closure içinde mümkün olmadığından burada şema/URL-kimlik-bilgisi/
+/// IP-literali kesin reddedilir; isimli hostlar istek sırasında resolv olup
+/// hedef IP link-local'a çekilirse reqwest hata döndürür (bağlantı düzeyi).
+fn check_redirect_target(url: &reqwest::Url) -> Result<(), String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("gecersiz yonlendirme: http/https degil".to_string());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("gecersiz yonlendirme: kimlik bilgisi iceriyor".to_string());
+    }
+    if let Some(ip) = url.host_str().and_then(|h| {
+        h.trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok()
+    }) {
+        if is_blocked_ip(ip) {
+            return Err("yasakli yonlendirme: link-local/metadata adresi".to_string());
+        }
+    }
+    Ok(())
+}
+
+const MAX_REDIRECTS: usize = 5;
+
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= MAX_REDIRECTS {
+            return attempt.error("cok fazla yonlendirme");
+        }
+        match check_redirect_target(attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(e) => attempt.error(e),
+        }
+    })
+}
+
+/// O7 — reqwest düzeyinde DNS savunması: her çözümleme (ilk istek VE her
+/// yönlendirme atlaması) link-local/metadata adresleri eler; hiç temiz adres
+/// kalmazsa reddeder. (`lookup_host` denetiminin TOCTOU deliği ve
+/// yönlendirme→host ismi bypass'ı ile DNS-rebind burada kesin kapanır.)
+struct GuardResolve;
+
+impl reqwest::dns::Resolve for GuardResolve {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addrs = tokio::net::lookup_host((host.as_str(), 0)).await?;
+            let kept: Vec<std::net::SocketAddr> =
+                addrs.filter(|a| !is_blocked_ip(a.ip())).collect();
+            if kept.is_empty() {
+                return Err("yasakli hedef: link-local/metadata adresi".into());
+            }
+            Ok(Box::new(kept.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn proxy_fetch(
     id: u64,
@@ -153,6 +213,12 @@ pub async fn proxy_fetch(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        // O7: her yönlendirme atlaması yeniden denetlenir (baştaki URL
+        // denetimi tek başına yeterli değildi).
+        .redirect(redirect_policy())
+        // O7: DNS çözümü de denetlenir — hostname bu kez link-local'e
+        // dönebilirdi (rebind); çözümleyici temiz olmayan IP'yi eler.
+        .dns_resolver(Arc::new(GuardResolve))
         .build()
         .map_err(|e| format!("proxy istemcisi kurulamadi: {e}"))?;
     let mut req = client.request(m, url.trim());
@@ -266,6 +332,21 @@ mod tests {
         assert!(check_host_not_metadata(&url).await.is_err());
         let lan = reqwest::Url::parse("http://192.168.1.5:11434/api/chat").unwrap();
         assert!(check_host_not_metadata(&lan).await.is_ok());
+    }
+
+    /// O7 — `Location` ile gelen hedef de aynı sertlikte denetlenir.
+    #[test]
+    fn o7_redirect_hedefi_denetlenir() {
+        let ok = reqwest::Url::parse("http://192.168.1.5:11434/api/chat").unwrap();
+        assert!(check_redirect_target(&ok).is_ok());
+        let meta = reqwest::Url::parse("http://169.254.169.254/latest/meta-data/").unwrap();
+        assert!(check_redirect_target(&meta).is_err());
+        let v6meta = reqwest::Url::parse("http://[fe80::1]/x").unwrap();
+        assert!(check_redirect_target(&v6meta).is_err());
+        let cred = reqwest::Url::parse("http://user:pass@ornek.com/x").unwrap();
+        assert!(check_redirect_target(&cred).is_err());
+        let ftp = reqwest::Url::parse("ftp://ornek.com/x").unwrap();
+        assert!(check_redirect_target(&ftp).is_err());
     }
 
     #[test]

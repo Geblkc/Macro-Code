@@ -10,7 +10,11 @@ const TR_MAP: Record<string, string> = {
   Ö: 'o', ö: 'o', Ç: 'c', ç: 'c', I: 'i', ı: 'i', İ: 'i',
 };
 
-/** Görünen addan kayıt-uyumlu id üretir (`mcp_<slug>`, küçük harf). */
+/** Görünen addan kayıt-uyumlu id üretir (`mcp_<slug>`, küçük harf).
+ *  O7 düzeltmesi: slug tavanı 44 — keystore adı `custom_<id>` (yani
+ *  `custom_mcp_<slug>`)dır ve `custom_` önek sonrası en çok 48 karakter
+ *  kabul eder (keystore.rs normalize_provider). 48 bırakılsaydı uzun adlı
+ *  sunucuların secret'ları sessizce red edilirdi. */
 export function makeMcpServerId(name: string): string {
   const ascii = name
     .trim()
@@ -21,7 +25,7 @@ export function makeMcpServerId(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
+    .slice(0, 44);
   return `mcp_${slug || 'sunucu'}`;
 }
 

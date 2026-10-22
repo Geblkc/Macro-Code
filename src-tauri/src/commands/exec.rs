@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const TIMEOUT_SECS: u64 = 15;
@@ -40,14 +41,11 @@ fn check_file_arg(a: &str) -> Result<(), String> {
         if crate::commands::fs::is_blocked_file_name(seg) || seg.starts_with(".env.") {
             return Err(err(format!("yasaklı dosya argümanda: {a}")));
         }
-        // Uzantı blokajı — TS `isBlockedFile` ile senkron (D2).
-        if let Some(ext) = std::path::Path::new(seg)
-            .extension()
-            .and_then(|e| e.to_str())
-        {
-            if matches!(ext, "pem" | "key" | "p12" | "pfx" | "db" | "sqlite") {
-                return Err(err(format!("yasaklı dosya argümanda: {a}")));
-            }
+        // O7 (D2b senkronu): gizli/veri uzantıları — ad-bazlı (`.pem` dotfile
+        // dahil) ve case-insensitive. Eskiden kopyalanmış küçük harf tablosuydu
+        // (`CERT.PEM`/`.key` kaçardı); artık fs.rs tek kaynak fonksiyonunu kullanır.
+        if crate::commands::fs::is_blocked_name_ext(seg) {
+            return Err(err(format!("yasaklı dosya argümanda: {a}")));
         }
     }
     Ok(())
@@ -71,6 +69,42 @@ fn allow_table() -> Result<serde_json::Map<String, serde_json::Value>, String> {
     v.as_object()
         .cloned()
         .ok_or_else(|| err("allowlist obje değil"))
+}
+
+/// O7 — allowlist.json `_predicates` bölümü: komut başına "bu flagler keyfi
+/// süreç başlatır" listesi (tek kaynak; TS `policy.ts` aynı tabloyu okur).
+fn predicate_table() -> &'static serde_json::Map<String, serde_json::Value> {
+    static TABLE: OnceLock<serde_json::Map<String, serde_json::Value>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str::<serde_json::Value>(ALLOWLIST_JSON)
+            .ok()
+            .and_then(|v| v.get("_predicates")?.as_object().cloned())
+            .unwrap_or_default()
+    })
+}
+
+/// O7 — serbest-argüman komutlarda komut-çalıştıran flagler reddedilir.
+/// `find . -exec sh -c '…' \;` / `rg --pre 'cmd' pattern` keyfi süreç başlatır;
+/// allowlist bu komutları salt-okunur gibi listeler, bu tablo o deliği kapatır.
+/// Tam bayrak (`-exec`) ya da `=`-değerli biçim (`--pre=cmd`) eşleşir.
+fn check_predicates(cmd: &str, args: &[String]) -> Result<(), String> {
+    let Some(bad) = predicate_table().get(cmd.trim()).and_then(|v| v.as_array()) else {
+        return Ok(());
+    };
+    let bads: Vec<&str> = bad.iter().filter_map(|f| f.as_str()).collect();
+    if bads.is_empty() {
+        return Ok(());
+    }
+    for a in args {
+        for f in &bads {
+            if a.as_str() == *f || a.starts_with(&format!("{f}=")) {
+                return Err(err(format!(
+                    "yasaklı argüman: {cmd} {a} · bu flag komut çalıştırabilir"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `rm` yalnızca `-i` ile; `-f`/`-r`/`-R`/`--force`/`--recursive` reddedilir.
@@ -122,6 +156,58 @@ fn extra_allows(extra: &ExtraAllow, cmd: &str, args: &[String]) -> bool {
     })
 }
 
+/// O7 (Y2) — exec dosya argümanlarında **symlink çözümü** (senkron; `exec_cmd`
+/// cwd jail'i çözüldükten sonra çağırır). `check_file_arg` string düzeyinde
+/// çalışır; "creds -> ~/.ssh/id_ed25519" gibi workspace içi symlink'i
+/// göremez (fs araçları bu kontrolü `resolve_rooted` içinde yapar, exec
+/// deliyordu). Var olan hedef canonicalize edilip workspace (root yoksa cwd)
+/// altında kalmak zorundadır; çözülen gerçek adlar da (case-insensitive)
+/// blok listesinden geçer.
+fn guard_file_args(
+    dir: &std::path::Path,
+    jail_base: &std::path::Path,
+    cmd: &str,
+    args: &[String],
+) -> Result<(), String> {
+    if !FILE_ARG_CMDS.contains(&cmd) && cmd != "rm" {
+        return Ok(());
+    }
+    for a in args.iter().filter(|a| !a.starts_with('-')) {
+        let v = a.trim().replace('\\', "/");
+        if v.is_empty() {
+            continue;
+        }
+        let joined = dir.join(&v);
+        let Ok(canon) = joined.canonicalize() else {
+            continue; // yok — string jail zaten desen/missing yoluna izin verir
+        };
+        if !canon.starts_with(jail_base) {
+            return Err(err(format!(
+                "argüman workspace dışına çıkıyor (symlink?): {a}"
+            )));
+        }
+        // Çözülen gerçek yoldaki dosya/dizin adları da blok listesinden geçmeli.
+        let rel = canon
+            .strip_prefix(jail_base)
+            .unwrap_or(&canon)
+            .to_string_lossy()
+            .to_string();
+        for comp in rel.split('/').filter(|c| !c.is_empty()) {
+            let cl = comp.to_ascii_lowercase();
+            if crate::commands::fs::is_blocked_dir(&cl) {
+                return Err(err(format!("yasaklı dizin argümanda: {a}")));
+            }
+            if crate::commands::fs::is_blocked_file_name(&cl) || cl.starts_with(".env.") {
+                return Err(err(format!("yasaklı dosya argümanda: {a}")));
+            }
+            if crate::commands::fs::is_blocked_name_ext(&cl) {
+                return Err(err(format!("yasaklı dosya argümanda: {a}")));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), String> {
     let c = cmd.trim();
     if c.is_empty() {
@@ -144,13 +230,16 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
         }
         return Ok(());
     }
+    // O7: komut-çalıştıran flagler (`find -exec`, `rg --pre` …) — kullanıcı
+    // ek allowlist'i de dahil HER yol geçemez (rm kuralıyla aynı sertlik).
+    check_predicates(c, args)?;
     let table = allow_table()?;
     // Faz 8 L3: kullanıcının ek allowlist'i de geçerli (yerleşik tablo ile birleşik).
     if extra_allows(extra, c, args) {
         return Ok(());
     }
-    // `_note` meta anahtarı komut değildir.
-    let entry = table.get(c).filter(|_| c != "_note");
+    // `_note`/`_predicates` meta anahtarları komut değildir.
+    let entry = table.get(c).filter(|_| c != "_note" && c != "_predicates");
     match entry {
         None => {
             let mut cmds: Vec<&String> = table.keys().filter(|k| *k != "_note").collect();
@@ -215,14 +304,26 @@ pub async fn exec_cmd(
 
     // Workspace jail: root verildiyse cwd onun altında olmalı.
     // Frontend her zaman root gönderir; doğrudan invoke edenlere karşı backend sınırı.
-    if let Some(r) = root.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let base = PathBuf::from(r)
-            .canonicalize()
-            .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))?;
-        if !dir.starts_with(&base) {
-            return Err(err("cwd workspace dışına çıkamaz"));
+    let base_canon = match root.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(r) => {
+            let base = PathBuf::from(r)
+                .canonicalize()
+                .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))?;
+            if !dir.starts_with(&base) {
+                return Err(err("cwd workspace dışına çıkamaz"));
+            }
+            Some(base)
         }
-    }
+        None => None,
+    };
+
+    // O7 (Y2) — exec dosya argümanlarında **symlink çözümü**:
+    // `check_file_arg` string düzeyinde çalışır; "creds -> ~/.ssh/id_ed25519"
+    // gibi workspace içi symlink'i göremez (fs araçları bu kontrolü
+    // `resolve_rooted` içinde yapar, exec deliyordu). Var olan hedef burada
+    // canonicalize edilip workspace (root yoksa cwd) altında kalmak zorundadır.
+    let jail_base = base_canon.as_deref().unwrap_or(dir.as_path());
+    guard_file_args(&dir, jail_base, cmd.trim(), &args)?;
 
     let timeout =
         Duration::from_millis(timeout_ms.unwrap_or(TIMEOUT_SECS * 1000).clamp(1000, 30000));
@@ -319,6 +420,94 @@ mod tests {
         assert!(check_cmd2("rm", &args(&["-i", "../disari.txt"])).is_err());
         assert!(check_cmd2("rm", &args(&["-i", ".env"])).is_err());
         assert!(check_cmd2("rm", &args(&["-i", "build/turetilmis.js"])).is_ok());
+    }
+
+    /// O7 — komut-çalıştıran flagler (`find -exec`, `rg --pre`) reddedilir;
+    /// kullanıcı ek-allowlist'i boş (serbest) olsa bile geçemez.
+    #[test]
+    fn o7_komut_calistiran_flagler_reddedilir() {
+        assert!(check_cmd2(
+            "find",
+            &args(&[".", "-name", "*.ts", "-exec", "sh", "-c", "id"])
+        )
+        .is_err());
+        assert!(check_cmd2("find", &args(&[".", "-execdir", "rm", "-i", "{}", "+"])).is_err());
+        assert!(check_cmd2("find", &args(&[".", "-ok", "sh", "{}", ";"])).is_err());
+        assert!(check_cmd2("find", &args(&[".", "-okdir", "sh", "{}", ";"])).is_err());
+        // `=`-değerli biçimler de yakalanır (find'ta biçimsiz ama savunma amaçlı).
+        assert!(check_cmd2("rg", &args(&["--pre", "kotu.sh", "desen"])).is_err());
+        assert!(check_cmd2("rg", &args(&["--pre=grep1", "desen"])).is_err());
+        assert!(check_cmd2("rg", &args(&["--pre-glob", "*.txt", "desen"])).is_err());
+        // Normal kullanım etkilenmez.
+        assert!(check_cmd2("find", &args(&[".", "-name", "*.ts"])).is_ok());
+        assert!(check_cmd2("rg", &args(&["desen", "-g", "*.ts"])).is_ok());
+    }
+
+    /// O7 — ek-allowlist (kullanıcı "find"i serbest tanımlasa bile) bu flagleri
+    /// açamaz; predicate denetimi prefix eşleşmesinden ÖNCE çalışır.
+    #[test]
+    fn o7_ek_allowlist_predicateleri_asamaz() {
+        let ex = extra(&[("find", &[&["-name"]]), ("rg", &[])]);
+        assert!(check_cmd("find", &args(&["-name", "x", "-exec", "id"]), &ex).is_err());
+        assert!(check_cmd("rg", &args(&["--pre", "kotu.sh", "d"]), &ex).is_err());
+        // Temiz argümanlar yine geçer.
+        assert!(check_cmd("find", &args(&["-name", "x"]), &ex).is_ok());
+        assert!(check_cmd("rg", &args(&["desen"]), &ex).is_ok());
+    }
+
+    /// O7 senkronu — `rm` kısa bayrak kümesi char-üyeliğiyle denetlenir
+    /// ("-1f" gibi regex'in kaçtığı biçimler de reddedilir; TS `isRmSafe` aynısı).
+    #[test]
+    fn o7_rm_bayrak_kumesi_char_uyeligi() {
+        assert!(check_cmd2("rm", &args(&["-i", "-1f", "x"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", "-1r", "x"])).is_err());
+        assert!(check_cmd2("rm", &args(&["-i", "-1", "x"])).is_ok());
+    }
+
+    /// O7 (Y2) — workspace içi symlink workspace dışına çıkarsa reddedilir:
+    /// `cat .gizli/creds` string-jail'i geçer ama hedef jail dışındaysa
+    /// canonicalize çözümüyle durdurulur.
+    #[cfg(unix)]
+    #[test]
+    fn o7_exec_symlink_jail_disina_cikmaz() {
+        use std::os::unix::fs::symlink;
+        let kok = std::env::temp_dir().join(format!("mcode-exec-syml-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&kok);
+        std::fs::create_dir_all(kok.join("ws/.gizli")).unwrap();
+        // Jail DIŞI gerçek klasör (temp kökünde, ws dışında).
+        std::fs::create_dir_all(kok.join("dis/ssh")).unwrap();
+        std::fs::write(kok.join("dis/ssh/id_ed25519"), b"ab").unwrap();
+        // ws içi symlink → jail dışı hedef.
+        symlink(kok.join("dis/ssh/id_ed25519"), kok.join("ws/.gizli/creds")).unwrap();
+
+        let ws = kok.join("ws");
+        // root verilmediyse jail = cwd: symlink hedefi dışarı → reddedilir.
+        let r1 = super::guard_file_args(&ws, &ws, "cat", &args(&[".gizli/creds"]));
+        assert!(r1.is_err(), "symlink jail dışına çıkmamalı");
+
+        // root daha genişse (jail = ws yerine temp kökü) symlink jail'i geçer;
+        // bu kez çözülen GERÇEK yoldaki "id_ed25519" bloklu ad düşer.
+        let r2 = super::guard_file_args(&ws, &kok, "cat", &args(&[".gizli/creds"]));
+        assert!(
+            r2.is_err(),
+            "çözülen yoldaki bloklu ad (id_ed25519) reddedilmeli"
+        );
+
+        // String jail'de zaten yasak olan .env VARSA: çözülen yolda da düşer.
+        std::fs::write(kok.join("ws/.env"), b"secret").unwrap();
+        let r3 = super::guard_file_args(&ws, &ws, "cat", &args(&[".env"]));
+        assert!(r3.is_err(), "string jail zaten reddeder");
+
+        // Workspace İÇİ normal hedef: yine geçer (meşru akış bozulmaz).
+        std::fs::write(kok.join("ws/ok.txt"), b"selam").unwrap();
+        let r4 = super::guard_file_args(&ws, &ws, "cat", &args(&["ok.txt"]));
+        assert!(r4.is_ok());
+
+        // Desen (var olmayan yol): canonicalize başarısız → jail'e takılmaz.
+        let r5 = super::guard_file_args(&ws, &ws, "find", &args(&[".", "-name", "*.ts"]));
+        assert!(r5.is_ok());
+
+        let _ = std::fs::remove_dir_all(&kok);
     }
 
     #[test]

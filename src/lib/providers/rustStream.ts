@@ -20,7 +20,13 @@ interface RustStreamEvent {
 interface RustStreamArgs {
   apiKey: string;
   model: string;
-  systemPrompt?: string;
+  /**
+   * Anthropic `system` alanı: düz metin veya `[{type:'text', text,
+   * cache_control}]` blok dizisi (Faz 11).
+   * O7 düzeltmesi: eşik kararı TS'te (`cacheableBySize`) verilir ve sonucu
+   * iki yol (fetch/Rust) da birebir paylaşır — Rust saf passthrough'tür.
+   */
+  system?: unknown;
   /** Anthropic-format mesajlar (buildAnthropicMessages çıktısı). */
   messages: Array<{ role: string; content: unknown }>;
   tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>;
@@ -49,7 +55,7 @@ function toProviderError(err: unknown): ProviderError {
  * WebView CORS'una takilmaz; `fetch` yedegi anthropic.ts'te durur.
  */
 export async function streamAnthropicViaRust(args: RustStreamArgs): Promise<void> {
-  const { apiKey, model, systemPrompt, messages, tools, thinking, temperature, topP, maxTokens, onChunk, signal } = args;
+  const { apiKey, model, system, messages, tools, thinking, temperature, topP, maxTokens, onChunk, signal } = args;
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
 
   let aborted = false;
@@ -87,7 +93,7 @@ export async function streamAnthropicViaRust(args: RustStreamArgs): Promise<void
       await invoke('stream_anthropic', {
         api_key: apiKey,
         model,
-        system_prompt: systemPrompt ?? null,
+        system: system ?? null,
         messages,
         tools: tools ?? null,
         thinking: thinking ?? null,

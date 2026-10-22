@@ -3,10 +3,10 @@ mod commands;
 use tauri::Manager;
 
 use commands::{
-    apply_patch, delete_api_key, exec_cmd, get_api_key, glob_files, grep_files, has_any_key,
-    key_hint, key_status, list_dir, list_tree, mcp_kill, mcp_read, mcp_spawn, mcp_write,
-    memory_append, memory_read, proxy_abort, proxy_fetch, read_file, set_api_key, stream_anthropic,
-    undo_patch, write_file, McpState, ProxyState,
+    apply_patch, delete_api_key, exec_cmd, get_api_key, get_app_paths, glob_files, grep_files,
+    has_any_key, key_hint, key_status, list_dir, list_tree, mcp_kill, mcp_read, mcp_spawn,
+    mcp_write, memory_append, memory_read, proxy_abort, proxy_fetch, read_file, set_api_key,
+    stream_anthropic, undo_patch, write_file, McpState, ProxyState,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +49,7 @@ pub fn run() {
             key_status,
             has_any_key,
             key_hint,
+            get_app_paths,
             stream_anthropic,
             list_dir,
             list_tree,

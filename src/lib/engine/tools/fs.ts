@@ -5,6 +5,7 @@
 import { strArg } from '../toolspec';
 import type { ToolCall } from '../types';
 import { decideTool } from '../policy';
+import { t } from '../../i18n/core';
 
 export interface DirEntry {
   name: string;
@@ -21,16 +22,16 @@ async function invokeRust<T>(cmd: string, args: Record<string, unknown>): Promis
 
 export async function toolListDir(root: string, call: ToolCall): Promise<string> {
   const d = decideTool('list_dir', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const path = strArg(call.args, 'path', '');
   const entries = await invokeRust<DirEntry[]>('list_dir', { root, path });
-  if (entries.length === 0) return '(boş dizin)';
+  if (entries.length === 0) return t('tool.emptyDir');
   return entries.map((e) => `${e.is_dir ? 'dir  ' : 'file '} ${e.name}`).join('\n');
 }
 
 export async function toolReadFile(root: string, call: ToolCall): Promise<string> {
   const d = decideTool('read_file', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const path = strArg(call.args, 'path', '');
   if (!path) throw new Error('path gerekli');
   const limitRaw = call.args.limit;
@@ -48,7 +49,7 @@ export async function toolReadFile(root: string, call: ToolCall): Promise<string
 
 export async function toolGrep(root: string, call: ToolCall): Promise<string> {
   const d = decideTool('grep', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const pattern = strArg(call.args, 'pattern', '');
   if (!pattern) throw new Error('pattern gerekli');
   const path = strArg(call.args, 'path', '');
@@ -59,13 +60,13 @@ export async function toolGrep(root: string, call: ToolCall): Promise<string> {
     path: path || null,
     ...(regex ? { regex: true } : {}),
   });
-  if (hits.length === 0) return '(eşleşme yok)';
+  if (hits.length === 0) return t('tool.noMatch');
   return hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join('\n');
 }
 
 export async function toolGlob(root: string, call: ToolCall): Promise<string> {
   const d = decideTool('glob', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const pattern = strArg(call.args, 'pattern', '');
   if (!pattern) throw new Error('pattern gerekli');
   const path = strArg(call.args, 'path', '');
@@ -74,7 +75,7 @@ export async function toolGlob(root: string, call: ToolCall): Promise<string> {
     pattern,
     path: path || null,
   });
-  if (hits.length === 0) return '(eşleşme yok)';
+  if (hits.length === 0) return t('tool.noMatch');
   return hits.map((e) => `${e.is_dir ? 'dir  ' : 'file '} ${e.name}`).join('\n');
 }
 

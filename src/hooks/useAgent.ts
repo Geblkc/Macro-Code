@@ -25,6 +25,8 @@ import { deriveTodoState } from '../lib/engine/tools/todo';
 import { listSkills, skillsPrompt } from '../lib/engine/skills';
 import { configureMcp, mcpToolsForAgent } from '../lib/engine/mcp/pool';
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
+import { useT } from '../lib/i18n';
+import { t } from '../lib/i18n/core';
 import type { Provider, ToolEvent } from '../types';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 
@@ -122,7 +124,7 @@ function makeRunEventHandler(opts: {
         },
       });
     } else if (e.k === 'tool_preview') {
-      emit({ type: 'sys', content: `/// önizleme (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}` });
+      emit({ type: 'sys', content: `/// ${t('tool.output')} (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}` });
     } else if (e.k === 'tool_result') {
       const toolName = callNames.get(e.id);
       try {
@@ -144,7 +146,7 @@ function makeRunEventHandler(opts: {
           type: e.ok ? 'sys' : 'err',
           content: e.ok
             ? `▸ ${toolName}: ${previewOutput(e.output)}`
-            : `✗ araç hatası (${e.id.slice(0, 8)}): ${e.output.slice(0, 300)}`,
+            : t('agent.toolFailed', { tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}` }),
           tool: {
             id: String(e.id),
             name: toolName,
@@ -154,7 +156,7 @@ function makeRunEventHandler(opts: {
           },
         });
       } else if (!e.ok) {
-        emit({ type: 'err', content: `✗ araç hatası (${e.id.slice(0, 8)}): ${e.output.slice(0, 300)}` });
+        emit({ type: 'err', content: t('agent.toolFailed', { tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}` }) });
       }
     }
   };
@@ -165,6 +167,7 @@ function makeRunEventHandler(opts: {
  * Sözleşme useStream ile aynı: başarı/abort -> null, hata -> err satırı.
  */
 export function useAgent() {
+  const t = useT();
   const abortRef = useRef<AbortController | null>(null);
 
   const abort = useCallback(() => {
@@ -249,7 +252,7 @@ export function useAgent() {
         try {
           extraTools = await mcpToolsForAgent();
           if (settings.mcpServers.some((s) => s.enabled) && extraTools.length === 0) {
-            emit({ type: 'warn', content: '! mcp: etkin sunuculara ulaşılamadı · yerleşik araçlarla devam' });
+            emit({ type: 'warn', content: t('agent.mcpUnreachable') });
           }
         } catch {
           extraTools = [];
@@ -290,7 +293,7 @@ export function useAgent() {
                 });
                 // Faz 12 B.6: özet oturuma kalıcı yazılır (restart sonrası tekrar özetlenmez).
                 store().setCompaction(sessionId, memoToPersisted(memoForm));
-                emit({ type: 'sys', content: '/// context özetlendi (compaction)' });
+                emit({ type: 'sys', content: t('agent.compacted') });
               }
             }
           }
@@ -318,7 +321,7 @@ export function useAgent() {
           if (repoCtx.error) {
             emit({
               type: 'warn',
-              content: `! repo bağlamı okunamadı: ${repoCtx.error.slice(0, 160)}`,
+              content: t('agent.repoContextFailed', { message: repoCtx.error.slice(0, 160) }),
             });
           }
         } catch {
@@ -445,8 +448,12 @@ export function useAgent() {
         // Bellekte run yok (restart) — patch apply yine çalışır, agent devam etmez.
         for (const d of decisions) {
           const queued = await takeApproval(d.id);
-          if (queued && d.approved) {
-            onToolLine?.({ type: 'sys', content: '/// onay bekleyen iş yeniden başlatılamadı · yeniden iste' });
+          if (!queued) continue;
+          if (d.approved) {
+            onToolLine?.({ type: 'sys', content: t('agent.cannotRestart') });
+          } else {
+            // O7: reddedilen karar da görünür olmalı — sessiz düşmesin.
+            onToolLine?.({ type: 'sys', content: `[✗] reddedildi: ${d.id.slice(0, 8)}` });
           }
         }
         return '/// onay bekleyen iş yeniden başlatılamadı · yeniden iste';
@@ -459,7 +466,7 @@ export function useAgent() {
         if (!d.approved) {
           onToolLine?.({ type: 'sys', content: `[✗] reddedildi: ${d.id.slice(0, 8)}` });
         } else {
-          onToolLine?.({ type: 'sys', content: `[✓] onaylandı: ${d.id.slice(0, 8)}` });
+          onToolLine?.({ type: 'sys', content: t('agent.approved', { id: d.id.slice(0, 8) }) });
         }
       }
       try {

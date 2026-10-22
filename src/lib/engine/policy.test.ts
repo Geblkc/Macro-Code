@@ -83,8 +83,12 @@ describe('Faz C — policy', () => {
   });
 
   it('Faz 3 drift: TS tablosu allowlist.json ile birebir aynı', () => {
-    const { _note: _n, ...json } = rawAllowlist as unknown as Record<string, string[][]>;
+    const { _note: _n, _predicates: _p, ...json } = rawAllowlist as unknown as Record<
+      string,
+      string[][]
+    > & { _predicates: Record<string, string[]> };
     void _n;
+    void _p;
     expect(allowedCommands()).toEqual(json);
     // JSON'daki her komut TS'de tanınır: ilk prefix geçerli sayılır.
     for (const [cmd, prefixes] of Object.entries(json)) {
@@ -95,6 +99,55 @@ describe('Faz C — policy', () => {
       const sample = prefixes.length === 0 ? ['ornek-arg'] : [...prefixes[0], 'ekstra'];
       expect(isExecAllowed(cmd, sample)).toBe(true);
     }
+  });
+
+  it('O7: komut-çalıştıran flagler reddedilir (find -exec, rg --pre)', () => {
+    // decideTool seviyesinde: onay kartına hiç düşmez.
+    const jail = (cmd: string, a: string[]) =>
+      decideTool('exec', { cmd, args: a }, 'manual').allowed;
+    expect(jail('find', ['.', '-exec', 'sh', '-c', 'id'])).toBe(false);
+    expect(jail('find', ['.', '-execdir', 'id'])).toBe(false);
+    expect(jail('find', ['.', '-ok', 'sh', '{}', ';'])).toBe(false);
+    expect(jail('find', ['.', '-okdir', 'id'])).toBe(false);
+    expect(jail('rg', ['--pre', 'kotu.sh', 'desen'])).toBe(false);
+    expect(jail('rg', ['--pre=sh', 'desen'])).toBe(false);
+    expect(jail('rg', ['--pre-glob', '*.txt', 'desen'])).toBe(false);
+    const predReason = decideTool('exec', { cmd: 'find', args: ['.', '-exec', 'id'] }, 'manual');
+    expect(predReason.reason).toMatch(/komut çalıştırabilir/);
+    // Normal kullanım etkilenmez.
+    expect(jail('find', ['.', '-name', '*.ts'])).toBe(true);
+    expect(jail('rg', ['desen', '-g', '*.ts'])).toBe(true);
+    expect(jail('rg', ['--pretty'])).toBe(true);
+  });
+
+  it('O7: ek-allowlist komut-çalıştıran flagleri açamaz', () => {
+    const extra = parseCustomAllowList(['find -name', 'rg']);
+    expect(isExecAllowed('find', ['-name', 'x', '-exec', 'id'], extra)).toBe(true); // isExecAllowed serbest
+    // ama decideTool kalıcı olarak reddeder (rm kuralıyla aynı sertlik).
+    expect(
+      decideTool('exec', { cmd: 'find', args: ['-name', 'x', '-exec', 'id'] }, 'manual', extra)
+        .allowed,
+    ).toBe(false);
+    expect(
+      decideTool('exec', { cmd: 'rg', args: ['--pre', 'x.sh', 'd'] }, 'manual', extra).allowed,
+    ).toBe(false);
+    expect(
+      decideTool('exec', { cmd: 'find', args: ['-name', 'x'] }, 'manual', extra).allowed,
+    ).toBe(true);
+  });
+
+  it('O7: rm bayrak kümesi char-üyeliği ("-1f" tarzı da reddedilir)', () => {
+    expect(isRmSafe(['-i', '-1f', 'x'])).toBe(false);
+    expect(isRmSafe(['-i', '-1r', 'x'])).toBe(false);
+    expect(isRmSafe(['-i', '-1', 'x'])).toBe(true);
+    expect(isRmSafe(['-i', '-fi', 'x'])).toBe(false);
+  });
+
+  it('O7: git diff --no-index / --output onay uyarısı üretir', () => {
+    expect(execApprovalWarning('git', ['diff', '--no-index', 'a', 'b'])).toMatch(/no-index/);
+    expect(execApprovalWarning('git', ['log', '--output=x'])).toMatch(/workspace dışına/);
+    expect(execApprovalWarning('git', ['diff'])).toBeNull();
+    expect(execApprovalWarning('git', ['status'])).toBeNull();
   });
 
   it('Faz 3: glob auto, write_file auto-edit dışında onaylı, todo auto', () => {

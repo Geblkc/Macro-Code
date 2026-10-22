@@ -25,8 +25,25 @@ export interface LogEntry {
 const MAX_ENTRIES = 200;
 const buffer: LogEntry[] = [];
 
-/** Redakte edilecek alan adları. */
-const SECRET_FIELD = /^(api[-_ ]?key|apikey|authorization|auth|token|secret|password|passwd|pwd|key|cookie|session)$/i;
+/** Redakte edilecek alan adları — O7: segment-eşleşmeli. Eskiden
+ *  tam-adı eşleştiği için `anthropic_api_key`, `newToken` gibi adlar kaçıyordu;
+ *  artık snake/kebab/camelCase parçalarına ayrılıp secret-parça içerirse
+ *  (örn. `api`, `key`, `token` …) alan redakte edilir ("keynote" gibi
+ *  tam-parça olmayan adlar etkilenmez). */
+const SECRET_PARTS = new Set([
+  'api', 'apikey', 'key', 'token', 'secret', 'password', 'passwd', 'pwd',
+  'authorization', 'auth', 'cookie', 'session', 'credential', 'credentials',
+]);
+
+/** Alan adı gizli mi? (`APIKey`, `api_key_v2`, `basicAuth …` yakalanır) */
+function isSecretField(k: string): boolean {
+  const parts = k
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return parts.some((p) => SECRET_PARTS.has(p));
+}
 
 /** Değer kalıbıyla redakte edilecek gizli diziler. */
 const SECRET_VALUE_PATTERNS: RegExp[] = [
@@ -52,7 +69,7 @@ export function redact(value: unknown, depth = 0): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = SECRET_FIELD.test(k) ? REDACTED : redact(v, depth + 1);
+      out[k] = isSecretField(k) ? REDACTED : redact(v, depth + 1);
     }
     return out;
   }

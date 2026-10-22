@@ -6,6 +6,7 @@ import { strArg } from '../toolspec';
 import type { PendingPatch, ToolCall } from '../types';
 import { createToolCallId } from '../types';
 import { decideTool } from '../policy';
+import { t } from '../../i18n/core';
 
 const pending = new Map<string, PendingPatch>();
 
@@ -30,7 +31,7 @@ export function makePreview(path: string, oldText: string, newText: string): str
     lines.slice(0, 40).map((l) => `${sign} ${l.slice(0, 240)}`);
   const out = [...head, ...show(rem, '-'), ...show(add, '+')];
   if (rem.length > 40 || add.length > 40) out.push('…[diff kesildi]');
-  if (rem.length === 0 && add.length === 0) out.push('(değişiklik yok)');
+  if (rem.length === 0 && add.length === 0) out.push(t('tool.noChange'));
   return out.join('\n');
 }
 
@@ -87,7 +88,7 @@ export async function toolProposePatch(
   readOld?: (path: string) => Promise<string>,
 ): Promise<string> {
   const d = decideTool('propose_patch', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const path = strArg(call.args, 'path', '');
   const content = typeof call.args.content === 'string' ? call.args.content : '';
   if (!path || !content) throw new Error('path ve content gerekli');
@@ -117,7 +118,7 @@ export async function toolEditFile(
   readOld?: (path: string) => Promise<string>,
 ): Promise<string> {
   const d = decideTool('edit_file', call.args, 'manual');
-  if (!d.allowed) throw new Error(d.reason ?? 'yasaklı yol');
+  if (!d.allowed) throw new Error(d.reason ?? t('tool.forbiddenPath'));
   const path = strArg(call.args, 'path', '');
   const search = typeof call.args.search === 'string' ? call.args.search : '';
   const replace = typeof call.args.replace === 'string' ? call.args.replace : '';
@@ -131,11 +132,29 @@ export async function toolEditFile(
       old = '';
     }
   } else if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+    // O7 dedektörü: `truncated` işareti dönerse KESİLMİŞ içerikle edit
+    // YAPILMAZ — search/replace kısmi eski dosya üzerinde çalışıp apply'da
+    // 1001+ satırı SİLEBİLİRDİ (veri kaybı bulgusu). Rust `read_file` limit'i
+    // 1000'e kelepçeler; byte-cut noktası bilinmediğinden sayfalı okuma
+    // güvenli olamadığından edit_file reddedilir: propose_patch (tam içerik)
+    // ya da daha küçük dosyada çalışma yolunu hata metni gösterir.
+    let truncated = false;
     try {
-      const out = await invokeRust<{ content: string }>('read_file', { root, path, limit: 2000 });
-      old = out.content;
+      const out = await invokeRust<{ content: string; truncated: boolean }>('read_file', {
+        root,
+        path,
+        limit: 1000,
+      });
+      if (out.truncated) truncated = true;
+      else old = out.content;
     } catch {
-      old = '';
+      // Okuma hatası → `old` boş kalır; aşağıda "dosya okunamadı" düşer.
+    }
+    if (truncated) {
+      throw new Error(
+        `${path} 1000+ satır ya da 64KB+: edit_file bu önizlemede güvenli değil ` +
+          t('tool.truncatedWarning'),
+      );
     }
   }
 

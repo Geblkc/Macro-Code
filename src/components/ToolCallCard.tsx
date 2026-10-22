@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ToolEvent } from '../types';
+import { useT } from '../lib/i18n';
 import { Icon, type IconName } from './icons';
 
 interface Props {
@@ -29,10 +30,12 @@ export function toolIcon(name: string): IconName {
 }
 
 export default function ToolCallCard({ tool }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const hasOutput = !!tool.output && tool.output.trim().length > 0;
   const failed = tool.status === 'err';
   const running = tool.status === 'run';
+  const statusLabel = running ? t('tool.running') : failed ? t('tool.failed') : t('tool.done');
 
   return (
     <div className={`tool${failed ? ' tool-failed' : ''}`}>
@@ -40,7 +43,7 @@ export default function ToolCallCard({ tool }: Props) {
         className="tool-head"
         onClick={() => hasOutput && setOpen((v) => !v)}
         aria-expanded={hasOutput ? open : undefined}
-        aria-label={`${tool.name} — ${running ? 'çalışıyor' : failed ? 'hata' : 'tamamlandı'}`}
+        aria-label={`${tool.name} — ${statusLabel}`}
       >
         <span className="tool-ico">
           <Icon name={toolIcon(tool.name)} size="sm" />
@@ -50,7 +53,7 @@ export default function ToolCallCard({ tool }: Props) {
         {tool.ms !== undefined ? <span className="tool-dur">{tool.ms}ms</span> : null}
         <span
           className={`tool-status${running ? ' run' : failed ? ' err' : ' ok'}`}
-          title={running ? 'çalışıyor' : failed ? 'hata' : 'tamamlandı'}
+          title={statusLabel}
         >
           <Icon name={running ? 'activity' : failed ? 'x' : 'check'} size="sm" />
         </span>

@@ -164,6 +164,10 @@ export const anthropicProvider: AIProvider = {
     // enjeksiyonu (`fetchImpl`) veya tarayıcı-dev doğrudan fetch kullanır.
     // Rust yolu yanıt başlamadan düşerse (TLS/ağ) fetch'e geri dönülür;
     // metin akmaya başladıysa düşme (içerik iki kez eklenmesin).
+    // O7 cache düzeltmesi: `system` değeri (string ya da cache_control'lu
+    // blok dizisi — eşik kararı yalnızca TS'te verilir) iki yola DA AYNI goes;
+    // eskiden Rust yoluna her zaman çıplak string gidiyordu → system öneki
+    // hiç cache'lenmiyordu (ölçülemez maliyet artışıydı).
     if (config.fetchImpl === undefined && isTauriRuntime()) {
       let sawContent = false;
       try {
@@ -171,7 +175,7 @@ export const anthropicProvider: AIProvider = {
           apiKey,
           model,
           maxTokens,
-          systemPrompt: systemText || undefined,
+          system: systemText ? systemBody : undefined,
           messages: buildAnthropicMessages(messages, msgOpts),
           tools,
           thinking: thinkingCfg,

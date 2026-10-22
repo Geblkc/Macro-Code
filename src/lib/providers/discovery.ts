@@ -1,6 +1,7 @@
 import type { DiscoveredModel, Provider } from '../../types';
 import { listOllamaModels } from './ollama';
 import { fetchFor } from './rustFetch';
+import { t } from '../i18n/core';
 
 /** Keşif kaynağı → modelin bağlanacağı yerleşik sağlayıcı. */
 export const SOURCE_PROVIDER: Record<
@@ -38,7 +39,7 @@ function asDiscovered(
 export async function discoverOpenRouter(fetchImpl?: typeof fetch): Promise<DiscoveredModel[]> {
   const f = fetchImpl ?? globalThis.fetch;
   const res = await f('https://openrouter.ai/api/v1/models');
-  if (!res.ok) throw new Error(`openrouter listesi alınamadı (http ${res.status})`);
+  if (!res.ok) throw new Error(t('errors.listFailed', { source: 'openrouter', status: res.status }));
   const json = (await res.json()) as { data?: OpenRouterEntry[] };
   const rows = Array.isArray(json.data) ? json.data : [];
   return asDiscovered(
@@ -73,7 +74,7 @@ export async function discoverOpenAI(
   const res = await fetchFor(url, fetchImpl)(url, {
     headers: { authorization: `Bearer ${apiKey.trim()}` },
   });
-  if (!res.ok) throw new Error(`openai listesi alınamadı (http ${res.status})`);
+  if (!res.ok) throw new Error(t('errors.listFailed', { source: 'openai', status: res.status }));
   const json = (await res.json()) as { data?: { id?: unknown }[] };
   const rows = Array.isArray(json.data) ? json.data : [];
   return asDiscovered(
@@ -87,12 +88,12 @@ export async function discoverGemini(
   apiKey: string,
   fetchImpl?: typeof fetch,
 ): Promise<DiscoveredModel[]> {
-  if (!apiKey.trim()) throw new Error('önce gemini anahtarı gir');
+  if (!apiKey.trim()) throw new Error(t('settings.models.error.keyFirst', { provider: 'gemini' }));
   const f = fetchImpl ?? globalThis.fetch;
   const res = await f(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey.trim())}`,
   );
-  if (!res.ok) throw new Error(`gemini listesi alınamadı (http ${res.status})`);
+  if (!res.ok) throw new Error(t('errors.listFailed', { source: 'gemini', status: res.status }));
   const json = (await res.json()) as { models?: { name?: unknown }[] };
   const rows = Array.isArray(json.models) ? json.models : [];
   return asDiscovered(

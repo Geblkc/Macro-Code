@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ALL_MODELS, PROVIDER_IDS } from '../../lib/providers';
 import { listOllamaModels, DEFAULT_OLLAMA_URL } from '../../lib/providers/ollama';
@@ -14,23 +14,56 @@ import { makeEndpointId, parseEndpointModels } from '../../lib/providers/custom'
 import { catalogPriceOf } from '../../lib/providers/catalog';
 import type { CustomEndpoint, CustomModel, DiscoveredModel, McpServerConfig, Provider } from '../../types';
 import { fieldOf, isTauri, useSettingsStore } from '../../store/settings';
+import { useT } from '../../lib/i18n';
 import ProvidersTab from './ProvidersTab';
 import ModelsTab from './ModelsTab';
+import ParamsTab from './ParamsTab';
 import ChatTab from './ChatTab';
 import McpTab from './McpTab';
-import LangTab from './LangTab';
+import AppearanceTab from './AppearanceTab';
 import AboutTab from './AboutTab';
 import { Icon } from '../icons';
-import type { CustomDraft, Draft, McpDraft, SecretDraft, TabId, TestConn } from './types';
-import { TABS, emptySecret, maskLast4, parseEnvText, serializeEnv } from './types';
+import type { CustomDraft, Draft, McpDiscovery, McpDraft, SecretDraft, TabId, TestConn } from './types';
+import { TABS, emptySecret, maskLast4, mergeVisited, nextTabIndex, parseEnvText, serializeEnv } from './types';
+import ConfirmDialog from './ConfirmDialog';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { McpClient } from '../../lib/engine/mcp/client';
 import { createHttpTransport } from '../../lib/engine/mcp/transports/http';
 import { createStdioTransport } from '../../lib/engine/mcp/transports/stdio';
 import { makeMcpServerId } from '../../lib/engine/mcp/registry';
+import { toast } from '../../lib/toast';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+}
+
+/**
+ * Sekme paneli sarmalayıcısı.
+ *
+ * Ziyaret edilen sekmeler mount'ta kalır ve `hidden` ile gizlenir —
+ * böylece arama metni, süzgeç ve keşif sonuçları sekme değiştirince kaybolmaz.
+ */
+function TabPanel({
+  id,
+  active,
+  children,
+}: {
+  id: TabId;
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="tab-panel"
+      role="tabpanel"
+      id={`settings-panel-${id}`}
+      aria-labelledby={`settings-tab-${id}`}
+      hidden={!active}
+    >
+      {children}
+    </div>
+  );
 }
 
 function blankDraft(): Draft {
@@ -63,10 +96,13 @@ function blankDraft(): Draft {
     contrast: 'normal',
     uiFont: 'mono',
     clockFormat: '24h',
+    showTimestamps: true,
+    language: 'auto',
   };
 }
 
 export default function SettingsModal({ open, onClose }: Props) {
+  const t = useT();
   const [tab, setTab] = useState<TabId>('providers');
   const [tabQuery, setTabQuery] = useState('');
   const [draft, setDraft] = useState<Draft>(blankDraft);
@@ -80,7 +116,17 @@ export default function SettingsModal({ open, onClose }: Props) {
   const [foundErr, setFoundErr] = useState<string | null>(null);
   const [foundBusy, setFoundBusy] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [mcpFound, setMcpFound] = useState<Record<string, { count: number; error: string | null; busy: boolean }>>({});
+  const [mcpFound, setMcpFound] = useState<Record<string, McpDiscovery>>({});
+  /** Kaydedilmemiş değişiklikle kapatma onayı açık mı? */
+  const [confirmClose, setConfirmClose] = useState(false);
+  /**
+   * Ziyaret edilmiş sekmeler. Sekmeler bir kez mount olup gizlenir — arama
+   * metni, süzgeç ve keşif sonuçları sekme değiştirince kaybolmaz.
+   */
+  const [visited, setVisited] = useState<TabId[]>(['providers']);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const onTrapKeyDown = useFocusTrap(modalRef, open);
   // models.dev kataloğu yüklü mü (fiyat/metadata zenginleşmesi).
   const catalog = useSettingsStore((s) => s.modelsDevCatalog);
 
@@ -126,6 +172,8 @@ export default function SettingsModal({ open, onClose }: Props) {
     next.contrast = s.contrast;
     next.uiFont = s.uiFont;
     next.clockFormat = s.clockFormat;
+    next.showTimestamps = s.showTimestamps;
+    next.language = s.language;
     next.mcps = s.mcpServers.map((m) => ({
       key: m.id,
       id: m.id,
@@ -160,7 +208,8 @@ export default function SettingsModal({ open, onClose }: Props) {
     }
     setDraft(next);
     setInitial(JSON.parse(JSON.stringify(next)) as Draft);
-    setTab('providers');
+    // Sekme SIFIRLANMAZ — kullanıcı kaldığı yerden devam eder (odak da
+    // tutarlı kalsın diye odaklama sırasında karışıklık olmasın).
     setTabQuery('');
     setTests({});
     setShow({});
@@ -171,6 +220,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     setFoundBusy(null);
     setMcpFound({});
     setFormError(null);
+    setConfirmClose(false);
     void (async () => {
       // Tauri'de ipucu keystore'dan (`key_hint` tam değeri dönmez);
       // tarayıcı-dev'de bellekten maskelenir.
@@ -211,18 +261,49 @@ export default function SettingsModal({ open, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open ]);
 
+  // Sekme değişince içerik kaydırması başa döner (panel başlığı görünür kalsın).
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [open, tab]);
 
   if (!open) return null;
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+
+  /** Kaydedilmemiş değişiklik varsa onay ister, yoksa doğrudan kapatır. */
+  const requestClose = () => {
+    if (dirty) setConfirmClose(true);
+    else onClose();
+  };
+
+  /** Sekmeye geçer ve paneli kalıcı olarak mount eder (state korunur). */
+  const selectTab = (id: TabId) => {
+    setTab(id);
+    setVisited((v) => mergeVisited(v, id));
+  };
+
+  /** Arama süzgeci sekmeleri gizliyorsa aktif sekme her zaman görünür kalır. */
+  const visibleTabs = TABS.filter((tb) => {
+    const label = t(tb.labelKey);
+    const q = tabQuery.trim().toLocaleLowerCase();
+    return !q || label.toLocaleLowerCase().includes(q);
+  });
+  if (!visibleTabs.some((tb) => tb.id === tab)) {
+    const active = TABS.find((tb) => tb.id === tab);
+    if (active) visibleTabs.unshift(active);
+  }
+
+  /** Sekme rayında klavye navigasyonu (↑↓ ←→ Home End). */
+  const handleTabKeyDown = (e: ReactKeyboardEvent, id: TabId) => {
+    const idx = visibleTabs.findIndex((tb) => tb.id === id);
+    const next = nextTabIndex(e.key, idx, visibleTabs.length);
+    if (next < 0) return;
+    e.preventDefault();
+    const target = visibleTabs[next];
+    selectTab(target.id);
+    document.getElementById(`settings-tab-${target.id}`)?.focus();
+  };
 
   const memoryValue = (id: string): string => {
     const s = useSettingsStore.getState();
@@ -233,12 +314,12 @@ export default function SettingsModal({ open, onClose }: Props) {
   };
 
   const testKey = async (id: string) => {
-    setTests((t) => ({ ...t, [id]: 'testing' }));
+    setTests((prev) => ({ ...prev, [id]: 'testing' }));
     setFormError(null);
     try {
       if (id === 'ollama') {
         const r = await validateDetailed('ollama', draft.ollamaUrl);
-        setTests((t) => ({ ...t, [id]: r }));
+        setTests((prev) => ({ ...prev, [id]: r }));
         return;
       }
       if ((PROVIDER_IDS as string[]).includes(id)) {
@@ -246,28 +327,36 @@ export default function SettingsModal({ open, onClose }: Props) {
         const sec = draft.secrets[id];
         const value = sec?.value || memoryValue(id);
         if (!value.trim()) {
-          setTests((t) => ({ ...t, [id]: 'idle' }));
-          setFormError('önce anahtar gir (kayıtlı anahtar test edilemiyorsa yeniden yaz)');
+          setTests((prev) => ({ ...prev, [id]: 'idle' }));
+          setFormError(t('settings.providers.error.keyFirst'));
           return;
         }
         const r = await validateDetailed(p, value, {
           baseUrl: draft.baseUrlOverride[p]?.trim() || undefined,
         });
-        setTests((t) => ({ ...t, [id]: r }));
+        setTests((prev) => ({ ...prev, [id]: r }));
         return;
       }
       const card = draft.customs.find((c) => c.key === id);
       if (!card) return;
       const value = card.secret.value || memoryValue(card.id);
       if (!value.trim() || !card.baseUrl.trim()) {
-        setTests((t) => ({ ...t, [id]: 'idle' }));
-        setFormError('önce base URL ve anahtar gir');
+        setTests((prev) => ({ ...prev, [id]: 'idle' }));
+        setFormError(t('settings.providers.error.urlFirst'));
         return;
       }
       const r = await validateDetailed('openai', value, { baseUrl: card.baseUrl.trim() });
-      setTests((t) => ({ ...t, [id]: r }));
+      setTests((prev) => ({ ...prev, [id]: r }));
     } catch {
-      setTests((t) => ({ ...t, [id]: 'network' }));
+      setTests((prev) => ({ ...prev, [id]: 'network' }));
+    }
+  };
+
+  /** Tüm sağlayıcıları sırayla test eder (ağ istekleri teker teker). */
+  const testAll = async () => {
+    setFormError(null);
+    for (const p of PROVIDER_IDS) {
+      await testKey(p);
     }
   };
 
@@ -281,7 +370,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         setOllamaFound(await listOllamaModels(draft.ollamaUrl));
       } catch (e) {
         setOllamaFound(null);
-        setOllamaErr(e instanceof Error ? e.message : 'liste alınamadı');
+        setOllamaErr(e instanceof Error ? e.message : t('settings.models.error.listFailed'));
       } finally {
         setOllamaBusy(false);
       }
@@ -335,16 +424,16 @@ export default function SettingsModal({ open, onClose }: Props) {
   const discoverMcp = (key: string) => {
     const card = draft.mcps.find((c) => c.key === key);
     if (!card) return;
-    setMcpFound((m) => ({ ...m, [key]: { count: 0, error: null, busy: true } }));
+    setMcpFound((m) => ({ ...m, [key]: { count: 0, error: null, busy: true, tools: [] } }));
     void (async () => {
       const fail = (msg: string) =>
-        setMcpFound((m) => ({ ...m, [key]: { count: 0, error: msg, busy: false } }));
+        setMcpFound((m) => ({ ...m, [key]: { count: 0, error: msg, busy: false, tools: [] } }));
       try {
         const transport =
           card.transport === 'stdio'
             ? (() => {
-                if (!isTauri()) throw new Error('stdio yalnızca Tauri’de çalışır');
-                if (!card.command.trim()) throw new Error('önce komut gir');
+                if (!isTauri()) throw new Error(t('settings.mcp.error.stdioTauriOnly'));
+                if (!card.command.trim()) throw new Error(t('settings.mcp.error.commandFirst'));
                 const { values } = parseEnvText(card.envText);
                 return createStdioTransport({
                   serverId: card.id || 'kesif',
@@ -354,19 +443,30 @@ export default function SettingsModal({ open, onClose }: Props) {
                 });
               })()
             : (() => {
-                if (!/^https?:\/\/.+/.test(card.url.trim())) throw new Error('önce http(s) URL gir');
+                if (!/^https?:\/\/.+/.test(card.url.trim())) throw new Error(t('settings.mcp.error.urlFirst'));
                 return createHttpTransport({ url: card.url.trim() });
               })();
         const client = new McpClient(transport);
         try {
           await client.initialize();
           const tools = await client.listTools();
-          setMcpFound((m) => ({ ...m, [key]: { count: tools.length, error: null, busy: false } }));
+          setMcpFound((m) => ({
+            ...m,
+            [key]: {
+              count: tools.length,
+              error: null,
+              busy: false,
+              tools: tools.map((tool) => ({
+                name: tool.name,
+                ...(tool.description ? { description: tool.description } : {}),
+              })),
+            },
+          }));
         } finally {
           await client.close().catch(() => {});
         }
       } catch (e) {
-        fail(e instanceof Error ? e.message : 'keşif başarısız');
+        fail(e instanceof Error ? e.message : t('settings.mcp.error.discoveryFailed'));
       }
     })();
   };
@@ -401,10 +501,10 @@ export default function SettingsModal({ open, onClose }: Props) {
         } else if (source === 'ollama') {
           models = await discoverOllamaModels(draft.ollamaUrl);
         } else if (source === 'openai') {
-          if (!st.apiKeys.openai.trim()) throw new Error('önce openai anahtarı gir');
+          if (!st.apiKeys.openai.trim()) throw new Error(t('settings.models.error.keyFirst', { provider: 'openai' }));
           models = await discoverOpenAI(st.apiKeys.openai, draft.baseUrlOverride.openai ?? '');
         } else {
-          if (!st.apiKeys.gemini.trim()) throw new Error('önce gemini anahtarı gir');
+          if (!st.apiKeys.gemini.trim()) throw new Error(t('settings.models.error.keyFirst', { provider: 'gemini' }));
           models = await discoverGemini(st.apiKeys.gemini);
         }
         setFound(models);
@@ -412,7 +512,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         if (source !== 'modelsDev') st.setDiscovered(models);
       } catch (e) {
         setFound(null);
-        setFoundErr(e instanceof Error ? e.message : 'liste alınamadı');
+        setFoundErr(e instanceof Error ? e.message : t('settings.models.error.listFailed'));
       } finally {
         setFoundBusy(null);
       }
@@ -481,7 +581,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     for (const c of keptMcps) {
       const name = c.name.trim();
       if (!name) {
-        setFormError('mcp sunucu adı boş olamaz');
+        setFormError(t('settings.mcp.error.nameEmpty'));
         return;
       }
       let id = c.isNew ? makeMcpServerId(name) : c.id;
@@ -491,7 +591,7 @@ export default function SettingsModal({ open, onClose }: Props) {
       const allowed = c.allowedText.split(',').map((s) => s.trim()).filter(Boolean);
       if (c.transport === 'http') {
         if (!/^https?:\/\/.+/.test(c.url.trim())) {
-          setFormError(`“${name}”: URL http(s) ile başlamalı`);
+          setFormError(t('settings.mcp.error.urlScheme', { name }));
           return;
         }
         mcpFinals.push({
@@ -509,7 +609,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         });
       } else {
         if (!c.command.trim()) {
-          setFormError(`“${name}”: komut boş olamaz`);
+          setFormError(t('settings.mcp.error.commandEmpty', { name }));
           return;
         }
         const { keys, values } = parseEnvText(c.envText);
@@ -538,16 +638,16 @@ export default function SettingsModal({ open, onClose }: Props) {
     for (const c of kept) {
       const name = c.name.trim();
       if (!name) {
-        setFormError('özel uç adı boş olamaz');
+        setFormError(t('settings.providers.error.nameEmpty'));
         return;
       }
       if (!/^https?:\/\/.+/.test(c.baseUrl.trim())) {
-        setFormError(`“${name}”: base URL http(s) ile başlamalı`);
+        setFormError(t('settings.providers.error.baseUrlScheme', { name }));
         return;
       }
       const models = parseEndpointModels(c.modelsText);
       if (models.length === 0) {
-        setFormError(`“${name}”: en az bir model id gir`);
+        setFormError(t('settings.providers.error.modelsEmpty', { name }));
         return;
       }
       let id = c.isNew ? makeEndpointId(name) : c.id;
@@ -607,6 +707,8 @@ export default function SettingsModal({ open, onClose }: Props) {
     s.setContrast(draft.contrast);
     s.setUiFont(draft.uiFont);
     s.setClockFormat(draft.clockFormat);
+    s.setShowTimestamps(draft.showTimestamps);
+    s.setLanguage(draft.language);
     const known = ALL_MODELS.find((m) => m.id === draft.currentModel);
     if (known) {
       s.setProvider(known.provider);
@@ -635,49 +737,87 @@ export default function SettingsModal({ open, onClose }: Props) {
     }
 
     // Keystore senkronu (Tauri).
+    //
+    // **Hatalar yutulmaz:** API anahtarı yazılamazsa kullanıcı "kaydettim"
+    // sanıp anahtarı kaybetmiş olur. Başarısız işler toplanır ve toast ile
+    // bildirilir (modal açık kalır → tekrar deneyebilir).
     if (isTauri()) {
-      const jobs: Promise<unknown>[] = [];
+      const jobs: { label: string; promise: Promise<unknown> }[] = [];
       for (const p of PROVIDER_IDS) {
         if (p === 'ollama') {
-          jobs.push(
-            invoke('set_api_key', { provider: 'ollamaUrl', key: apiKeys.ollamaUrl }).catch(() => {}),
-          );
+          jobs.push({
+            label: 'ollamaUrl',
+            promise: invoke('set_api_key', { provider: 'ollamaUrl', key: apiKeys.ollamaUrl }),
+          });
           continue;
         }
         const sec = draft.secrets[p];
         if (!sec) continue;
-        if (sec.deleted) jobs.push(invoke('delete_api_key', { provider: p }).catch(() => {}));
-        else if (sec.value.trim()) {
-          jobs.push(invoke('set_api_key', { provider: p, key: sec.value }).catch(() => {}));
+        if (sec.deleted) {
+          jobs.push({ label: p, promise: invoke('delete_api_key', { provider: p }) });
+        } else if (sec.value.trim()) {
+          jobs.push({ label: p, promise: invoke('set_api_key', { provider: p, key: sec.value }) });
         }
       }
       for (const f of finals) {
         if (f.card.secret.deleted) {
-          jobs.push(invoke('delete_api_key', { provider: f.id }).catch(() => {}));
+          jobs.push({ label: f.id, promise: invoke('delete_api_key', { provider: f.id }) });
         } else if (f.card.secret.value.trim()) {
-          jobs.push(invoke('set_api_key', { provider: f.id, key: f.card.secret.value }).catch(() => {}));
+          jobs.push({
+            label: f.id,
+            promise: invoke('set_api_key', { provider: f.id, key: f.card.secret.value }),
+          });
         }
       }
       for (const f of mcpFinals) {
         if (Object.keys(f.env).length > 0) {
-          jobs.push(
-            invoke('set_api_key', { provider: `custom_${f.id}`, key: JSON.stringify(f.env) }).catch(() => {}),
-          );
+          jobs.push({
+            label: `custom_${f.id}`,
+            promise: invoke('set_api_key', {
+              provider: `custom_${f.id}`,
+              key: JSON.stringify(f.env),
+            }),
+          });
         } else {
-          jobs.push(invoke('delete_api_key', { provider: `custom_${f.id}` }).catch(() => {}));
+          jobs.push({
+            label: `custom_${f.id}`,
+            promise: invoke('delete_api_key', { provider: `custom_${f.id}` }),
+          });
         }
       }
       for (const c of draft.customs) {
         if (c.removed && !c.isNew && c.id) {
-          jobs.push(invoke('delete_api_key', { provider: c.id }).catch(() => {}));
+          jobs.push({ label: c.id, promise: invoke('delete_api_key', { provider: c.id }) });
         }
       }
       for (const c of draft.mcps) {
         if (c.removed && !c.isNew && c.id) {
-          jobs.push(invoke('delete_api_key', { provider: `custom_${c.id}` }).catch(() => {}));
+          jobs.push({
+            label: `custom_${c.id}`,
+            promise: invoke('delete_api_key', { provider: `custom_${c.id}` }),
+          });
         }
       }
-      await Promise.allSettled(jobs);
+
+      const settled = await Promise.allSettled(jobs.map((j) => j.promise));
+      const failed = settled
+        .map((r, i) => ({ r, label: jobs[i].label }))
+        .filter((x) => x.r.status === 'rejected');
+      if (failed.length > 0) {
+        const first = failed[0].r as PromiseRejectedResult;
+        const reason =
+          first.reason instanceof Error ? first.reason.message : String(first.reason ?? '');
+        toast.err(
+          t('settings.save.failed', {
+            count: failed.length,
+            label: failed[0].label,
+            message: reason.slice(0, 120),
+          }),
+          9000,
+        );
+        // Modal AÇIK kalır — kullanıcı tekrar deneyebilir.
+        return;
+      }
     }
 
     useSettingsStore.setState({
@@ -692,133 +832,206 @@ export default function SettingsModal({ open, onClose }: Props) {
         }),
       ) as Record<Provider, boolean>,
     });
+    toast.ok(t('settings.save.ok'));
     onClose();
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={requestClose}>
+      <div
+        className="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('settings.title')}
+        ref={modalRef}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // Escape → kapat (kaydedilmemiş değişiklik varsa onay ister).
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            requestClose();
+            return;
+          }
+          // Tab → modal içinde odak döngüsü.
+          onTrapKeyDown(e);
+        }}
+      >
         <div className="modal-head">
           <Icon name="settings" className="head-icon" />
-          <span className="modal-title">Ayarlar</span>
-          {dirty ? (
-            <span className="dirty" title="kaydedilmemiş değişiklikler">
-              <span className="dot" />
-              kaydedilmemiş
-            </span>
-          ) : null}
+          <span className="modal-title">{t('settings.title')}</span>
+          <div className="head-right">
+            {dirty ? (
+              <span className="dirty" title={t('settings.unsavedChanges')}>
+                <span className="dot" />
+                {t('settings.dirtyBadge')}
+              </span>
+            ) : null}
+            <button
+              className="modal-close"
+              onClick={requestClose}
+              aria-label={t('common.close')}
+              title={t('common.close')}
+            >
+              <Icon name="x" size="sm" />
+            </button>
+          </div>
         </div>
         <div className="modal-body">
-          <div className="modal-tabs" role="tablist">
+          <div className="modal-tabs" role="tablist" aria-label={t('settings.title')}>
             <div className="side-search">
               <Icon name="search" size="sm" />
               <input
                 value={tabQuery}
                 onChange={(e) => setTabQuery(e.target.value)}
-                placeholder="Ara…"
-                aria-label="Sekme ara"
+                placeholder={t('common.search')}
+                aria-label={t('settings.searchTabs')}
                 spellCheck={false}
                 autoComplete="off"
               />
             </div>
-            {TABS.filter(
-              (t) =>
-                !tabQuery.trim() ||
-                t.label.toLocaleLowerCase('tr').includes(tabQuery.trim().toLocaleLowerCase('tr')),
-            ).map((t) => (
+            {visibleTabs.map((tb) => (
               <button
-                key={t.id}
+                key={tb.id}
+                id={`settings-tab-${tb.id}`}
                 role="tab"
-                aria-selected={tab === t.id}
-                className={`tab-btn${tab === t.id ? ' active' : ''}`}
-                onClick={() => setTab(t.id)}
+                aria-controls={`settings-panel-${tb.id}`}
+                aria-selected={tab === tb.id}
+                tabIndex={tab === tb.id ? 0 : -1}
+                data-autofocus={tab === tb.id ? '' : undefined}
+                className={`tab-btn${tab === tb.id ? ' active' : ''}`}
+                onClick={() => selectTab(tb.id)}
+                onKeyDown={(e) => handleTabKeyDown(e, tb.id)}
               >
-                <Icon name={t.icon} size="sm" />
-                {t.label}
+                <Icon name={tb.icon} size="sm" />
+                {t(tb.labelKey)}
               </button>
             ))}
           </div>
-          <div className="modal-content" role="tabpanel">
-            {tab === 'providers' && (
-              <ProvidersTab
-                draft={draft}
-                patch={patch}
-                setSecret={setSecret}
-                show={show}
-                toggleShow={(id) => setShow((m) => ({ ...m, [id]: !m[id] }))}
-                tests={tests}
-                onTest={(id) => void testKey(id)}
-                onClearSecret={clearSecret}
-                ollamaFound={ollamaFound}
-                ollamaErr={ollamaErr}
-                ollamaBusy={ollamaBusy}
-                onDiscoverOllama={discoverOllama}
-                onAddEndpoint={addEndpoint}
-                onRemoveEndpoint={removeEndpoint}
-                onPatchCustom={patchCustom}
-                onUseEndpointModel={useEndpointModel}
-                onBackToBuiltin={backToBuiltin}
-                formError={formError}
-              />
+          <div className="modal-content" ref={contentRef}>
+            {visited.includes('providers') && (
+              <TabPanel id="providers" active={tab === 'providers'}>
+                <ProvidersTab
+                  draft={draft}
+                  patch={patch}
+                  setSecret={setSecret}
+                  show={show}
+                  toggleShow={(id) => setShow((m) => ({ ...m, [id]: !m[id] }))}
+                  tests={tests}
+                  onTest={(id) => void testKey(id)}
+                onTestAll={() => void testAll()}
+                  onClearSecret={clearSecret}
+                  ollamaFound={ollamaFound}
+                  ollamaErr={ollamaErr}
+                  ollamaBusy={ollamaBusy}
+                  onDiscoverOllama={discoverOllama}
+                  onAddEndpoint={addEndpoint}
+                  onRemoveEndpoint={removeEndpoint}
+                  onPatchCustom={patchCustom}
+                  onUseEndpointModel={useEndpointModel}
+                  onBackToBuiltin={backToBuiltin}
+                  formError={formError}
+                />
+              </TabPanel>
             )}
-            {tab === 'models' && (
-              <ModelsTab
-                draft={draft}
-                patch={patch}
-                onToggleModel={(id) =>
-                  patch({
-                    disabledModels: draft.disabledModels.includes(id)
-                      ? draft.disabledModels.filter((m) => m !== id)
-                      : [...draft.disabledModels, id],
-                  })
-                }
-                found={found}
-                foundErr={foundErr}
-                foundBusy={foundBusy}
-                onRefresh={refreshModels}
-                onAddDiscovered={addDiscovered}
-                onAddCustom={addCustomModel}
-                onRemoveCustom={removeCustomModel}
-                catalogLoaded={catalog !== null}
-                onApplyCatalogPrices={applyCatalogPrices}
-                onOpenProviders={() => setTab('providers')}
-                formError={formError}
-              />
+            {visited.includes('models') && (
+              <TabPanel id="models" active={tab === 'models'}>
+                <ModelsTab
+                  draft={draft}
+                  patch={patch}
+                  onToggleModel={(id) =>
+                    patch({
+                      disabledModels: draft.disabledModels.includes(id)
+                        ? draft.disabledModels.filter((m) => m !== id)
+                        : [...draft.disabledModels, id],
+                    })
+                  }
+                  found={found}
+                  foundErr={foundErr}
+                  foundBusy={foundBusy}
+                  onRefresh={refreshModels}
+                  onAddDiscovered={addDiscovered}
+                  onAddCustom={addCustomModel}
+                  onRemoveCustom={removeCustomModel}
+                  onOpenProviders={() => selectTab('providers')}
+                  formError={formError}
+                />
+              </TabPanel>
             )}
-            {tab === 'chat' && <ChatTab draft={draft} patch={patch} />}
-            {tab === 'mcp' && (
-              <McpTab
-                mcps={draft.mcps}
-                onPatchMcp={patchMcp}
-                onAddMcp={addMcp}
-                onRemoveMcp={removeMcp}
-                onDiscoverMcp={discoverMcp}
-                discovered={mcpFound}
-                formError={formError}
-              />
+            {visited.includes('params') && (
+              <TabPanel id="params" active={tab === 'params'}>
+                <ParamsTab
+                  draft={draft}
+                  patch={patch}
+                  catalogLoaded={catalog !== null}
+                  onApplyCatalogPrices={applyCatalogPrices}
+                />
+              </TabPanel>
             )}
-            {tab === 'lang' && <LangTab draft={draft} patch={patch} />}
-            {tab === 'about' && <AboutTab />}
+            {visited.includes('chat') && (
+              <TabPanel id="chat" active={tab === 'chat'}>
+                <ChatTab draft={draft} patch={patch} />
+              </TabPanel>
+            )}
+            {visited.includes('appearance') && (
+              <TabPanel id="appearance" active={tab === 'appearance'}>
+                <AppearanceTab draft={draft} patch={patch} />
+              </TabPanel>
+            )}
+            {visited.includes('mcp') && (
+              <TabPanel id="mcp" active={tab === 'mcp'}>
+                <McpTab
+                  mcps={draft.mcps}
+                  onPatchMcp={patchMcp}
+                  onAddMcp={addMcp}
+                  onRemoveMcp={removeMcp}
+                  onDiscoverMcp={discoverMcp}
+                  discovered={mcpFound}
+                  formError={formError}
+                />
+              </TabPanel>
+            )}
+            {visited.includes('about') && (
+              <TabPanel id="about" active={tab === 'about'}>
+                <AboutTab />
+              </TabPanel>
+            )}
           </div>
         </div>
         <div className="modal-foot">
           {dirty ? (
             <span className="hint">
               <span className="dot" />
-              kaydedilmemiş değişiklikler
+              {t('settings.unsavedChanges')}
             </span>
           ) : (
-            <span className="hint">tüm değişiklikler kaydedildi</span>
+            <span className="hint">{t('settings.allSaved')}</span>
           )}
           <span className="sp" />
-          <button className="btn" onClick={onClose}>
-            Vazgeç
+          <button className="btn" onClick={requestClose}>
+            {t('common.cancel')}
           </button>
           <button className="btn btn-primary" disabled={!dirty} onClick={() => void save()}>
-            Kaydet
+            {t('common.save')}
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmClose}
+        title={t('settings.discard.title')}
+        message={t('settings.discard.message')}
+        confirmLabel={t('settings.discard.save')}
+        cancelLabel={t('settings.discard.discard')}
+        initialFocus="cancel"
+        onConfirm={() => {
+          setConfirmClose(false);
+          void save();
+        }}
+        onCancel={() => {
+          setConfirmClose(false);
+          onClose();
+        }}
+      />
     </div>
   );
 }

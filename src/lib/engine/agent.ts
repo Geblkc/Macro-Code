@@ -11,6 +11,7 @@ import type { Message, Model, ModelParams, Provider } from '../../types';
 import { CORE_TOOLS, strArg } from './toolspec';
 import type { AgentEvent, ApprovalMode, ToolCall, ToolDefinition, UsageLike } from './types';
 import { decideTool } from './policy';
+import { t } from '../i18n/core';
 import { runFsTool } from './tools/fs';
 import { applyPendingPatch, listPending, toolEditFile, toolProposePatch, undoLastPatch } from './tools/patch';
 import { toolWriteFile } from './tools/write';
@@ -174,7 +175,8 @@ export function toProviderMessages(history: AgentHistoryItem[]): ChatItem[] {
     if (m.role === 'tool') {
       if (m.toolCallId && !callIds.has(m.toolCallId)) {
         // Eşleşmeyen tool sonucu → user mesajına çevir (C.6).
-        out.push({ role: 'user', content: `[araç sonucu] ${m.content}` });
+        // Not: modele giden metin — İngilizce (toolspec ile aynı politika).
+        out.push({ role: 'user', content: `[tool result] ${m.content}` });
         continue;
       }
     }
@@ -228,7 +230,7 @@ async function defaultRunTool(
     const steps = Array.isArray(call.args.steps)
       ? (call.args.steps as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
       : [];
-    if (steps.length === 0) throw new Error('plan için steps gerekli');
+    if (steps.length === 0) throw new Error(t('tool.planSteps'));
     // Faz 8 L2: adımlar görev id'leriyle eşleşir (todo ile işaretlenebilir).
     const ids = planStepIds(call, 0);
     return `/// plan:\n${steps.map((s, i) => `${i + 1}. ${s.trim()}  [todo: ${ids[i]}]`).join('\n')}`;
@@ -256,10 +258,10 @@ async function runSubagentTool(
   msgs: AgentHistoryItem[],
 ): Promise<string> {
   const task = strArg(call.args, 'task', '');
-  if (!task.trim()) throw new Error('subagent için task gerekli');
+  if (!task.trim()) throw new Error(t('tool.subagentTask'));
   const summarize = deps.summarize ?? (async (t: string) => t.slice(0, 800));
   const res = await runSubagent(task, msgs, { ...deps, summarize });
-  return res.text.trim() || '(alt ajan boş döndü)';
+  return res.text.trim() || t('tool.subagentEmpty');
 }
 
 /**
@@ -559,6 +561,31 @@ export function createAgentRun(
                 content: msg,
               });
               audit(deps, entry.call, 'approved', msg);
+            } else if (entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') {
+              // O7: patchId YOK — preview üretilememişti (catch) ya da restart
+              // sonrası patch belleği boştu. Tool'u sessizce yeniden koşturup
+              // "pre-view + /apply" önizleme metnini başarı gibi vermek
+              // YALANCI başarıydı (dosya yazılmamıştı). Bu turda üretilen yeni
+              // bekleyen yama hemen uygulanır (onay zaten alındı).
+              const before = new Set(listPending().map((p) => p.id));
+              const out0 = await (deps.runToolImpl
+                ? deps.runToolImpl(entry.call)
+                : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
+                    approved: true,
+                    extraAllow: deps.extraAllow,
+                  }));
+              const created = listPending().find((p) => !before.has(p.id));
+              let result = out0;
+              if (created) {
+                result = `${out0}\n${await applyPendingPatch(deps.workspaceRoot, created.id)}`;
+              }
+              const clipped0 = clipOutput(result);
+              deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped0 });
+              msgs.push({
+                role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
+                content: clipped0,
+              });
+              audit(deps, entry.call, 'approved', clipped0);
             } else {
               // Y2 (Faz 3): exec yalnızca buradan (resolve) çalışır — `approved: true`
               // başka hiçbir çağrı noktasına geçmez.
@@ -595,6 +622,20 @@ export function createAgentRun(
           });
           audit(deps, entry.call, 'rejected', out);
         }
+      }
+      // O7: karar gelmeyen bekleyenler sessizce DÜŞÜRÜLÜR ama sağlıklı
+      // protokol için tool_result yazılmalı — aksi halde assistant'ın
+      // tool_use'u sonuca bağlanmadan API'ye gider (Anthropic 400 verir,
+      // tur kalıcı olarak kilitlenirdi).
+      for (const entry of pending) {
+        if (byId.has(entry.call.id)) continue;
+        const out = 'onay cevabı gelmedi — çağrı iptal edildi · gerekirse yeniden iste';
+        deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
+        msgs.push({
+          role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
+          content: out, isError: true,
+        });
+        audit(deps, entry.call, 'rejected', out);
       }
       pending = [];
       return runLoop();

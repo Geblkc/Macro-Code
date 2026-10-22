@@ -1,6 +1,10 @@
 /**
  * Kanonik tool tanımları (OpenAI function-calling bazlı).
  * Provider dönüşümleri saf fonksiyondur — test edilebilir.
+ *
+ * DİL NOTU: Bu açıklamalar **modele gönderilir** (kullanıcıya gösterilmez).
+ * Bu yüzden İngilizce sabittir ve arayüz dilinden BAĞIMSIZDIR — locale
+ * değişse bile değişmez. Model performansı ve araç çağrı tutarlılığı için.
  */
 import type { ToolCall, ToolDefinition, ToolName } from './types';
 import { createToolCallId } from './types';
@@ -8,13 +12,14 @@ import { createToolCallId } from './types';
 export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'read_file',
-    description: 'Proje içindeki bir dosyayı oku. root dışına çıkamaz. Büyük dosyalarda offset+limit kullan.',
+    description:
+      'Read a file inside the project. Cannot leave the workspace root. Use offset+limit for large files.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative dosya yolu' },
-        limit: { type: 'number', description: 'Max satır (default 200)' },
-        offset: { type: 'number', description: 'Başlangıç satırı, 1-tabanlı (büyük dosyalarda sayfala)' },
+        path: { type: 'string', description: 'Workspace-relative file path' },
+        limit: { type: 'number', description: 'Max lines (default 200)' },
+        offset: { type: 'number', description: 'Start line, 1-based (paginate for large files)' },
       },
       required: ['path'],
       additionalProperties: false,
@@ -22,24 +27,24 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'list_dir',
-    description: 'Dizini listele. Gizli ve ignore dosyalar elenebilir.',
+    description: 'List a directory. Hidden and ignored files may be filtered out.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative dizin (boş=root)' },
+        path: { type: 'string', description: 'Workspace-relative directory (empty = root)' },
       },
       additionalProperties: false,
     },
   },
   {
     name: 'grep',
-    description: 'Proje içinde metin ara. regex:true ile düzenli ifade, yoksa literal.',
+    description: 'Search for text in the project. Use regex:true for a regular expression, otherwise literal.',
     parameters: {
       type: 'object',
       properties: {
         pattern: { type: 'string' },
-        path: { type: 'string', description: 'Alt dizin (boş=root)' },
-        regex: { type: 'boolean', description: 'true ise pattern regex sayılır' },
+        path: { type: 'string', description: 'Subdirectory (empty = root)' },
+        regex: { type: 'boolean', description: 'true means the pattern is a regex' },
       },
       required: ['pattern'],
       additionalProperties: false,
@@ -47,12 +52,12 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'glob',
-    description: 'Dosya adı desenine göre dosya bul (örn: src/**/*.test.ts).',
+    description: 'Find files by a file name pattern (e.g. src/**/*.test.ts).',
     parameters: {
       type: 'object',
       properties: {
-        pattern: { type: 'string', description: 'Glob deseni' },
-        path: { type: 'string', description: 'Alt dizin (boş=root)' },
+        pattern: { type: 'string', description: 'Glob pattern' },
+        path: { type: 'string', description: 'Subdirectory (empty = root)' },
       },
       required: ['pattern'],
       additionalProperties: false,
@@ -60,12 +65,12 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'propose_patch',
-    description: 'Dosya için yeni içerik öner (önizleme üretir, onaysız uygulanmaz).',
+    description: 'Propose new content for a file (produces a preview; it is not applied without approval).',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string' },
-        content: { type: 'string', description: 'Dosyanın yeni halinin TAMAMI' },
+        content: { type: 'string', description: 'The COMPLETE new content of the file' },
       },
       required: ['path', 'content'],
       additionalProperties: false,
@@ -73,13 +78,14 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'edit_file',
-    description: 'Dosyadaki belirli bir kod bloğunu arayıp yenisiyle değiştirir (tüm dosyayı baştan yazmak yerine bunu tercih et).',
+    description:
+      'Find a specific code block in a file and replace it with a new one (prefer this over rewriting the whole file).',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative dosya yolu' },
-        search: { type: 'string', description: 'Değiştirilecek mevcut kod bloğu (birebir eşleşmeli)' },
-        replace: { type: 'string', description: 'Yerine gelecek yeni kod bloğu' },
+        path: { type: 'string', description: 'Workspace-relative file path' },
+        search: { type: 'string', description: 'The existing code block to replace (must match exactly)' },
+        replace: { type: 'string', description: 'The new code block that takes its place' },
       },
       required: ['path', 'search', 'replace'],
       additionalProperties: false,
@@ -87,12 +93,13 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'write_file',
-    description: 'YENİ dosya oluştur (create-only; mevcut dosya varsa hata verir, edit_file kullan).',
+    description:
+      'Create a NEW file (create-only; it fails if the file exists — use edit_file instead).',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative yeni dosya yolu' },
-        content: { type: 'string', description: 'Dosya içeriği' },
+        path: { type: 'string', description: 'Workspace-relative path of the new file' },
+        content: { type: 'string', description: 'File content' },
       },
       required: ['path', 'content'],
       additionalProperties: false,
@@ -100,13 +107,13 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'exec',
-    description: 'Terminal komutu çalıştır (allowlist + onaylı).',
+    description: 'Run a terminal command (allowlist + approval required).',
     parameters: {
       type: 'object',
       properties: {
-        cmd: { type: 'string', description: 'Komut (örn: npm)' },
+        cmd: { type: 'string', description: 'Command (e.g. npm)' },
         args: { type: 'array', items: { type: 'string' } },
-        cwd: { type: 'string', description: 'Workspace-relative çalışma dizini' },
+        cwd: { type: 'string', description: 'Workspace-relative working directory' },
       },
       required: ['cmd'],
       additionalProperties: false,
@@ -114,13 +121,14 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'todo',
-    description: 'Görev takibi: add/complete/list. Durum konuşma geçmişinden türetilir.',
+    description:
+      'Task tracking: add/complete/list. The state is derived from the conversation history.',
     parameters: {
       type: 'object',
       properties: {
         action: { type: 'string', description: "'add' | 'complete' | 'list'" },
-        id: { type: 'string', description: 'Görev id (add: opsiyonel, complete: gerekli)' },
-        text: { type: 'string', description: 'Görev metni (add için gerekli)' },
+        id: { type: 'string', description: 'Task id (optional for add, required for complete)' },
+        text: { type: 'string', description: 'Task text (required for add)' },
       },
       required: ['action'],
       additionalProperties: false,
@@ -129,12 +137,15 @@ export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'subagent',
     description:
-      'Salt-okunur alt-agent ile ayrı bir keşif/araştırma görevi çalıştır (dosya yazamaz, komut çalıştıramaz). ' +
-      'Karmaşık ve geniş araştırmalarda kullan; sonucu tek özet olarak alırsın.',
+      'Run a separate exploration/research task with a read-only subagent (it cannot write files or run commands). ' +
+      'Use it for complex, broad research; you get the result as a single summary.',
     parameters: {
       type: 'object',
       properties: {
-        task: { type: 'string', description: 'Alt-görev tanımı (ne bulunacak, hangi dosyalara bakılacak)' },
+        task: {
+          type: 'string',
+          description: 'Sub-task definition (what to look for, which files to inspect)',
+        },
       },
       required: ['task'],
       additionalProperties: false,
@@ -142,11 +153,12 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'plan',
-    description: 'Çok adımlı işi adım listesi olarak duyur (her adım todo ile işaretlenir).',
+    description:
+      'Announce a multi-step task as a list of steps (each step is tracked with todo).',
     parameters: {
       type: 'object',
       properties: {
-        steps: { type: 'array', items: { type: 'string' }, description: 'Sıralı adım listesi' },
+        steps: { type: 'array', items: { type: 'string' }, description: 'Ordered list of steps' },
       },
       required: ['steps'],
       additionalProperties: false,

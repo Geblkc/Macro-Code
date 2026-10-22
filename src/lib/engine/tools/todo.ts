@@ -4,6 +4,7 @@
  * (`deriveTodoState`), son 50 mesaj taranır.
  */
 import { strArg } from '../toolspec';
+import { t } from '../../i18n/core';
 
 export interface TodoItem {
   id: string;
@@ -32,7 +33,7 @@ export function applyTodoAction(
   }
   if (action === 'add') {
     const text = strArg(args, 'text', '');
-    if (!text) throw new Error('todo add için text gerekli');
+    if (!text) throw new Error(t('tool.todoAddText'));
     const id = strArg(args, 'id', '') || `todo-${state.items.length + 1}`;
     const items = state.items.some((t) => t.id === id)
       ? state.items.map((t) => (t.id === id ? { ...t, text } : t))
@@ -42,7 +43,7 @@ export function applyTodoAction(
   }
   if (action === 'complete') {
     const id = strArg(args, 'id', '');
-    if (!id) throw new Error('todo complete için id gerekli');
+    if (!id) throw new Error(t('tool.todoCompleteId'));
     if (!state.items.some((t) => t.id === id)) {
       throw new Error(`todo bulunamadı: ${id}`);
     }

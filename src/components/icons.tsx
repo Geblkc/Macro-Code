@@ -46,7 +46,8 @@ export type IconName =
   | 'message'
   | 'branch'
   | 'info'
-  | 'panel';
+  | 'panel'
+  | 'sliders';
 
 const P: Record<IconName, ReactNode> = {
   'chevron-down': <path d="M4 6.5 8 10.5 12 6.5" />,
@@ -171,6 +172,13 @@ const P: Record<IconName, ReactNode> = {
     </>
   ),
   panel: <path d="M2.5 3.5h11v9h-11zM6.5 3.5v9" />,
+  sliders: (
+    <>
+      <path d="M2.5 5h1.9M7.6 5h5.9M2.5 11h5.9M11.6 11h1.9" />
+      <circle cx="6" cy="5" r="1.6" />
+      <circle cx="10" cy="11" r="1.6" />
+    </>
+  ),
 };
 
 export interface IconProps {

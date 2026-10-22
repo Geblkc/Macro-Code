@@ -1,5 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { isTauri as isTauriRuntime } from '../tauri';
+import { t } from '../i18n/core';
 
 /**
  * İş 2 — CSP `connect-src` bypass.
@@ -174,7 +175,7 @@ async function rustFetchImpl(input: RequestInfo | URL, init?: RequestInit): Prom
   if (!meta) {
     // done/error meta'sız geldi: hatayı yüzeye çıkar.
     const err = await queue.next().catch((e: unknown) => e);
-    throw err instanceof Error ? err : new TypeError('proxy: yanıt başlamadı');
+    throw err instanceof Error ? err : new TypeError(t('errors.proxyNoResponse'));
   }
 
   const encoder = new TextEncoder();

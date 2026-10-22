@@ -6,6 +6,7 @@ import { ALL_MODELS, PROVIDER_DEFS, PROVIDER_IDS, toRegistryModel } from '../lib
 import { buildCatalogIndex, catalogPriceOf, matchCatalogEntry, setActiveCatalog } from '../lib/providers/catalog';
 import { fetchModelsDevCatalog, loadCachedCatalog, saveCachedCatalog } from '../lib/providers/modelsDev';
 import { isTauri } from '../lib/tauri';
+import type { LanguageSetting } from '../lib/i18n/types';
 
 export { isTauri };
 
@@ -96,10 +97,14 @@ interface SettingsStore {
   uiFont: UiFontMode;
   /** Görünüm: saat biçimi (terminal zaman damgaları). */
   clockFormat: ClockFormat;
+  /** Görünüm: terminalde zaman damgası gösterilsin mi. */
+  showTimestamps: boolean;
   /** Görünüm: sidebar genişliği (px). */
   sidebarWidth: number;
   /** Görünüm: sidebar daraltılmış mı (ikon rayı). */
   sidebarCollapsed: boolean;
+  /** Arayüz dili: 'auto' = sistem diline göre çözülür. */
+  language: LanguageSetting;
 
   setApiKey: (provider: Provider, key: string) => void;
   setProvider: (provider: Provider) => void;
@@ -138,8 +143,10 @@ interface SettingsStore {
   setContrast: (v: ContrastMode) => void;
   setUiFont: (v: UiFontMode) => void;
   setClockFormat: (v: ClockFormat) => void;
+  setShowTimestamps: (v: boolean) => void;
   setSidebarWidth: (px: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
+  setLanguage: (v: LanguageSetting) => void;
   loadFromStore: () => Promise<void>;
   saveToStore: () => Promise<void>;
 }
@@ -202,8 +209,10 @@ export const useSettingsStore = create<SettingsStore>()(
       contrast: 'normal',
       uiFont: 'mono',
       clockFormat: '24h',
+      showTimestamps: true,
       sidebarWidth: SIDEBAR_DEFAULT,
       sidebarCollapsed: false,
+      language: 'auto',
 
       setApiKey: (provider, key) => {
         const field = fieldOf(provider);
@@ -368,8 +377,10 @@ export const useSettingsStore = create<SettingsStore>()(
       setContrast: (v) => set({ contrast: v }),
       setUiFont: (v) => set({ uiFont: v }),
       setClockFormat: (v) => set({ clockFormat: v }),
+      setShowTimestamps: (v) => set({ showTimestamps: v }),
       setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+      setLanguage: (v) => set({ language: v }),
 
       loadFromStore: async () => {
         if (!isTauri()) return;
@@ -516,8 +527,10 @@ export const useSettingsStore = create<SettingsStore>()(
               contrast: s.contrast,
               uiFont: s.uiFont,
               clockFormat: s.clockFormat,
+              showTimestamps: s.showTimestamps,
               sidebarWidth: s.sidebarWidth,
               sidebarCollapsed: s.sidebarCollapsed,
+              language: s.language,
             }
           : { ...s, modelsDevCatalog: null },
     },

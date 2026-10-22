@@ -193,40 +193,32 @@ impl StreamAcc {
     }
 }
 
-/// Anthropic SSE proxy: WebView CORS'una takilmamak icin istek Rust'tan cikar,
-/// token'lar Tauri IPC Channel uzerinden istemciye akar.
-/// Faz 4 (K7): tool-use + vision + thinking destekler; istek gövdesi frontend'de
-/// (`buildAnthropicMessages`) kurulur, Rust saf proxy'dir.
-///
-/// Hata sozlesmesi: HTTP hata -> `Err("http {status}: {snippet}")`
-/// (frontend status'u parse edip ProviderError'a cevirir).
-#[tauri::command]
+/// O7 — istek gövdesinin kurulumu (saf fonksiyon, test edilebilir).
+/// `system` değer bütünlüğü korunur: TS tarafı eşik kararı verir ve düz
+/// string YA DA `[{type:'text', text, cache_control:{type:'ephemeral'}}]`
+/// dizisi gönderir; Rust passthrough olur. Boş string/Null → alan hiç
+/// konmaz (API 400 koruması ile işaretlenmiş boş blok göndermemek için).
 #[allow(clippy::too_many_arguments)]
-pub async fn stream_anthropic(
-    api_key: String,
-    model: String,
-    system_prompt: Option<String>,
+fn build_request_body(
+    model: &str,
+    max_tokens: Option<u32>,
+    system: Option<serde_json::Value>,
     messages: Vec<serde_json::Value>,
     tools: Option<serde_json::Value>,
     thinking: Option<serde_json::Value>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    max_tokens: Option<u32>,
-    on_chunk: Channel<StreamEvent>,
-) -> Result<(), String> {
-    if api_key.trim().is_empty() {
-        return Err("http 401: api anahtarı eksik".to_string());
-    }
-
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+) -> serde_json::Value {
     let mut body = serde_json::json!({
         "model": model,
         "max_tokens": max_tokens.unwrap_or(4096),
         "stream": true,
         "messages": messages,
     });
-    if let Some(sp) = system_prompt {
-        if !sp.trim().is_empty() {
-            body["system"] = serde_json::Value::String(sp);
+    if let Some(sp) = system {
+        let empty_text = sp.as_str().is_some_and(|s| s.trim().is_empty());
+        if !sp.is_null() && !empty_text {
+            body["system"] = sp;
         }
     }
     if let Some(t) = tools {
@@ -245,6 +237,48 @@ pub async fn stream_anthropic(
     if let Some(tp) = top_p {
         body["top_p"] = serde_json::json!(tp);
     }
+    body
+}
+
+/// Anthropic SSE proxy: WebView CORS'una takilmamak icin istek Rust'tan cikar,
+/// token'lar Tauri IPC Channel uzerinden istemciye akar.
+/// Faz 4 (K7): tool-use + vision + thinking destekler; istek gövdesi frontend'de
+/// (`buildAnthropicMessages`) kurulur, Rust saf proxy'dir.
+///
+/// O7 cache düzeltmesi: `system` artık `serde_json::Value` (string YA DA
+/// cache_control'lu blok dizisi). Eşik kararı TS'te (`promptCache.ts`
+/// `cacheableBySize`) verilir ve fetch/Rust İKİ yolu da aynı gövdeyi kurar —
+/// eskiden Rust yolu system önekini asla işaretlemiyordu (cacheWrite hep 0).
+///
+/// Hata sozlesmesi: HTTP hata -> `Err("http {status}: {snippet}")`
+/// (frontend status'u parse edip ProviderError'a cevirir).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn stream_anthropic(
+    api_key: String,
+    model: String,
+    system: Option<serde_json::Value>,
+    messages: Vec<serde_json::Value>,
+    tools: Option<serde_json::Value>,
+    thinking: Option<serde_json::Value>,
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+    max_tokens: Option<u32>,
+    on_chunk: Channel<StreamEvent>,
+) -> Result<(), String> {
+    if api_key.trim().is_empty() {
+        return Err("http 401: api anahtarı eksik".to_string());
+    }
+    let body = build_request_body(
+        &model,
+        max_tokens,
+        system,
+        messages,
+        tools,
+        thinking,
+        temperature,
+        top_p,
+    );
 
     let client = reqwest::Client::new();
     let res = client
@@ -425,6 +459,84 @@ mod tests {
             let _ = handle_sse_line(l, &mut acc);
         }
         acc
+    }
+
+    fn body_with_system(sys: Option<serde_json::Value>) -> serde_json::Value {
+        build_request_body(
+            "claude-sonnet-5",
+            Some(64),
+            sys,
+            vec![],
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// O7 (Faz 11 paritesi) — `system` passthrough: fetch yolu ile Rust yolu
+    /// AYNI gövdeyi kurmalı; eşik kararı TS'te, passthrough Rust'ta.
+    #[test]
+    fn o7_system_passthrough_cache_dizisi() {
+        // 1) Düz string aynen gider.
+        let b = body_with_system(Some(serde_json::json!("yönergeler")));
+        assert_eq!(b["system"], serde_json::json!("yönergeler"));
+
+        // 2) Asıl düzelme: cache_control'lu blok dizisi birebir geçer.
+        let marked = serde_json::json!([
+            {"type": "text", "text": "uzun sistem metni", "cache_control": {"type": "ephemeral"}}
+        ]);
+        let b2 = body_with_system(Some(marked.clone()));
+        assert_eq!(b2["system"], marked);
+        assert_eq!(
+            b2["system"][0]["cache_control"]["type"],
+            serde_json::json!("ephemeral")
+        );
+    }
+
+    #[test]
+    fn o7_system_bos_string_alan_konmaz() {
+        // Boş string (beyaz boşluk dahil) → system alanı hiç konmaz.
+        assert!(body_with_system(Some(serde_json::json!("")))
+            .get("system")
+            .is_none());
+        assert!(body_with_system(Some(serde_json::json!("  ")))
+            .get("system")
+            .is_none());
+        // None (invoke'tan taşınmadı) ve Null → alan yok.
+        assert!(body_with_system(None).get("system").is_none());
+        assert!(body_with_system(Some(serde_json::Value::Null))
+            .get("system")
+            .is_none());
+        // Temel alanlar her durumda korunur.
+        let b = body_with_system(Some(serde_json::json!("meta")));
+        assert_eq!(b["model"], "claude-sonnet-5");
+        assert_eq!(b["max_tokens"], 64);
+        assert_eq!(b["stream"], true);
+        assert!(b["messages"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn o7_diger_sog_vde_alanlari_korunur() {
+        let tools = serde_json::json!([{"name": "read_file"}]);
+        let thinking = serde_json::json!({"type": "enabled", "budget_tokens": 1024});
+        let b = build_request_body(
+            "claude-opus-5-5",
+            Some(256),
+            None,
+            vec![serde_json::json!({"role": "user", "content": "selam"})],
+            Some(tools.clone()),
+            Some(thinking.clone()),
+            Some(0.7),
+            None,
+        );
+        assert_eq!(b["tools"], tools);
+        assert_eq!(b["thinking"], thinking);
+        assert_eq!(b["temperature"], 0.7);
+        assert!(b.get("top_p").is_none());
+        // max_tokens verilmezse 4096 default.
+        let b2 = build_request_body("m", None, None, vec![], None, None, None, None);
+        assert_eq!(b2["max_tokens"], 4096);
     }
 
     #[test]

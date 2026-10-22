@@ -4,6 +4,7 @@ import { useSettingsStore } from '../store/settings';
 import { useWorkspaceStore } from '../store/workspace';
 import { sessionCost } from '../lib/pricing';
 import { windowFor } from '../lib/engine/tokens';
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 interface Props {
@@ -19,13 +20,8 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
-const APPROVAL_LABEL: Record<string, string> = {
-  manual: 'manuel',
-  'auto-read': 'oto-okuma',
-  'auto-edit': 'oto-düzenleme',
-};
-
 export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
+  const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeSessionId);
   const keyStatus = useSettingsStore((s) => s.keyStatus);
@@ -70,14 +66,20 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
 
   const connected = keyStatus[provider] ?? false;
   const mcpOn = mcpServers.filter((m) => m.enabled).length;
+  const approvalLabel =
+    approvalMode === 'manual'
+      ? t('status.approval.manual')
+      : approvalMode === 'auto-read'
+        ? t('status.approval.autoRead')
+        : t('status.approval.autoEdit');
 
   return (
-    <div className="statusbar" role="status" aria-label="Oturum durumu">
+    <div className="statusbar" role="status" aria-label={t('status.ariaLabel')}>
       <span className="sb-item strong">
         <span
           className={`status-dot${connected ? '' : ' off'}`}
           aria-hidden="true"
-          title={connected ? 'bağlı' : 'bağlı değil'}
+          title={connected ? t('status.connected') : t('status.disconnected')}
         />
         {provider}
       </span>
@@ -93,7 +95,11 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
           <span className="sb-sep" aria-hidden="true" />
           <span
             className="sb-item"
-            title={`Bağlam kullanımı: ${fmtCount(ctxUsed)} / ${fmtCount(ctxWindow)} token (${ctxPct}%)`}
+            title={t('status.contextUsage', {
+              used: fmtCount(ctxUsed),
+              total: fmtCount(ctxWindow),
+              percent: ctxPct,
+            })}
           >
             <span className="ctx-meter" aria-hidden="true">
               <span className={`ctx-fill ${ctxClass}`} style={{ width: `${ctxPct}%` }} />
@@ -106,14 +112,14 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
       {inTok > 0 || outTok > 0 ? (
         <>
           <span className="sb-sep" aria-hidden="true" />
-          <span className="sb-item" title="Oturum token sayacı (giriş / çıkış)">
+          <span className="sb-item" title={t('status.tokenCounter')}>
             ↑ {fmtCount(inTok)}&nbsp; ↓ {fmtCount(outTok)}
           </span>
         </>
       ) : null}
 
       {cost !== null ? (
-        <span className="sb-item" title="Tahmini oturum maliyeti">
+        <span className="sb-item" title={t('status.estimatedCost')}>
           ~${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}
         </span>
       ) : null}
@@ -124,19 +130,19 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
           <button
             className="sb-item btn-reset"
             onClick={onPendingClick}
-            title="Bekleyen onay var — tıkla"
+            title={t('status.pendingTitle')}
           >
             <span className="sb-badge">
               <Icon name="alert-triangle" size="sm" />
-              {pendingCount} onay
+              {t('status.pendingCount', { count: pendingCount })}
             </span>
           </button>
         </>
       ) : null}
 
-      <span className="sb-item" title="Onay modu">
+      <span className="sb-item" title={t('status.approvalMode')}>
         <Icon name="activity" size="sm" />
-        {APPROVAL_LABEL[approvalMode] ?? approvalMode}
+        {approvalLabel}
       </span>
 
       <span className="sb-right">
@@ -149,7 +155,7 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
         {mcpOn > 0 ? (
           <>
             {root ? <span className="sb-sep" aria-hidden="true" /> : null}
-            <span className="sb-item" title={`${mcpOn} MCP sunucusu etkin`}>
+            <span className="sb-item" title={t('status.mcpActive', { count: mcpOn })}>
               <Icon name="cpu" size="sm" />
               {mcpOn} MCP
             </span>

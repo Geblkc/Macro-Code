@@ -5,6 +5,7 @@ import Terminal from './components/Terminal';
 import InputBar from './components/InputBar';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
+import ToastHost from './components/Toast';
 import { useStream } from './hooks/useStream';
 import { getActiveAgentRun, useAgent } from './hooks/useAgent';
 import { useWorkspaceStore } from './store/workspace';
@@ -27,6 +28,8 @@ import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
 import { ALL_MODELS, getCapabilitiesForModel, hasProviderKey } from './lib/providers';
 import { isStale } from './lib/providers/modelsDev';
+import { useT } from './lib/i18n';
+import { resolveLocale, setLocale } from './lib/i18n/core';
 
 function downloadFile(text: string, filename: string, mime: string): void {
   const blob = new Blob([text], { type: mime });
@@ -48,6 +51,7 @@ function stampedFilename(prefix: string, ext: string): string {
 }
 
 export default function App() {
+  const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [extrasBySession, setExtrasBySession] = useState<Record<string, ExtraLine[]>>({});
   const [clearedBefore, setClearedBefore] = useState<Record<string, number>>({});
@@ -67,6 +71,8 @@ export default function App() {
   const streaming = useSessionStore((s) => s.isStreaming);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const clockFormat = useSettingsStore((s) => s.clockFormat);
+  const showTimestamps = useSettingsStore((s) => s.showTimestamps);
+  const language = useSettingsStore((s) => s.language);
   const contrast = useSettingsStore((s) => s.contrast);
   const uiFont = useSettingsStore((s) => s.uiFont);
   const session = sessions.find((s) => s.id === activeId) ?? null;
@@ -161,7 +167,7 @@ export default function App() {
         try {
           const rows = await readAuditLog(sessionId, n);
           if (rows.length === 0) {
-            pushExtra(sessionId, { type: 'sys', content: '/// audit: kayıt yok' });
+            pushExtra(sessionId, { type: 'sys', content: t('commands.auditEmpty') });
           } else {
             for (const r of rows.reverse()) {
               const d = new Date(r.ts);
@@ -173,7 +179,7 @@ export default function App() {
             }
           }
         } catch {
-          pushExtra(sessionId, { type: 'err', content: '✗ audit okunamadı' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.auditFailed') });
         }
         return;
       }
@@ -182,14 +188,14 @@ export default function App() {
         const target = st.sessions.find((s) => s.id === sessionId);
         const msgs = target?.messages ?? [];
         if (msgs.length === 0) {
-          pushExtra(sessionId, { type: 'sys', content: '/// compact: özetlenecek mesaj yok' });
+          pushExtra(sessionId, { type: 'sys', content: t('commands.compactNoMessages') });
           return;
         }
         const settings = useSettingsStore.getState();
         const modelId = target?.model || settings.currentModel;
         const budget = budgetFor(modelId, settings.customModels);
         if (!shouldCompact(msgs, budget)) {
-          pushExtra(sessionId, { type: 'sys', content: '/// compact: bağlam yeterli, özetlenmedi' });
+          pushExtra(sessionId, { type: 'sys', content: t('commands.compactNotNeeded') });
           return;
         }
         const cfg = summarizerConfig({
@@ -202,18 +208,18 @@ export default function App() {
           baseUrlOverride: settings.baseUrlOverride,
         });
         if (!cfg) {
-          pushExtra(sessionId, { type: 'err', content: '✗ özetleyici anahtarı eksik · /key ile ekle' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.compactNoKey') });
           return;
         }
         try {
-          pushExtra(sessionId, { type: 'sys', content: '/// compact: özetleniyor…' });
+          pushExtra(sessionId, { type: 'sys', content: t('commands.compactRunning') });
           const { messages: next, dropped, kept } = await compactSessionMessages(
             msgs,
             budget,
             makeSummarizeFn(cfg),
           );
           if (dropped === 0) {
-            pushExtra(sessionId, { type: 'sys', content: '/// compact: bağlam yeterli, özetlenmedi' });
+            pushExtra(sessionId, { type: 'sys', content: t('commands.compactNotNeeded') });
             return;
           }
           useSessionStore.setState((s) => ({
@@ -223,12 +229,12 @@ export default function App() {
           }));
           pushExtra(sessionId, {
             type: 'sys',
-            content: `/// compact: ${dropped} mesaj özetlendi · ${kept} korundu · özet başa eklendi`,
+            content: t('commands.compactDone', { dropped, kept }),
           });
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ compact hatası: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.compactFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -239,7 +245,7 @@ export default function App() {
         const n = nRaw ? Math.min(Math.max(parseInt(nRaw, 10) || 30, 1), 100) : 30;
         const entries = recentLogs(n);
         if (entries.length === 0) {
-          pushExtra(sessionId, { type: 'sys', content: '/// log: kayıt yok' });
+          pushExtra(sessionId, { type: 'sys', content: t('commands.logEmpty') });
           return;
         }
         for (const e of entries) {
@@ -258,24 +264,24 @@ export default function App() {
         const ws = useWorkspaceStore.getState();
         const note = trimmed.slice(5).trim();
         if (!ws.root) {
-          pushExtra(sessionId, { type: 'err', content: '✗ workspace seçilmedi · /root <yol>' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissing') });
           return;
         }
         if (!note) {
           pushExtra(sessionId, {
             type: 'sys',
-            content: "/// kullanım: /note <not>  ·  notlar sonraki oturumlarda agent'a aktarılır",
+            content: t('commands.noteUsage'),
           });
           return;
         }
         try {
           const line = await appendMemory(ws.root, note);
           clearRepoContextCache();
-          pushExtra(sessionId, { type: 'sys', content: `/// not kaydedildi: ${line.trim()}` });
+          pushExtra(sessionId, { type: 'sys', content: t('commands.noteSaved', { note: line.trim() }) });
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ not kaydedilemedi: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.noteFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -284,7 +290,7 @@ export default function App() {
         // Faz 9 (P9.4): "agent ne biliyor?" — şeffaflık.
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
-          pushExtra(sessionId, { type: 'err', content: '✗ workspace seçilmedi · /root <yol>' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissing') });
           return;
         }
         try {
@@ -295,24 +301,25 @@ export default function App() {
             customModels: useSettingsStore.getState().customModels,
           });
           const lines: string[] = [
-            `/// repo bağlamı: ${ctx.fileCount} dosya · anahtar dosyalar: ${
-              ctx.keyFiles.length ? ctx.keyFiles.join(', ') : 'yok'
-            }`,
+            t('commands.contextSummary', {
+              count: ctx.fileCount,
+              files: ctx.keyFiles.length ? ctx.keyFiles.join(', ') : t('common.none'),
+            }),
           ];
           const map = ctx.text.split('\n').filter((l) => l.startsWith('- ')).slice(0, 25);
           if (map.length) {
-            lines.push('/// harita (ilk 25):');
+            lines.push(t('commands.contextMap'));
             lines.push(...map);
           }
           if (ctx.memory.trim()) {
-            lines.push(`/// kalıcı notlar (${ctx.memory.trim().split('\n').length}):`);
+            lines.push(t('commands.contextNotes', { count: ctx.memory.trim().split('\n').length }));
             lines.push(ctx.memory.trim().split('\n').slice(-5).join('\n'));
           }
           for (const l of lines) pushExtra(sessionId, { type: 'sys', content: l });
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ bağlam okunamadı: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.contextFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -329,18 +336,18 @@ export default function App() {
         if (!arg) {
           const label =
             ws.approvalMode === 'manual'
-              ? 'manuel (yazma onaylı)'
+              ? t('commands.approval.manual')
               : ws.approvalMode === 'auto-read'
-                ? 'salt-okunur (yazma ve komut kapalı)'
-                : 'otomatik düzenleme (yazma onaysız, komut onaylı)';
-          pushExtra(sessionId, { type: 'sys', content: `/// onay modu: ${label} · /approval manual|auto-read|auto-edit` });
+                ? t('commands.approval.autoRead')
+                : t('commands.approval.autoEdit');
+          pushExtra(sessionId, { type: 'sys', content: t('commands.approvalCurrent', { mode: label }) });
           return;
         }
         const mode = MODES[arg];
         if (!mode) {
           pushExtra(sessionId, {
             type: 'err',
-            content: '✗ geçersiz onay modu · manual | auto-read | auto-edit',
+            content: t('commands.approvalInvalid'),
           });
           return;
         }
@@ -348,21 +355,19 @@ export default function App() {
         if (mode === 'auto-edit') {
           pushExtra(sessionId, {
             type: 'warn',
-            content:
-              '! otomatik düzenleme: agent dosya yazma/düzenleme onayı almadan yapabilir (shell komutları hâlâ onaylı)',
+            content: t('commands.approvalAutoEditWarn'),
           });
         }
         if (mode === 'auto-read') {
           pushExtra(sessionId, {
             type: 'warn',
-            content: '! salt-okunur mod: agent dosya yazamaz, komut çalıştıramaz (yalnızca okuma/araştırma)',
+            content: t('commands.approvalAutoReadWarn'),
           });
         }
         pushExtra(sessionId, {
           type: 'sys',
-          content: `/// onay modu: ${mode}${
-            ws.root ? '' : ' · (workspace yok — /root <yol> ile agent modunu aç)'
-          }`,
+          content:
+            t('commands.approvalSet', { mode }) + (ws.root ? '' : t('commands.approvalNoWorkspace')),
         });
         return;
       }
@@ -373,20 +378,20 @@ export default function App() {
           pushExtra(sessionId, {
             type: 'sys',
             content: ws.root
-              ? `/// workspace: ${ws.label || ws.root} · onay: ${ws.approvalMode}`
-              : '/// kullanım: /root <mutlak-yol>',
+              ? t('commands.workspaceInfo', { label: ws.label || ws.root, mode: ws.approvalMode })
+              : t('commands.rootUsage'),
           });
           return;
         }
         const label = arg.split('/').filter(Boolean).pop() ?? arg;
         useWorkspaceStore.getState().setWorkspace(arg, label);
-        pushExtra(sessionId, { type: 'sys', content: `/// workspace: ${label} (${arg})` });
+        pushExtra(sessionId, { type: 'sys', content: t('commands.workspaceSet', { label, path: arg }) });
         return;
       }
       if (low === '/files' || low.startsWith('/files')) {
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
-          pushExtra(sessionId, { type: 'err', content: '✗ workspace seçilmedi · /root <yol>' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissing') });
           return;
         }
         try {
@@ -402,12 +407,12 @@ export default function App() {
               content: summarizeWorkspace(names, ws.label || ws.root),
             });
           } else {
-            pushExtra(sessionId, { type: 'err', content: '✗ /files yalnızca Tauri’de çalışır' });
+            pushExtra(sessionId, { type: 'err', content: t('commands.filesTauriOnly') });
           }
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ /files hatası: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.filesFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -425,7 +430,7 @@ export default function App() {
                 .map((p) => ({ id: p.id, approved: true }))
             : queued.map((p) => ({ id: p.id, approved: true }));
           if (id && decisions.length === 0) {
-            pushExtra(sessionId, { type: 'err', content: `✗ bekleyen onay bulunamadı: ${id}` });
+            pushExtra(sessionId, { type: 'err', content: t('commands.applyNotFound', { id }) });
             return;
           }
           setPending(sessionId, []);
@@ -447,11 +452,11 @@ export default function App() {
           const approvals = await listApprovals(sessionId);
           const pend = listPending();
           if (approvals.length === 0 && pend.length === 0) {
-            pushExtra(sessionId, { type: 'sys', content: '/// bekleyen yama yok' });
+            pushExtra(sessionId, { type: 'sys', content: t('commands.applyNone') });
           } else {
             const a = approvals.map((p) => `${p.id.slice(0, 8)} ${p.call.name}`).join(' · ');
             const b = pend.map((p) => `${p.id.slice(0, 8)} ${p.path}`).join(' · ');
-            pushExtra(sessionId, { type: 'sys', content: `/// bekleyen: ${[a, b].filter(Boolean).join(' · ')}` });
+            pushExtra(sessionId, { type: 'sys', content: t('commands.applyPending', { list: [a, b].filter(Boolean).join(' · ') }) });
           }
           return;
         }
@@ -465,7 +470,7 @@ export default function App() {
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ /apply hatası: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.applyFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -473,7 +478,7 @@ export default function App() {
       if (low === '/undo' || low.startsWith('/undo')) {
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
-          pushExtra(sessionId, { type: 'err', content: '✗ workspace seçilmedi · /root ile klasör seç' });
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
           return;
         }
         const id = trimmed.slice(5).trim();
@@ -483,7 +488,7 @@ export default function App() {
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: `✗ /undo hatası: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+            content: t('commands.undoFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
         return;
@@ -494,15 +499,17 @@ export default function App() {
           type: 'sys',
           content:
             skills.length === 0
-              ? '/// skill yok'
-              : `/// skills: ${skills.map((s) => `${s.name} — ${s.description}`).join(' · ')}`,
+              ? t('commands.skillNone')
+              : t('commands.skillList', {
+                  list: skills.map((s) => `${s.name} — ${s.description}`).join(' · '),
+                }),
         });
         return;
       }
 
       if (trimmed.startsWith('/')) {
         if (images.length > 0) {
-          pushExtra(sessionId, { type: 'warn', content: '! görseller komutlarda kullanılmaz · yoksayıldı' });
+          pushExtra(sessionId, { type: 'warn', content: t('commands.imagesIgnored') });
         }
         const ctx: CommandContext = {
           getSession: () => useSessionStore.getState().getActiveSession(),
@@ -583,7 +590,7 @@ export default function App() {
         const modelId = active?.model || useSettingsStore.getState().currentModel;
         const caps = getCapabilitiesForModel(modelId, useSettingsStore.getState().customModels);
         if (caps && !caps.vision) {
-          pushExtra(sessionId, { type: 'err', content: `✗ ${modelId} görsel desteklemiyor · vision rozetli modele geç (/model)` });
+          pushExtra(sessionId, { type: 'err', content: t('errors.visionUnsupported', { model: modelId }) });
           return;
         }
       }
@@ -608,7 +615,7 @@ export default function App() {
       const err = await send(
         trimmed,
         images,
-        (fb) => pushExtra(sessionId, { type: 'sys', content: `/// yedek model kullanıldı: ${fb}` }),
+        (fb) => pushExtra(sessionId, { type: 'sys', content: t('agent.fallbackUsed', { model: fb }) }),
         (line) => pushExtra(sessionId, { type: 'sys', content: line }),
       );
       if (err) pushExtra(sessionId, { type: 'err', content: err });
@@ -638,10 +645,20 @@ export default function App() {
       try {
         const fromDb = await loadSessionsFromDb();
         if (fromDb && fromDb.sessions.length > 0) {
-          useSessionStore.setState({
-            sessions: fromDb.sessions,
-            activeSessionId: fromDb.activeSessionId,
-          });
+          // O7 düzeltmesi: SQLite > localStorage önceliği yalnızca DB "taze"
+          // iken geçerli; localStorage'daki son debounced yazma DB
+          // snapshot'ından YENİ ise (kapanış anındaki son fark) eski DB,
+          // gövdeyi ezip yeni oturumları kaybetmemeli. En yeni `updatedAt`
+          // ile karşılaştırılır; eşitlikte DB kazanır (asıl depo).
+          const st = useSessionStore.getState();
+          const dbFresh = Math.max(0, ...fromDb.sessions.map((s) => s.updatedAt ?? 0));
+          const tlsFresh = Math.max(0, ...st.sessions.map((s) => s.updatedAt ?? 0));
+          if (dbFresh >= tlsFresh) {
+            useSessionStore.setState({
+              sessions: fromDb.sessions,
+              activeSessionId: fromDb.activeSessionId,
+            });
+          }
         }
       } catch {
         // DB okunamazsa localStorage degeri kullanilir.
@@ -689,7 +706,7 @@ export default function App() {
       if (resumedRuns > 0) {
         pushExtra(id, {
           type: 'sys',
-          content: `/// ${resumedRuns} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)`,
+          content: t('agent.runsRestored', { count: resumedRuns }),
         });
       }
       // Faz 7 A1: DB açılamadıysa sessizce düşme — kullanıcıya sebebiyle birlikte bildir.
@@ -698,7 +715,7 @@ export default function App() {
       if (dbErr) {
         pushExtra(id, {
           type: 'warn',
-          content: `! session veritabanı açılamadı: ${dbErr.slice(0, 160)} · oturumlar yalnızca localStorage'da saklanıyor`,
+          content: t('errors.dbUnavailable', { message: dbErr.slice(0, 160) }),
         });
       }
     })();
@@ -708,6 +725,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--font-size', `${fontSize}px`);
   }, [fontSize]);
+
+  // Dil ayarı -> modül geneli locale + <html lang> (React dışı çağıranlar için).
+  useEffect(() => {
+    setLocale(resolveLocale(language));
+  }, [language]);
 
   // Görünüm tercihleri -> <html> nitelikleri (high-contrast.css bunları okur).
   useEffect(() => {
@@ -775,7 +797,7 @@ export default function App() {
       } catch (e) {
         pushExtra(sessionId, {
           type: 'err',
-          content: `✗ içe aktarma başarısız: ${e instanceof Error ? e.message : String(e)}`,
+          content: t('commands.importFailed', { message: e instanceof Error ? e.message : String(e) }),
         });
         return;
       }
@@ -796,7 +818,7 @@ export default function App() {
       }));
       pushExtra(sessionId, {
         type: 'sys',
-        content: `/// içe aktarıldı: ${fresh.length} session`,
+        content: t('commands.imported', { count: fresh.length }),
       });
     },
     [pushExtra],
@@ -806,7 +828,7 @@ export default function App() {
     const sess = useSessionStore.getState().getActiveSession();
     if (!sess) return;
     if (sess.messages.length === 0) {
-      pushExtra(sess.id, { type: 'warn', content: '! yedeklenecek mesaj yok' });
+      pushExtra(sess.id, { type: 'warn', content: t('commands.backupEmpty') });
       return;
     }
     downloadFile(
@@ -814,7 +836,7 @@ export default function App() {
       stampedFilename('macrocode-session', 'json'),
       'application/json;charset=utf-8',
     );
-    pushExtra(sess.id, { type: 'sys', content: '/// JSON yedeği hazır · indiriliyor' });
+    pushExtra(sess.id, { type: 'sys', content: t('commands.jsonReady') });
   }, [pushExtra]);
 
   const importBackupFile = useCallback(
@@ -826,7 +848,7 @@ export default function App() {
           const sess =
             useSessionStore.getState().getActiveSession() ??
             useSessionStore.getState().createSession();
-          pushExtra(sess.id, { type: 'err', content: '✗ dosya okunamadı' });
+          pushExtra(sess.id, { type: 'err', content: t('commands.fileUnreadable') });
         });
     },
     [importBackupText, pushExtra],
@@ -856,6 +878,7 @@ export default function App() {
             clearedBefore={activeId ? (clearedBefore[activeId] ?? null) : null}
             pending={activeId ? (pendingBySession[activeId] ?? []) : []}
             clockFormat={clockFormat}
+            showTimestamps={showTimestamps}
             onApprove={() => {
               if (activeId) void handleApproveAll(activeId);
             }}
@@ -893,6 +916,7 @@ export default function App() {
         }}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ToastHost />
     </div>
   );
 }

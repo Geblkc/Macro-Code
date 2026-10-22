@@ -52,6 +52,22 @@ describe('Faz 10 — log kanalı', () => {
     expect(list[0].apiKey).toBe('«redakte»');
   });
 
+  it('O7: segment-eşleşme — gömülü secret alan adları da redakte edilir', () => {
+    const out = redact({
+      anthropic_api_key: 'sk-abcdefghijkl',
+      basicAuth: 'xyz',
+      sessionCookie: 's3cr3t',
+      // Tam-parça olmayan adlar etkilenmez.
+      keynotes: 'görünür',
+      monkey: 'görünür',
+    }) as Record<string, unknown>;
+    expect(out.anthropic_api_key).toBe('«redakte»');
+    expect(out.basicAuth).toBe('«redakte»');
+    expect(out.sessionCookie).toBe('«redakte»');
+    expect(out.keynotes).toBe('görünür');
+    expect(out.monkey).toBe('görünür');
+  });
+
   it('log kaydı veriyi redakte edilmiş halde tutar', () => {
     log('info', 'stream.start', { apiKey: 'sk-abcdefghijkl', model: 'm' });
     const entry = recentLogs(1)[0];

@@ -1,158 +1,152 @@
-# MacroCode — AI terminal desktop app
+<div align="center">
 
-Kendi API anahtarınla (BYOK) 7 sağlayıcıyla (Anthropic, OpenAI, Gemini, Ollama,
-OpenRouter, DeepSeek, xAI) terminal arayüzünde sohbet edebildiğin masaüstü uygulaması.
-Tauri v2 + React 18 + TypeScript + Vite + Zustand.
+<img src="public/macrocode-logo.svg" width="110" alt="MacroCode logo" />
 
-## Gereksinimler
+# MacroCode
 
-- **Node v22** (önyüz derleme + test için)
-  - Sistemde Node yoksa, sudo'suz taşınabilir kurulum:
-    ```bash
-    mkdir -p /tmp/opencode/toolchain && cd /tmp/opencode/toolchain
-    curl -sS -O https://nodejs.org/dist/latest-v22.x/node-v22.23.3-linux-x64.tar.xz
-    tar -xf node-v22.23.3-linux-x64.tar.xz
-    export PATH="/tmp/opencode/toolchain/node-v22.23.3-linux-x64/bin:$PATH"
-    node --version && npm --version
-    ```
-  - Ya da sistem kurulumu: `sudo pacman -S nodejs npm`
-- **Rust stable** (sadece `tauri dev/build` için): https://rustup.rs
-- **Tauri sistem bağımlılıkları** (sadece `tauri dev/build` için):
-  - Linux: `libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`
-  - Windows: WebView2 + MSVC build tools · macOS: Xcode CLT
+**An AI terminal you control — bring your own key, keep your own data.**
 
-## Kurulum
+[![CI](https://github.com/Geblkc/Macro-Code/actions/workflows/ci.yml/badge.svg)](https://github.com/Geblkc/Macro-Code/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v0.1.0-orange)](#-install)
+![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
-```bash
-npm install
+*Built with Tauri v2 · React 18 · TypeScript · Zustand — a single small binary, no Electron, no server, no telemetry.*
+
+</div>
+
+---
+
+## Why MacroCode?
+
+Chatting with AI shouldn't mean handing your keys and your conversation history to a website.
+MacroCode runs **your** API calls from a native desktop app with a terminal mindset:
+everything is text, commands, and keyboard-driven — and all state stays in a local SQLite file.
+
+```
+❯ bring me up to speed on this repo
+- 245 files · key: src-tauri/src/lib.rs, src/App.tsx, docs/ARCHITECTURE.md
+- context: 3.2k tokens (auto-read, budget 200k)
+
+✓ proposal: patch @ src/lib/engine/policy.ts   [apply] [skip]
 ```
 
-## Uygulamayı Başlatma
-
-| Komut | Ne yapar |
+| | |
 |---|---|
-| `npm run dev` | Sadece tarayıcıda çalıştırır (http://localhost:1420). Hızlı önyüz geliştirme için; Tauri API'leri yok sayılır. |
-| `npm run tauri dev` | Tam masaüstü uygulamayı başlatır (Rust derlemesi gerekir). Gerçek keystore + SQLite + Rust proxy bu modda çalışır. |
-| `npm run build` | Üretim derlemesi (`tsc` tip kontrolü + `vite build` → `dist/`). |
-| `npm run preview` | `dist/` çıktısını yerel önizler. |
-| `npm test` | Vitest ile tüm testleri koşar. |
-| `bash scripts/smoke-test.sh` | Gerçek uygulamayı derleyip çalıştırır, session veritabanına yazıldığını doğrular (veri yedeklenir/geri yüklenir). |
-| `npm run tauri build` | Platform paketlerini üretir. |
+| 🔑 **BYOK, 7 providers** | Anthropic, OpenAI, Gemini, Ollama, OpenRouter, DeepSeek, xAI — no subscription, no proxy of your key |
+| 🤖 **Agent mode** | Point it at a workspace (`/root`) and it reads, searches, edits and runs commands — **with granular approvals** |
+| 💰 **Prompt caching** | Anthropic cache breakpoints + OpenAI-compatible `prompt_cache_key`; cache tokens priced separately |
+| 📚 **~500 models** | Hand-curated core catalog merged with [models.dev](https://models.dev) metadata (limits, vision, reasoning, pricing) |
+| 🛡 **Safety-first agent** | `exec` always requires approval, blocked paths (`.git`, `node_modules`), `rm` restricted to `-i` |
+| 🌍 **5 UI languages** | English · Türkçe · Deutsch · Français · Español, switchable at runtime |
+| 🧘 **Local-first** | SQLite sessions, JSON import/export, work offline; nothing leaves your machine but the API call itself |
+| ✨ **Terminal aesthetic** | Rich markdown, syntax highlighting, token metering per message, mouse-free operation |
 
-Önerilen sıra (ilk kez):
+## Install
+
+Grab the latest package for your OS from [Releases](https://github.com/Geblkc/Macro-Code/releases):
+
+| Platform | Artifact |
+|---|---|
+| Linux | `.deb` / `.AppImage` |
+| Windows | `.msi` / `.exe` |
+| macOS | `.dmg` |
+
+### Build from source
 
 ```bash
-npm install
-npm run build     # tsc + vite sorunsuz mu?
-npm test          # testler yeşil mi?
-npm run tauri dev # masaüstü uygulamayı başlat
+git clone https://github.com/Geblkc/Macro-Code
+cd macro-code && npm install
+
+npm run tauri dev   # full desktop build (Rust +WebView)
+npm run dev         # frontend-only, in a browser (Tauri APIs shimmed)
+npm test            # vitest — 65 files / 495 tests
 ```
 
-## İlk Çalıştırma (API anahtarı)
+**Requirements:** Node 22 · Rust stable · [Tauri system dependencies](https://tauri.app/start/prerequisites/)
+(Linux: `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`).
 
-1. Uygulama açılınca `⚙ settings` (veya terminale `/key` yaz).
-2. Kullandığın sağlayıcının anahtarını girip **Kaydet** (Ollama için anahtar değil
-   `http://localhost:11434` URL'si yeterli).
-3. Boot satırında `bağlı ✓` görünmeli. Sonra mesajını yaz veya `/help` ile komutlara bak.
+## First run
 
-Anahtarlar `app_data_dir/keys.json` içinde **düz metin** saklanır (tauri-plugin-store
-şifrelemez) — dosyanın kimlerin erişebildiğine dikkat et.
+1. Open **Settings** (or type `/key` in the terminal).
+2. Paste the API key for your provider and hit **Save**.
+   Ollama is special — a local URL (`http://localhost:11434`) is enough, no key needed.
+3. The status bar turns green (`connected`) — you're ready. Type away or explore `/help`.
 
-## Model kataloğu (models.dev)
+> **Why can't I see any models?** Providers only appear once their key is set:
+> the model lists, `/model`, and the title-bar picker all hide key-less providers —
+> each shows a "🔑 add key" row that jumps straight to settings.
 
-Uygulama, açık model kataloğu **models.dev**'den model metadata'sı çeker:
+### Where does your data live?
 
-- **Kaynak**: `https://models.dev/api.json` (232 sağlayıcı / 9061 model) — uygulama
-  yalnızca **6 yerleşik sağlayıcıya** ait kayıtları saklar (~480 model).
-  Ollama bu listede yoktur (yerel modeller `discoverOllama` ile bulunur).
-- **Kayıt**: elle yazılmış **çekirdek** (27 model) + katalogdaki **diğer** modeller
-  otomatik birleşir → toplam **~494 model**. Katalog yoksa/bozuksa yalnız çekirdek
-  çalışır (offline).
-- **Zenginleştirme**: model açıklaması, ailesi (`family`), yayın tarihi,
-  modaliteler (text/image/pdf/audio), düşünme seçenekleri (effort/toggle/budget),
-  context & çıktı limitleri katalogla güncellenir. Limitler **küçülmez**,
-  yetenekler **kapanmaz** — yerleşik değerler güvenli tarafta kalır.
-- **Fiyat**: katalogdaki `cost` (girdi/çıktı/**cache_read**/**cache_write**) fiyat
-  tablosunu **otomatik** doldurur; elle girdiğin değerler **korunur** (katalog
-  ezmaz). "Eksik fiyatları katalogdan doldur" ile elle girilmemiş satırlar tazelenir.
-- **Yenileme**: ⚙ ayarlar → Modeller → **models.dev kataloğu** düğmesi.
-  Açılışta önbellek (`macrocode-modelsdev-catalog`, 24 saat TTL) kullanılır;
-  bayatsa arka planda yenilenir. Ağ isteği Tauri'de Rust `proxy_fetch` üzerinden
-  çıkar (CSP `connect-src` değişikliği gerekmez).
+| Data | Location |
+|---|---|
+| API keys | `app_data_dir/keys.json` (plain text — `tauri-plugin-store` does **not** encrypt) |
+| Sessions | `sessions.db` (SQLite), with a localStorage fallback for browser-only dev |
+| Settings / workspace | `macrocode-settings`, `macrocode-workspace` (localStorage) |
 
-## API anahtarı kuralı
+Your keys never leave the machine except as `Authorization` headers to the provider you configured. Runtime sandboxing: a strict CSP allows requests only to the 6 API hosts and localhost.
 
-**API anahtarı olmayan sağlayıcının modelleri hiçbir listede görünmez.**
-`ollama` istisnadır (anahtar değil, URL gerekir). Kural üç yerde uygulanır:
+## Agent mode
 
-- **Titlebar** model açılır listesi (arama kutusuyla) — anahtarsız sağlayıcı gizli,
-  listenin sonunda "🔑 Anthropic — anahtar ekle" satırı çıkar.
-- **Ayarlar → Modeller / Sohbet** — "Varsayılan model" ve "Özetleyici model"
-  listeleri de filtrelenir; "anahtar ekle" satırı ayarları açar.
-- **`/model`** — sağlayıcı başına model sayısı gösterilir; anahtarı olmayan
-  sağlayıcı "anahtar yok — listede gizli" uyarısıyla listelenir.
+Point MacroCode at any folder and it earns its keep:
 
-## Prompt Önbelleği (maliyet)
+```
+/root ~/projects/api-server     # choose the workspace
+/files                          # quick file summary
+/context                        # what the agent knows
+/approval auto-edit             # hands-off editing (manual is the default)
+/approve 3f2a1b0c               # ...or approve a specific patch by id
+/undo                           # revert the last applied patch
+/audit 20                       # inspection trail
+```
 
-Uzun oturumlarda sistem prompt'u + geçmiş her turda yeniden gönderilir; bu
-en pahalı kalemdir. MacroCode istek tarafında **prompt cache** kullanır:
+Tools available to the agent: `read_file`, `list_dir`, `grep`, `glob`,
+`edit_file`, `write_file`, `propose_patch`, `exec`, `todo`, `plan`,
+a read-only `subagent`, **plus any stdio or HTTP MCP server you register in settings**.
 
-- **Anthropic**: sistem bloğu + son kullanıcı bloğu `cache_control` ile işaretlenir
-  (yalnızca önek ≥ 1024 token ise — daha kısa önekte API 400 döner).
-- **OpenAI-uyumlu**: oturuma bağlı `prompt_cache_key` gönderilir (OpenAI/DeepSeek
-  önbelleği kendi tarafında yönetir).
-- Token sayaçları (`cache_read` / `cache_write`) okunur ve **ayrı fiyatla** hesaplanır.
-- `/tokens` çıktısında önbellek kullanımı görünür: `önbellek: 12.4k okuma · 3.1k yazma`.
-- Kapatmak için: ⚙ ayarlar → Sohbet → **Prompt önbelleği** (varsayılan açık).
-  Kapalıyken sağlayıcı tarafında hiçbir önek saklanmaz.
+Approval modes: `manual` (default — every write asks) · `auto-read` · `auto-edit` (writes still logged, `exec` still askable).
 
-## Kalıcılık
+## Commands
 
-- API anahtarları: `keys.json` (tauri-plugin-store) + kaynakta `key_status`/`has_any_key`
-- Session'lar: SQLite `sessions.db` (öncelikli), yedek localStorage
-  (tarayıcı-dev ve DB erişilemezse devreye girer).
-- Ayarlar/workspace: localStorage (`macrocode-settings`, `macrocode-workspace`).
-- models.dev kataloğu: ayrı localStorage anahtarı (`macrocode-modelsdev-catalog`),
-  24 saat TTL; zustand persist'ine girmez (yüzlerce model).
+`/help` prints the live list. Some favorites:
 
-## Sorun Giderme
+| Command | What it does |
+|---|---|
+| `/model [id]` | switch model (title-bar picker and settings stay in sync) |
+| `/compact` | summarize & shrink the conversation when it's near the context budget |
+| `/tokens` | token usage per turn, incl. cache read/write pricing |
+| `/system <text>` | set a custom system prompt |
+| `/note <text>` | persist a project note the agent reads next session |
+| `/export [md\|json]` | download the session as Markdown/JSON (`/backup` = JSON) |
+| `/audit`, `/log` | approval trail and runtime logs |
 
-- `javascriptcoregtk-4.1.pc yok` / `tauri dev` derlenmiyor → Linux sistem
-  bağımlılıkları eksik (yukarıdaki listeyi `pacman`/`apt` ile kur).
-- `✗ ağ hatası` (Anthropic, Tauri) → Rust proxy TLS sorunu olabilir; uygulama
-  otomatik olarak doğrudan `fetch` yoluna düşer. Düzelmezse anahtarı `/key` ile kontrol et.
-- Uzak (LAN) Ollama URL'si çalışmıyor → CSP `connect-src` yalnızca
-  `localhost/127.0.0.1` + 6 AI API hostuna izin verir; `src-tauri/tauri.conf.json`
-  içinden genişletmen gerekir.
-- HTTP MCP sunucusuna ulaşılamıyor → aynı CSP kısıtı özel origin'lere de uygulanır;
-  sunucu adresini `connect-src`'ye ekleyip yeniden derle (stdio taşıma CSP istemez).
-- `✗ api anahtarı eksik` → sağlayıcı anahtarı girilmemiş; `/key` ile ekle
-  (Ollama hariç hepsi anahtar ister).
-- `npm run build` Node hatası veriyor → Gereksinimler'deki taşınabilir Node
-  kurulumunu yapıp PATH'i aktif kabukta export et.
+## Multilingual
 
-## Çıktılar (`tauri build`)
+The UI ships in **English · Türkçe · Deutsch · Français · Español**.
+Language can follow the OS or be pinned in *Settings → Appearance & language*, changes apply live without a restart.
+(Tool descriptions sent to models stay English — performance over aesthetics.)
 
-Windows `.exe` setup, macOS `.dmg`, Linux `.deb` + `.AppImage`
-(`src-tauri/tauri.conf.json` → `bundle.targets: all`, id `com.macrocode.app`).
-Uygulama ikonu `src-tauri/icons/` içinden alınır (kaynak: `macrocode-logo.svg`).
+## Documentation
 
-## Ajan Modu (`/root`)
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — the living map of every module (always current).
+- **[`docs/MODELS.md`](docs/MODELS.md)** — the built-in model catalog + models.dev enrichment rules.
+- **[`docs/DEVLOG.md`](docs/DEVLOG.md)** — dated, verified change log of every phase.
 
-Workspace seçildiğinde uygulama **ajan** moduna geçer:
+## Contributing
 
-- `/root <yol>` workspace seçer · `/files` dosya özeti · `/context` ajanın bildiği
-  proje bağlamı (harita + AGENTS.md/README + kalıcı notlar)
-- `/note <not>` kalıcı proje notu ekler (sonraki oturumlarda hatırlanır)
-- `/approval manual|auto-read|auto-edit` onay modu · `/apply <id>` bekleyen yamayı uygular
-  · `/undo` geri alır · `/audit [n]` denetim kaydı · `/log [n]` son olay kayıtları
-- Araçlar: `read_file`, `list_dir`, `grep`, `glob`, `edit_file`, `propose_patch`,
-  `write_file`, `exec`, `todo`, `plan`, `subagent` (salt-okunur alt ajan) + MCP araçları
-- **Güvenlik**: yazma araçları onay ister (`exec` **her zaman** onaylı), bloklu dizinler
-  (`.git`, `node_modules`, …) kapalı, `rm` yalnızca `-i` ile.
+Issues and PRs are welcome! Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first —
+it covers test expectations, allowlist-drift rules, and the "faz closure" discipline that keeps this codebase coherent.
 
-## Dokümantasyon
+## Roadmap
 
-- `memorybank/memorybank.md` — güncel proje mimarisi (canlı referans).
-- `memorybank/Modeller.md` — yerleşik model kataloğu (27 model + models.dev eşleşmesi).
-- `memorybank/Değişiklik Raporu.md` — tarihli işlem ve doğrulama kayıtları.
+- [ ] In-app auto-update (Tauri updater + GitHub Releases)
+- [ ] Provider-by-provider usage dashboards
+- [ ] Streaming tool-calls (partial [`tool_use`] rendering)
+- [ ] Theme editor
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
+Model metadata courtesy of [models.dev](https://models.dev), icons hand-drawn SVG, fonts bundled as system stacks.

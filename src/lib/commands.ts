@@ -8,6 +8,7 @@ import {
   suggestProvider,
 } from './providers';
 import { sessionCost, formatCost } from './pricing';
+import { t } from './i18n/core';
 import type { CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
 
 export interface CommandLine {
@@ -48,32 +49,35 @@ export interface CommandResult {
 
 const VALID_PROVIDERS: Provider[] = [...PROVIDER_IDS];
 
-const HELP_LINES: CommandLine[] = [
-  { type: 'sys', content: '/// komutlar:' },
-  { type: 'sys', content: '  /help          tum komutlari listele' },
-  { type: 'sys', content: '  /clear         terminal ciktisini temizle' },
-  { type: 'sys', content: '  /reset         konusma gecmisini sifirla' },
-  { type: 'sys', content: '  /session       yeni session baslat' },
-  { type: 'sys', content: '  /model <id>    model degistir (orn: /model gpt-6.1-sol)' },
-  { type: 'sys', content: `  /provider <p>  saglayici degistir (${PROVIDER_IDS.join('/')})` },
-  { type: 'sys', content: '  /key           ayarlari ac' },
-  { type: 'sys', content: '  /export [md|json] session\'i disa aktar (varsayilan md)' },
-  { type: 'sys', content: '  /backup        session\'i JSON yedegi olarak indir' },
-  { type: 'sys', content: '  /tokens        token kullanimini goster (gercek + yaklasik)' },
-  { type: 'sys', content: '  /compact        baglamı ozetle (otomatik %75 + elle)' },
-  { type: 'sys', content: '  /system <text> system prompt degistir' },
-  { type: 'sys', content: '  /root <yol>    workspace sec (agent modu acar)' },
-  { type: 'sys', content: '  /files         workspace dosya ozeti' },
-  { type: 'sys', content: '  /apply <id>    bekleyen yamayi onayla-uygula' },
-  { type: 'sys', content: '  /undo [id]     son veya belirtilen yamayi geri al' },
-  { type: 'sys', content: '  /skill         kayitli skill listesi' },
-  { type: 'sys', content: '  /approval [m]  onay modu (manual|auto-read|auto-edit)' },
-  { type: 'sys', content: '                  manual=yazma onaylı · auto-read=salt-okunur · auto-edit=yazma onaysız' },
-  { type: 'sys', content: '  /context        agent\'in bildigi proje baglamini goster' },
-  { type: 'sys', content: '  /note <not>     kalici proje notu ekle (sonraki oturumlarda hatirlanir)' },
-  { type: 'sys', content: '  /log [n]        son olay kayitlari (n varsayilan 30)' },
-  { type: 'sys', content: '  /audit [n]     denetim kaydını goster (varsayilan 20)' },
-];
+/** Yardım metni (dil ayarına göre üretilir). */
+function helpLines(): CommandLine[] {
+  return [
+    { type: 'sys', content: t('commands.help.header') },
+    { type: 'sys', content: t('commands.help.help') },
+    { type: 'sys', content: t('commands.help.clear') },
+    { type: 'sys', content: t('commands.help.reset') },
+    { type: 'sys', content: t('commands.help.session') },
+    { type: 'sys', content: t('commands.help.model') },
+    { type: 'sys', content: t('commands.help.provider', { providers: PROVIDER_IDS.join('/') }) },
+    { type: 'sys', content: t('commands.help.key') },
+    { type: 'sys', content: t('commands.help.export') },
+    { type: 'sys', content: t('commands.help.backup') },
+    { type: 'sys', content: t('commands.help.tokens') },
+    { type: 'sys', content: t('commands.help.compact') },
+    { type: 'sys', content: t('commands.help.system') },
+    { type: 'sys', content: t('commands.help.root') },
+    { type: 'sys', content: t('commands.help.files') },
+    { type: 'sys', content: t('commands.help.apply') },
+    { type: 'sys', content: t('commands.help.undo') },
+    { type: 'sys', content: t('commands.help.skill') },
+    { type: 'sys', content: t('commands.help.approval') },
+    { type: 'sys', content: t('commands.help.approvalModes') },
+    { type: 'sys', content: t('commands.help.context') },
+    { type: 'sys', content: t('commands.help.note') },
+    { type: 'sys', content: t('commands.help.log') },
+    { type: 'sys', content: t('commands.help.audit') },
+  ];
+}
 
 /** Karakter/4 yaklasik token sayimi. */
 export function approxTokens(messages: Message[]): { input: number; output: number; total: number } {
@@ -144,23 +148,37 @@ export function tokenSummaryLine(session: Session, prices?: Record<string, Model
   if (prices) {
     const { cost: c, priced } = sessionCost(session.messages, prices);
     if (priced > 0) {
-      cost = ` · maliyet ~${formatCost(c)}${priced < real.withUsage ? ' (kısmi fiyat)' : ''}`;
+      cost = t('tokens.cost', { cost: formatCost(c) }) +
+        (priced < real.withUsage ? t('tokens.costPartial') : '');
     }
   }
   if (real.withUsage === 0) {
-    return `/// token (yaklaşık): girdi ${approx.input} · çıktı ${approx.output} · toplam ${approx.total}`;
+    return t('tokens.approx', {
+      input: approx.input,
+      output: approx.output,
+      total: approx.total,
+    });
   }
-  const reason = real.reasoning > 0 ? ` · reasoning ${formatTokenCount(real.reasoning)}` : '';
+  const reason = real.reasoning > 0 ? t('tokens.reasoning', { amount: formatTokenCount(real.reasoning) }) : '';
   // Faz 11: önbellek kullanımı görünür (önbellek işe yarıyor mu?).
   const cache =
     real.cacheRead > 0 || real.cacheWrite > 0
-      ? ` · önbellek: ${formatTokenCount(real.cacheRead)} okuma · ${formatTokenCount(real.cacheWrite)} yazma`
+      ? t('tokens.cache', {
+          read: formatTokenCount(real.cacheRead),
+          write: formatTokenCount(real.cacheWrite),
+        })
       : '';
-  const base =
-    `/// token — gerçek: girdi ${formatTokenCount(real.input)} · çıktı ${formatTokenCount(real.output)}${reason}` +
-    ` · toplam ${formatTokenCount(real.total)} (${real.withUsage}/${session.messages.length} mesaj)${cache}`;
+  const base = t('tokens.real', {
+    input: formatTokenCount(real.input),
+    output: formatTokenCount(real.output),
+    reasoning: reason,
+    total: formatTokenCount(real.total),
+    withUsage: real.withUsage,
+    messages: session.messages.length,
+    cache,
+  });
   if (real.withUsage < session.messages.length) {
-    return `${base}${cost} · yaklaşık toplam: ~${approx.total}`;
+    return `${base}${cost}${t('tokens.approxTotal', { total: approx.total })}`;
   }
   // Faz 4: oturum toplam maliyeti (reasoning dahil) son satırda görünür.
   return `${base}${cost}`;
@@ -181,17 +199,17 @@ function formatDate(ts: number): string {
 }
 
 function authorLabel(m: Message, session: Session): string {
-  if (m.role === 'user') return 'Sen';
-  if (m.role === 'system') return 'System';
+  if (m.role === 'user') return t('export.authorUser');
+  if (m.role === 'system') return t('export.authorSystem');
   return session.model || 'AI';
 }
 
 export function buildExportMarkdown(session: Session): string {
   const parts: string[] = [
-    '# MacroCode Session Export',
-    `**Tarih:** ${formatDate(Date.now())}`,
-    `**Model:** ${session.model}`,
-    `**Toplam mesaj:** ${session.messages.length}`,
+    t('export.title'),
+    t('export.date', { date: formatDate(Date.now()) }),
+    t('export.model', { model: session.model }),
+    t('export.messageCount', { count: session.messages.length }),
     '',
     '---',
     '',
@@ -200,15 +218,15 @@ export function buildExportMarkdown(session: Session): string {
     parts.push(`**[${formatTime(m.timestamp)}] ${authorLabel(m, session)}:**`);
     parts.push(m.content);
     if (m.reasoning?.trim()) {
-      parts.push(`<details><summary>düşünme notları</summary>\n\n${m.reasoning}\n\n</details>`);
+      parts.push(`<details><summary>${t('export.reasoning')}</summary>\n\n${m.reasoning}\n\n</details>`);
     }
     if (m.images && m.images.length > 0) {
-      parts.push(`*[${m.images.length} görsel eklendi — dışa aktarımda yer almıyor]*`);
+      parts.push(t('export.images', { count: m.images.length }));
     }
     parts.push('');
   }
   parts.push('---');
-  parts.push('*MacroCode tarafından dışa aktarıldı*');
+  parts.push(t('export.footer'));
   return parts.join('\n');
 }
 
@@ -242,14 +260,14 @@ function isValidMessage(m: unknown): m is Message {
 }
 
 function normalizeSession(raw: unknown): Session {
-  if (!raw || typeof raw !== 'object') throw new Error('oturum nesnesi bulunamadı');
+  if (!raw || typeof raw !== 'object') throw new Error(t('errors.sessionObjectMissing'));
   const v = raw as Record<string, unknown>;
   if (typeof v.id !== 'string' || !Array.isArray(v.messages)) {
-    throw new Error('geçersiz oturum: id/messages eksik');
+    throw new Error(t('errors.sessionInvalidShape'));
   }
   const messages = (v.messages as unknown[]).filter(isValidMessage);
   if (messages.length !== (v.messages as unknown[]).length) {
-    throw new Error('geçersiz oturum: bozuk mesajlar var');
+    throw new Error(t('errors.sessionCorruptMessages'));
   }
   const now = Date.now();
   const rawProvider = (VALID_PROVIDERS as string[]).includes(v.provider as string)
@@ -265,7 +283,7 @@ function normalizeSession(raw: unknown): Session {
       : undefined;
   return {
     id: v.id,
-    name: typeof v.name === 'string' && v.name ? v.name : 'içe aktarılan session',
+    name: typeof v.name === 'string' && v.name ? v.name : t('errors.importSessionName'),
     createdAt: typeof v.createdAt === 'number' ? v.createdAt : now,
     updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : now,
     messages,
@@ -285,12 +303,12 @@ export function parseSessionBackup(text: string): Session[] {
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error('geçersiz JSON: dosya okunamadı');
+    throw new Error(t('errors.invalidJson'));
   }
   if (parsed && typeof parsed === 'object') {
     const v = parsed as Record<string, unknown>;
     if (Array.isArray(v.sessions)) {
-      if (v.sessions.length === 0) throw new Error('yedekte oturum yok');
+      if (v.sessions.length === 0) throw new Error(t('errors.backupEmpty'));
       return (v.sessions as unknown[]).map(normalizeSession);
     }
     if (v.session && typeof v.session === 'object') {
@@ -308,7 +326,7 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
   switch (cmd) {
     case '/help':
-      return { handled: true, lines: [...HELP_LINES] };
+      return { handled: true, lines: helpLines() };
 
     case '/clear':
       ctx.clearView();
@@ -316,14 +334,14 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/reset': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: '✗ aktif session yok' }] };
+      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       ctx.resetSession();
-      return { handled: true, lines: [{ type: 'sys', content: '/// konuşma sıfırlandı' }] };
+      return { handled: true, lines: [{ type: 'sys', content: t('commands.resetDone') }] };
     }
 
     case '/session':
       ctx.createSession();
-      return { handled: true, lines: [{ type: 'sys', content: '/// yeni session başlatıldı' }] };
+      return { handled: true, lines: [{ type: 'sys', content: t('commands.sessionStarted') }] };
 
     case '/model': {
       const customs = ctx.customModels?.() ?? [];
@@ -332,7 +350,7 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
         // Anahtar durumuna göre sağlayıcı başına model sayısı.
         const models = resolveModels(customs);
         const lines: CommandLine[] = [
-          { type: 'sys', content: `/// aktif model: ${ctx.model()}` },
+          { type: 'sys', content: t('commands.activeModel', { model: ctx.model() }) },
         ];
         for (const p of PROVIDER_IDS) {
           const total = models.filter((m) => m.provider === p).length;
@@ -341,16 +359,16 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
           lines.push({
             type: locked ? 'warn' : 'sys',
             content: locked
-              ? `/// ${p}: ${total} model · anahtar yok — listede gizli`
-              : `/// ${p}: ${total} model`,
+              ? t('commands.providerModelsLocked', { provider: p, count: total })
+              : t('commands.providerModels', { provider: p, count: total }),
           });
         }
         return { handled: true, lines };
       }
       ctx.setModel(arg);
-      const lines: CommandLine[] = [{ type: 'sys', content: `/// model: ${arg}` }];
+      const lines: CommandLine[] = [{ type: 'sys', content: t('commands.modelSet', { model: arg }) }];
       if (!isKnownModel(arg, customs)) {
-        lines.push({ type: 'warn', content: '! bilinmeyen model id — yine de ayarlandı' });
+        lines.push({ type: 'warn', content: t('commands.modelUnknown') });
       } else {
         const caps = getCapabilitiesForModel(arg, customs);
         if (caps) {
@@ -359,15 +377,12 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
             caps.vision ? 'vision✓' : null,
             caps.reasoning ? 'reasoning✓' : null,
           ].filter(Boolean).join(' · ');
-          if (tags) lines.push({ type: 'sys', content: `/// capabilities: ${tags}` });
+          if (tags) lines.push({ type: 'sys', content: t('commands.capabilities', { tags }) });
         }
         // Anahtar yoksa model seçilir ama uyarılır (liste kuralı burada da geçerli).
         const owner = getProviderForModel(arg, customs);
         if (owner && hasKey && !hasKey(owner)) {
-          lines.push({
-            type: 'warn',
-            content: `! ${owner} anahtarı yok — /key ile ekle, aksi halde istek hata verir`,
-          });
+          lines.push({ type: 'warn', content: t('commands.providerNoKey', { provider: owner }) });
         }
       }
       return { handled: true, lines };
@@ -379,27 +394,35 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
         const suggestion = suggestProvider(arg);
         return {
           handled: true,
-          lines: [{ type: 'err', content: `✗ bilinmeyen sağlayıcı · ${VALID_PROVIDERS.join('/')} kullan${suggestion ? ` · bunu mu demek istedin: ${suggestion}?` : ''}` }],
+          lines: [
+            {
+              type: 'err',
+              content: t('commands.unknownProvider', {
+                providers: VALID_PROVIDERS.join('/'),
+                suggestion: suggestion ? t('commands.didYouMean', { provider: suggestion }) : '',
+              }),
+            },
+          ],
         };
       }
       ctx.setProvider(p);
-      return { handled: true, lines: [{ type: 'sys', content: `/// sağlayıcı: ${p}` }] };
+      return { handled: true, lines: [{ type: 'sys', content: t('commands.providerSet', { provider: p }) }] };
     }
 
     case '/key':
       ctx.openSettings();
-      return { handled: true, lines: [{ type: 'sys', content: '/// ayarlar açıldı — anahtarını girip kaydet' }] };
+      return { handled: true, lines: [{ type: 'sys', content: t('commands.settingsOpened') }] };
 
     case '/export': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: '✗ aktif session yok' }] };
+      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       if (session.messages.length === 0) {
-        return { handled: true, lines: [{ type: 'warn', content: '! dışa aktarılacak mesaj yok' }] };
+        return { handled: true, lines: [{ type: 'warn', content: t('commands.exportEmpty') }] };
       }
       if (arg.toLowerCase() === 'json') {
         return {
           handled: true,
-          lines: [{ type: 'sys', content: '/// JSON yedeği hazır · indiriliyor' }],
+          lines: [{ type: 'sys', content: t('commands.jsonReady') }],
           exportText: buildSessionBackup(session),
           exportFilename: 'macrocode-session.json',
           exportMime: 'application/json;charset=utf-8',
@@ -407,7 +430,7 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
       }
       return {
         handled: true,
-        lines: [{ type: 'sys', content: '/// markdown hazır · indiriliyor' }],
+        lines: [{ type: 'sys', content: t('commands.markdownReady') }],
         exportText: buildExportMarkdown(session),
         exportFilename: 'macrocode-session.md',
         exportMime: 'text/markdown;charset=utf-8',
@@ -416,13 +439,13 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/backup': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: '✗ aktif session yok' }] };
+      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       if (session.messages.length === 0) {
-        return { handled: true, lines: [{ type: 'warn', content: '! yedeklenecek mesaj yok' }] };
+        return { handled: true, lines: [{ type: 'warn', content: t('commands.backupEmpty') }] };
       }
       return {
         handled: true,
-        lines: [{ type: 'sys', content: '/// JSON yedeği hazır · indiriliyor' }],
+        lines: [{ type: 'sys', content: t('commands.jsonReady') }],
         exportText: buildSessionBackup(session),
         exportFilename: 'macrocode-session.json',
         exportMime: 'application/json;charset=utf-8',
@@ -431,7 +454,7 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/tokens': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: '✗ aktif session yok' }] };
+      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       return {
         handled: true,
         lines: [{ type: 'sys', content: tokenSummaryLine(session, ctx.prices?.()) }],
@@ -440,16 +463,16 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/system': {
       if (!arg) {
-        return { handled: true, lines: [{ type: 'sys', content: '/// kullanım: /system <metin>' }] };
+        return { handled: true, lines: [{ type: 'sys', content: t('commands.systemUsage') }] };
       }
       ctx.setSystemPrompt(arg);
-      return { handled: true, lines: [{ type: 'sys', content: '/// system prompt güncellendi' }] };
+      return { handled: true, lines: [{ type: 'sys', content: t('commands.systemUpdated') }] };
     }
 
     default:
       return {
         handled: true,
-        lines: [{ type: 'err', content: `✗ bilinmeyen komut: ${cmd} · /help ile listeye bak` }],
+        lines: [{ type: 'err', content: t('commands.unknownCommand', { command: cmd }) }],
       };
   }
 }

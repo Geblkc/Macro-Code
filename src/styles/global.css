@@ -123,6 +123,10 @@
 
 button { font-family: inherit; color: inherit; }
 
+/* `hidden` özniteliği her zaman gizlemeli — CSS `display` kuralları
+   onu ezebilir (gizli sekme panelleri). */
+[hidden] { display: none !important; }
+
 /* Native form kontrolleri temayla eşleşsin (varsayılan mavi kutu kalmasın). */
 input[type='checkbox'],
 input[type='radio'] {

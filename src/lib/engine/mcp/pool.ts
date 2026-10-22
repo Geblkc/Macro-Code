@@ -43,6 +43,10 @@ function fingerprint(srv: McpServerConfig): string {
     c: srv.command ?? '',
     a: srv.args ?? [],
     e: srv.enabled,
+    // O7: kök (cwd jail) ve secret seti de bağlanmayı etkiler — eski cache
+    // yanlış cwd/env ile konuşmasın; cache yenilenir.
+    r: context.root ?? '',
+    s: Object.keys(context.secrets[srv.id] ?? {}).sort(),
   });
 }
 
@@ -80,11 +84,19 @@ async function ensureListed(srv: McpServerConfig): Promise<PooledEntry> {
     await cached.client.close().catch(() => {});
   }
   const client = new McpClient(transportFor(srv));
-  await client.initialize();
-  const tools = filterAllowed(srv, toToolDefinitions(srv.id, await client.listTools()));
-  const entry: PooledEntry = { client, tools, listedAt: Date.now(), fingerprint: fp };
-  pool.set(srv.id, entry);
-  return entry;
+  try {
+    await client.initialize();
+    const tools = filterAllowed(srv, toToolDefinitions(srv.id, await client.listTools()));
+    const entry: PooledEntry = { client, tools, listedAt: Date.now(), fingerprint: fp };
+    pool.set(srv.id, entry);
+    return entry;
+  } catch (e) {
+    // O7: bağlantı kurulumu yarım kalanı derhal kapat (stdio child öksüz
+    // kalmasın); Rust `mcp_kill` transport close'ta tetiklenir.
+    pool.delete(srv.id);
+    await client.close().catch(() => {});
+    throw e;
+  }
 }
 
 /** Agent isteğine eklenecek MCP tool tanımları (düşen sunucu atlanır). */

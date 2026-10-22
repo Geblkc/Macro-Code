@@ -10,6 +10,7 @@ import { execApprovalWarning } from '../lib/engine/policy';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { deriveTodoState } from '../lib/engine/tools/todo';
+import { useT } from '../lib/i18n';
 import { Icon } from './icons';
 
 interface Props {
@@ -23,6 +24,8 @@ interface Props {
   onAlwaysAllow?: (command: string) => void;
   /** Zaman damgası biçimi. */
   clockFormat: '24h' | '12h';
+  /** Zaman damgası gösterilsin mi (görünüm ayarı). */
+  showTimestamps: boolean;
 }
 
 interface ViewLine {
@@ -66,6 +69,7 @@ function toViewLine(
   streaming: boolean,
   isLast: boolean,
   clockFormat: '24h' | '12h',
+  showTimestamps: boolean,
 ): ViewLine {
   const isAssistant = m.role === 'assistant';
   const isUser = m.role === 'user';
@@ -74,7 +78,7 @@ function toViewLine(
   const meta =
     isUser || isAssistant
       ? [
-          formatClock(m.timestamp, clockFormat),
+          showTimestamps ? formatClock(m.timestamp, clockFormat) : '',
           isAssistant && m.model ? m.model : '',
           usage ?? '',
         ]
@@ -103,7 +107,9 @@ export default function Terminal({
   onReject,
   onAlwaysAllow,
   clockFormat,
+  showTimestamps,
 }: Props) {
+  const t = useT();
   const streaming = useSessionStore((s) => s.isStreaming);
   const showThinking = useSettingsStore((s) => s.showThinking);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -117,7 +123,9 @@ export default function Terminal({
       clearedBefore == null
         ? session.messages
         : session.messages.filter((m) => m.timestamp >= clearedBefore);
-    msgs.forEach((m, i) => out.push(toViewLine(m, streaming, i === msgs.length - 1, clockFormat)));
+    msgs.forEach((m, i) =>
+      out.push(toViewLine(m, streaming, i === msgs.length - 1, clockFormat, showTimestamps)),
+    );
 
     // Extras her zaman en sonda: pushExtra Date.now() damgalıdır, mesajlar kronolojiktir.
     // Araç çağrısı + sonucu aynı kartta birleşir (id eşleşmesi).
@@ -146,7 +154,10 @@ export default function Terminal({
           type: e.type,
           content: e.content,
           tool: e.tool,
-          meta: e.type === 'err' || e.type === 'warn' ? formatClock(e.ts, clockFormat) : undefined,
+          meta:
+            showTimestamps && (e.type === 'err' || e.type === 'warn')
+              ? formatClock(e.ts, clockFormat)
+              : undefined,
         });
         continue;
       }
@@ -156,13 +167,13 @@ export default function Terminal({
         type: e.type,
         content: e.content,
         meta:
-          e.type === 'err' || e.type === 'warn' || e.type === 'user'
+          showTimestamps && (e.type === 'err' || e.type === 'warn' || e.type === 'user')
             ? formatClock(e.ts, clockFormat)
             : undefined,
       });
     }
     return out;
-  }, [session, extras, clearedBefore, streaming, clockFormat]);
+  }, [session, extras, clearedBefore, streaming, clockFormat, showTimestamps]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -222,7 +233,7 @@ export default function Terminal({
                   ///
                 </div>
                 <div className="body-col">
-                  <div className="logline">oturum yok — yeni oturum oluştur</div>
+                  <div className="logline">{t('terminal.noSession')}</div>
                 </div>
                 <div className="meta-col" />
               </div>
@@ -300,7 +311,15 @@ export default function Terminal({
                       warning={warning}
                       onApprove={onApprove}
                       onReject={onReject}
-                      onAlways={isExec && onAlwaysAllow ? () => onAlwaysAllow(execCmd) : undefined}
+                      onAlways={
+                        isExec && onAlwaysAllow
+                          ? // O7 düzeltmesi: yalnız komut adı DEĞİL, tam satır
+                            // (`git commit -m x`) allowlist'e yazılır. Eskiden
+                            // `execCmd` (örn. "git") yazılıyordu → tüm argümanlar
+                            // kalıcı olarak onaysız geçer oluyordu.
+                            () => onAlwaysAllow(shown)
+                          : undefined
+                      }
                     />
                   </div>
                   <div className="meta-col" />
@@ -312,9 +331,9 @@ export default function Terminal({
       </div>
 
       {showJump && (
-        <button className="jump-latest" onClick={scrollToBottom} title="en son mesaja git">
+        <button className="jump-latest" onClick={scrollToBottom} title={t('terminal.jumpTitle')}>
           <Icon name="chevron-down" size="sm" />
-          yeni mesaj
+          {t('terminal.newMessage')}
         </button>
       )}
     </div>

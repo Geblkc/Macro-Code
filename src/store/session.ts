@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Message, Provider, Session, SessionCompaction } from '../types';
 import type { UsageLike } from '../lib/engine/types';
+import { t } from '../lib/i18n/core';
 import { DEFAULT_MODELS, useSettingsStore } from './settings';
 
 export function createId(): string {
@@ -15,11 +16,14 @@ function uid(): string {
   return createId();
 }
 
-const DEFAULT_NAME = 'yeni session';
+/** Boş oturum adı (aktif dilde gösterilir). */
+function defaultName(): string {
+  return t('session.defaultName');
+}
 
 function autoName(content: string): string {
   const name = content.trim().slice(0, 20);
-  return name || DEFAULT_NAME;
+  return name || defaultName();
 }
 
 interface SessionStore {
@@ -97,7 +101,7 @@ export const useSessionStore = create<SessionStore>()(
         const settings = useSettingsStore.getState();
         const session: Session = {
           id: uid(),
-          name: DEFAULT_NAME,
+          name: defaultName(),
           createdAt: Date.now(),
           updatedAt: Date.now(),
           messages: [],

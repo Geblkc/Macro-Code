@@ -37,6 +37,6 @@ describe('Faz 5 — MCP registry', () => {
   it('makeMcpServerId TR uyumlu slug üretir', () => {
     expect(makeMcpServerId('Dosya Sunucum')).toBe('mcp_dosya-sunucum');
     expect(makeMcpServerId('  ')).toBe('mcp_sunucu');
-    expect(makeMcpServerId('X'.repeat(100)).length).toBeLessThanOrEqual(52);
+    expect(makeMcpServerId('X'.repeat(100)).length).toBeLessThanOrEqual(48);
   });
 });

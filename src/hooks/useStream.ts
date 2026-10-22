@@ -20,6 +20,7 @@ import { applyMemo, memoToPersisted, resolveMemo, setMemo } from '../lib/engine/
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
 import { logError, logInfo } from '../lib/logger';
 import { promptCacheKey } from '../lib/providers/promptCache';
+import { useT } from '../lib/i18n';
 import type { UsageLike } from '../lib/engine/types';
 
 export { providerNeedsKey };
@@ -56,6 +57,7 @@ export function resolveFallbackTarget(opts: {
  * Girdi `text` slash komutu icermemelidir (ayristirma Faz 4'te InputBar/Terminal'de).
  */
 export function useStream() {
+  const t = useT();
   const abortRef = useRef<AbortController | null>(null);
 
   const abort = useCallback(() => {
@@ -107,7 +109,7 @@ export function useStream() {
       }
       const key = settings.customSecrets[endpoint.id] ?? '';
       if (!key.trim()) {
-        return '✗ api anahtarı eksik · /key ile ekleyebilirsin';
+        return t('errors.apiKeyMissing');
       }
       const custom = buildCustomProvider(endpoint);
       doStream = (target, messages, onChunk, signal) =>
@@ -125,7 +127,7 @@ export function useStream() {
     } else {
       const apiKey = apiKeyFor(providerName, settings.apiKeys);
       if (providerNeedsKey(providerName) && !apiKey.trim()) {
-        return '✗ api anahtarı eksik · /key ile ekleyebilirsin';
+        return t('errors.apiKeyMissing');
       }
       // Hedef sağlayıcı çağıra göre çözülür: birincil akışta session sağlayıcısı,
       // yedek akışta yedek modelin sahibi kullanılır (anahtar/URL de ona göre çekilir).
@@ -235,7 +237,7 @@ export function useStream() {
             });
             // Faz 12 B.6: özet oturuma kalıcı yazılır (restart sonrası tekrar özetlenmez).
             store().setCompaction(sessionId, memoToPersisted(memoForm));
-            onSys?.('/// context özetlendi (compaction)');
+            onSys?.(t('agent.compacted'));
           }
         }
       }
@@ -304,7 +306,7 @@ export function useStream() {
       store().setStreaming(false);
       if (abortRef.current === ctrl) abortRef.current = null;
     }
-  }, []);
+  }, [t]);
 
   return { send, abort };
 }

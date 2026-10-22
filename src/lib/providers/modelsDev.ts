@@ -6,6 +6,7 @@ import type {
   ReasoningOption,
 } from '../../types';
 import { fetchFor } from './rustFetch';
+import { t } from '../i18n/core';
 
 /**
  * models.dev — açık model kataloğu.
@@ -204,13 +205,13 @@ export async function fetchModelsDevCatalog(
     headers: { accept: 'application/json' },
   });
   if (!res.ok) {
-    throw new Error(`models.dev kataloğu alınamadı (http ${res.status})`);
+    throw new Error(t('errors.catalogFailed', { status: res.status }));
   }
   let raw: unknown;
   try {
     raw = await res.json();
   } catch {
-    throw new Error('models.dev yanıtı çözümlenemedi (geçersiz JSON)');
+    throw new Error(t('errors.catalogInvalid'));
   }
   return parseModelsDev(raw);
 }
