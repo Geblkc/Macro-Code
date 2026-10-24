@@ -5,6 +5,8 @@
   <p><strong>English</strong> · <a href="README.tr.md">Türkçe</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.ru.md">Русский</a></p>
 </div>
 
+[![Download](https://img.shields.io/github/v/release/Geblkc/Macro-Code)](https://github.com/Geblkc/Macro-Code/releases/latest)
+
 ## What is MacroCode?
 
 MacroCode is an open source, cross-platform desktop app that lets you chat and work with AI
