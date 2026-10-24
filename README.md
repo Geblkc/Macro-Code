@@ -5,7 +5,8 @@
   <p><strong>English</strong> · <a href="README.tr.md">Türkçe</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.ru.md">Русский</a></p>
 </div>
 
-[![Download](https://img.shields.io/github/v/release/Geblkc/Macro-Code)](https://github.com/Geblkc/Macro-Code/releases/latest)
+<img width="1920" height="1006" alt="Ekran Görüntüsü_20261024_214103" src="https://github.com/user-attachments/assets/f67a19a7-9f72-458f-8236-75bbd31c18cd" />
+
 
 ## What is MacroCode?
 
