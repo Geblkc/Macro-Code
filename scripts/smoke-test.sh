@@ -44,6 +44,13 @@ cargo build --manifest-path src-tauri/Cargo.toml >/dev/null
 BIN="src-tauri/target/debug/macrocode"
 [ -x "$BIN" ] || fail "derlenmiş ikili bulunamadı: $BIN"
 
+# Teşhis: gömülü Tauri config'inde preload anahtarı (serde sessizce yok sayarsa DB oluşmaz).
+if grep -qa '"sql":{"preload"' "$BIN"; then
+  log "gömülü conf: preload VAR"
+else
+  log "UYARI: gömülü conf'da preload ANAHTARI YOK — plugin conf'u işlenmemiş olabilir"
+fi
+
 log "veritabanı yedekleniyor…"
 mkdir -p "$BACKUP_DIR"
 if [ -f "$DB" ]; then
@@ -72,6 +79,11 @@ fi
 
 log "veritabanı doğrulanıyor…"
 if [ ! -f "$DB" ]; then
+  echo "=== [smoke-debug] beklenen dizin: $DATA_DIR" >&2
+  ls -la "$DATA_DIR" 2>/dev/null || echo "DATA_DIR yok" >&2
+  echo "env: HOME=$HOME, XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-<ayarlanmamış>}" >&2
+  find "$HOME" "$PWD" -maxdepth 6 -name 'sessions.db*' 2>/dev/null | head -10 >&2
+  echo "=== [smoke-debug] app.log (son 50) ===" >&2
   tail -50 "$BACKUP_DIR/app.log" >&2
   fail "session veritabanı oluşmadı (ACL yoksa yazma sessizce başarısız olur)"
 fi
