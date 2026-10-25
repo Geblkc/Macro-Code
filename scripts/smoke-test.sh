@@ -71,13 +71,16 @@ if grep -qiE "panicked|thread .* panicked" "$BACKUP_DIR/app.log"; then
 fi
 
 log "veritabanı doğrulanıyor…"
-[ -f "$DB" ] || fail "session veritabanı oluşmadı (ACL yoksa yazma sessizce başarısız olur)"
+if [ ! -f "$DB" ]; then
+  tail -50 "$BACKUP_DIR/app.log" >&2
+  fail "session veritabanı oluşmadı (ACL yoksa yazma sessizce başarısız olur)"
+fi
 
 if command -v sqlite3 >/dev/null 2>&1; then
   ROWS="$(sqlite3 "$DB" "select count(*) from sessions;" 2>/dev/null || echo 0)"
   TABLES="$(sqlite3 "$DB" "select count(*) from sqlite_master where type='table' and name in ('sessions','audit_log','pending_approvals');" 2>/dev/null || echo 0)"
-  [ "$TABLES" = "3" ] || fail "beklenen tablolar eksik (bulunan: $TABLES/3) — migration çalışmamış"
-  [ "$ROWS" -ge 2 ] || fail "sessions tablosuna yazılmadı (satır: $ROWS, beklenen >= 2) → ACL/yazma izni eksik"
+  [ "$TABLES" = "3" ] || { tail -50 "$BACKUP_DIR/app.log" >&2; fail "beklenen tablolar eksik (bulunan: $TABLES/3) — migration çalışmamış"; }
+  [ "$ROWS" -ge 2 ] || { tail -50 "$BACKUP_DIR/app.log" >&2; fail "sessions tablosuna yazılmadı (satır: $ROWS, beklenen >= 2) → ACL/yazma izni eksik"; }
   log "OK: $ROWS satır yazıldı, 3 tablo mevcut"
 else
   log "UYARI: sqlite3 yok — yalnızca dosya varlığı doğrulandı"
