@@ -37,7 +37,7 @@
   },
   "plugins": {
     "sql": {
-      "preloadConnections": ["sqlite:sessions.db"]
+      "preload": ["sqlite:sessions.db"]
     }
   }
 }
