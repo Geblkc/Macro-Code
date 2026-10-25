@@ -37,19 +37,6 @@ authentication headers sent directly to the provider you configured.
   English, Türkçe, Deutsch, Français and Español; switching applies instantly, no restart.
 - **Own your data** — sessions live in SQLite with JSON export/import, so everything is portable
   and works offline when you need it to.
-
-## Install
-
-Download a package for your platform from the
-[Releases](https://github.com/Geblkc/Macro-Code/releases) page
-(Linux `.deb` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
-
-Or build from source:
-
-```bash
-npm install
-npm run tauri dev    # full desktop app (needs Rust + Tauri dependencies)
-npm test             # unit tests
 ```
 
 ## First run
