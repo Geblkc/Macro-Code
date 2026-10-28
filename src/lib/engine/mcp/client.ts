@@ -68,7 +68,7 @@ export class McpClient {
   async initialize(): Promise<{ protocolVersion: string; serverInfo: McpServerInfo }> {
     const result = (await this.roundTrip('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
-      clientInfo: { name: 'macrocode', version: '0.1.0' },
+      clientInfo: { name: 'macrocode', version: '0.2.0' },
       capabilities: {},
     })) as { protocolVersion?: unknown; serverInfo?: unknown };
     // Bildirim için yanıt beklenmez; hata sessizce yoksayılır (bazı sunucular istemez).

@@ -3,7 +3,7 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-27 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-10-28 · Sürüm: `0.2.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
 > **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 > **Klasör seçme altyapısı** eklendi: `tauri-plugin-dialog` ile yerel klasör diyaloğu
@@ -58,7 +58,7 @@ açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 | Özellik | Değer |
 |---|---|
 | Ürün adı | `MacroCode` |
-| Sürüm | `0.1.0` |
+| Sürüm | `0.2.0` |
 | Kimlik / Bundle ID | `com.macrocode.app` |
 | Model | **BYOK** (Bring Your Own Key) — abonelik yok, kullanıcı kendi anahtarını kullanır |
 | Hedef kullanıcı | Geliştirici (terminal arayüzü seven, gizliliğine değer veren) |
