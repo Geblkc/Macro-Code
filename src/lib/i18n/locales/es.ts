@@ -507,6 +507,10 @@ export const es: Record<TranslationKey, Message> = {
   'commands.help.approval': '  /approval [m]  modo de aprobación (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
     '                  manual=la escritura requiere aprobación · auto-read=solo lectura · auto-edit=escritura sin aprobación',
+  'commands.help.mode': '  /mode [m]      modo del agente (build|plan|ask)',
+  'commands.help.build': '  /build         cambiar al modo build',
+  'commands.help.plan': '  /plan          cambiar al modo plan',
+  'commands.help.ask': '  /ask           cambiar al modo ask',
   'commands.help.context': '  /context        muestra el contexto del proyecto que conoce el agente',
   'commands.help.note':
     '  /note <nota>   añade una nota persistente del proyecto (se recuerda después)',
@@ -531,6 +535,10 @@ export const es: Record<TranslationKey, Message> = {
   'commands.desc.undo': 'deshacer el último parche',
   'commands.desc.skill': 'listar las skills registradas',
   'commands.desc.approval': 'modo de aprobación',
+  'commands.desc.mode': 'modo del agente (build/plan/ask)',
+  'commands.desc.build': 'cambiar al modo build',
+  'commands.desc.plan': 'cambiar al modo plan',
+  'commands.desc.ask': 'cambiar al modo ask',
   'commands.desc.context': 'mostrar el contexto del proyecto',
   'commands.desc.note': 'nota persistente del proyecto',
   'commands.desc.log': 'últimos registros de eventos',
@@ -598,6 +606,15 @@ export const es: Record<TranslationKey, Message> = {
   'commands.approvalSet': '/// modo de aprobación: {mode}',
   'commands.approvalNoWorkspace':
     ' · (sin espacio de trabajo: abre el modo agente con /root <ruta>)',
+  'commands.modeCurrent': '/// modo del agente: {mode} · /mode build|plan|ask',
+  'commands.modeSet': '/// modo del agente cambiado a: {mode}',
+  'commands.modeInvalid': '✗ modo de agente no válido · build | plan | ask',
+  'mode.build': 'Build (Construcción)',
+  'mode.plan': 'Plan (Planificación)',
+  'mode.ask': 'Ask (Consultas)',
+  'mode.buildDesc': 'Acceso completo: escribe código, edita archivos, ejecuta comandos',
+  'mode.planDesc': 'Análisis de solo lectura: examina la arquitectura, diseña planes paso a paso',
+  'mode.askDesc': 'Consultoría: responde dudas y explica conceptos sin alterar código',
   'commands.workspaceInfo': '/// espacio de trabajo: {label} · aprobación: {mode}',
   'commands.rootUsage': '/// uso: /root [ruta|off|1-5] · sin argumento = diálogo de carpeta',
   'commands.workspaceSet': '/// espacio de trabajo: {label} ({path})',
@@ -663,6 +680,8 @@ export const es: Record<TranslationKey, Message> = {
 
   /* ── Mensajes de error ── */
   'errors.apiKeyInvalid': '✗ error de api (401): clave API no válida · actualízala con /key',
+  'errors.insufficientBalance':
+    '✗ saldo insuficiente: sin crédito en la cuenta del proveedor · recarga desde el panel del proveedor (p. ej. platform.deepseek.com)',
   'errors.rateLimit': '✗ límite de peticiones: demasiadas solicitudes · espera unos segundos',
   'errors.contextLimit':
     '✗ límite de contexto: la conversación es demasiado larga · restablécela con /reset',

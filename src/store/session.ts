@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Message, Provider, Session, SessionCompaction } from '../types';
+import type { AgentMode, Message, Provider, Session, SessionCompaction } from '../types';
 import type { UsageLike } from '../lib/engine/types';
 import { t } from '../lib/i18n/core';
 import { DEFAULT_MODELS, useSettingsStore } from './settings';
@@ -69,6 +69,7 @@ interface SessionStore {
   clearSession: (sessionId: string) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   updateSessionModel: (sessionId: string, patch: { provider?: Provider; model?: string }) => void;
+  setAgentMode: (sessionId: string, mode: AgentMode) => void;
   setMessageUsage: (
     sessionId: string,
     messageId: string,
@@ -110,6 +111,7 @@ export const useSessionStore = create<SessionStore>()(
           provider: settings.currentProvider,
           model: settings.currentModel || DEFAULT_MODELS[settings.currentProvider],
           systemPrompt: settings.systemPrompt,
+          agentMode: 'build',
         };
         set((s) => ({
           sessions: [...s.sessions, session],
@@ -295,6 +297,19 @@ export const useSessionStore = create<SessionStore>()(
                   ...sess,
                   ...(patch.provider !== undefined ? { provider: patch.provider } : null),
                   ...(patch.model !== undefined ? { model: patch.model } : null),
+                  updatedAt: Date.now(),
+                }
+              : sess,
+          ),
+        })),
+
+      setAgentMode: (sessionId, mode) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? {
+                  ...sess,
+                  agentMode: mode,
                   updatedAt: Date.now(),
                 }
               : sess,

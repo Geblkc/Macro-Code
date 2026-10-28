@@ -40,6 +40,12 @@
 > bileşene çıkarıldı (Titlebar pill + `ModelPicker` + ChatTab özetleyici aynı
 > paneli kullanır; Esc yalnız paneli kapatır) ve extras cap 200'ün ilk
 > kırılmasında oturum başına tek `extrasCapped` sys satırı uyarısı.
+> **Agent çalışma modları** eklendi: `build` (tam yetki) / `plan` (salt-okunur
+> analiz) / `ask` (danışma) — `Session.agentMode` persist, araç süzme +
+> ikinci savunma hattı disallow listesi `engine/agentModes.ts`'te, UI
+> `ModeSelector.tsx` (InputBar rozeti) + StatusBar etiketi, komutlar
+> `/mode`·`/build`·`/plan`·`/ask`; sağlayıcı hatalarında 402/bakiye ve JSON
+> gövde mesajı ayrıştırma (`httpErrorMessage`).
 
 ---
 
@@ -105,7 +111,7 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 | Keystore + settings | 7 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
 | Provider katmanı | 7 sağlayıcı SSE streaming, registry + capability lookup |
 | Model kataloğu | `docs/MODELS.md` — registry listesi (27 model) + models.dev eşleşmesi |
-| Slash komutları + streaming hook | 22 komut (`COMMAND_SPECS` tek kaynak + inputbar öneri menüsü) + `/export` varyantları, abort + usage kaydı |
+| Slash komutları + streaming hook | 26 komut (`COMMAND_SPECS` tek kaynak + inputbar öneri menüsü; `/mode`+`/build`+`/plan`+`/ask`) + `/export` varyantları, abort + usage kaydı |
 | Terminal UI | Markdown render, boot sequence, SQLite persist (debounce) |
 | Rust proxy | `stream_anthropic` (tool-use + vision + thinking, saf proxy) |
 | Agent motoru | `createAgentRun` (maxSteps 8, duraklatılabilir) + workspace fs/patch/shell tool'ları + skills + `subagent` aracı |
@@ -222,6 +228,7 @@ MacroCode/
 │   │   ├── Terminal.tsx         # Mesaj görünümü, scroll stick, clearedBefore, thumbnail
 │   │   ├── MessageLine.tsx      # Tek satır: prefix, markdown render, thinking/cursor, reasoning dim blok
 │   │   ├── InputBar.tsx         # ❯ input, [SEND]/[DUR], [IMG] görsel ekleme, '/' öneri menüsü, kısayollar, meta bar
+│   │   ├── ModeSelector.tsx     # Agent modu rozeti + açılır seçici (build/plan/ask) — InputBar'da, streaming'de gizli
 │   │   ├── Segmented.tsx        # Alt sekme kontrolü (segmented) — Faz 13
 │   │   ├── SettingsModal/       # Sekmeli ayarlar: index (kabuk+draft+Kaydet) + types + 7 sekme
 │   │       ├── modelList.ts      # Ortak model listesi mantığı (görünürlük + süzgeç) — Faz 13
@@ -252,6 +259,7 @@ MacroCode/
 │   │   ├── search.ts            # konuşma içi arama (saf): findHits satır bazlı + stepHit tur gezinmesi
 │   │   ├── engine/              # UI'dan bağımsız motor (vitest'li)
 │   │   │   ├── agent.ts         # createAgentRun (maxSteps 8, onay-bekleyenlerde durur) + buildAgentHistory
+│   │   │   ├── agentModes.ts    # build/plan/ask: filterToolsForMode + getDisallowedToolsForMode + getModePrompt (saf, testli)
 │   │   │   ├── context.ts       # ignore/secret/budget/prioritize + summarizeWorkspace
 │   │   │   ├── compactionMemo.ts # özet hafızası (özet + sonrası mesajlar; tekrar özetlemeyi önler, Faz 7; id tabanlı kesim Faz 9)
 │   │   │   ├── repoContext.ts    # Faz 9: repo haritası + AGENTS.md/README + kalıcı hafıza (`.macrocode/context.md`)
@@ -366,6 +374,7 @@ type Session = {
   provider: Provider;      // session yerinde dondurulan sağlayıcı
   model: string;
   systemPrompt: string;
+  agentMode?: AgentMode;   // 'build' | 'plan' | 'ask' — araç erişimini belirler (varsayılan build)
 };
 
 type ApiKeys = {
@@ -1073,6 +1082,11 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
   `role="status"`) görünür; `preventDefault` her koşulda (aksi hâlde webview dosyayı
   açmaya çalışır), `dragDepthRef` çocuk eleman titremesini engeller. Streaming'de
   buton gizliyken paste/drop da yok sayılır.
+- **Agent modu seçici (`ModeSelector.tsx`):** sağdaki rozet + açılır liste
+  (build 🔧 / plan 📋 / ask 💬), `session.agentMode`'a yazar (`App.onModeChange` →
+  `setAgentMode`); streaming'de gizli. `/mode`+`/build`+`/plan`+`/ask` komutları
+  aynı state'i değiştirir. Mod araç süzme + sistem promptu talimatı
+  `lib/engine/agentModes.ts`'te (bkz. § motor).
 
 ### 11.7 `useKeyHistory.ts`
 
@@ -1167,7 +1181,7 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 | Bileşen | Rol |
 |---|---|
 | `icons.tsx` | 36 ikonluk SVG seti (16px, 1.5 stroke, `currentColor`) — emoji yok |
-| `StatusBar.tsx` | sağlayıcı · model · context ölçer · token ↑↓ · maliyet · bekleyen onay · **streaming rozeti (nabız)** · onay modu · workspace (tıkla → klasör diyaloğu) · MCP |
+| `StatusBar.tsx` | sağlayıcı · model · **agent modu rozeti** · context ölçer · token ↑↓ · maliyet · bekleyen onay · **streaming rozeti (nabız)** · onay modu · workspace (tıkla → klasör diyaloğu) · MCP |
 | `Welcome.tsx` | karşılama ekranı (logo + MacroCode) |
 | `ToolCallCard.tsx` | araç kartı (ikon, ad, argüman, süre, durum, genişletilebilir çıktı) |
 | `ApprovalCard.tsx` | onay kartı (tam komut, uyarı, Onayla/Reddet, "her zaman çalıştır") |

@@ -125,8 +125,12 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
           const json = parseJsonPayload(payload);
           if (!json) return;
           if (json.error && typeof json.error === 'object') {
-            const msg = (json.error as { message?: string }).message ?? `${opts.name} hata`;
-            throw new ProviderError(msg);
+            const e = json.error as { message?: string; code?: number | string };
+            const msg = e.message ?? `${opts.name} hata`;
+            // DeepSeek gibi bazı sağlayıcılar SSE içinde de HTTP kodunu taşır
+            // (ör. 402 insufficient_balance) — status yoksa hata tipi metinden ayıklanır.
+            const status = typeof e.code === 'number' ? e.code : undefined;
+            throw new ProviderError(msg, status);
           }
           const usage = json.usage as
             | {

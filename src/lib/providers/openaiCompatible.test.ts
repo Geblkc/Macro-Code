@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createOpenAICompatibleProvider } from './openaiCompatible';
 import { PROVIDERS, PROVIDER_IDS, PROVIDER_DEFS, ALL_MODELS, suggestProvider, getProvider } from './index';
 import type { StreamChunk } from './common';
+import { ProviderError } from './common';
 
 function sseResponse(lines: string[]): Response {
   const enc = new TextEncoder();
@@ -142,6 +143,24 @@ describe('openaiCompatible fabrikası', () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).rejects.toThrow('kota bitti');
+  });
+
+  it('SSE error objesindeki sayısal code status olarak aktarılır', async () => {
+    const fetchImpl = vi.fn(async () =>
+      sseResponse([data({ error: { message: 'Insufficient Balance', code: 402 } })]),
+    );
+    const err = await prov
+      .stream({
+        apiKey: 'k',
+        model: 'm',
+        messages: [],
+        onChunk: () => {},
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).status).toBe(402);
+    expect((err as ProviderError).message).toBe('Insufficient Balance');
   });
 
   it('boş anahtar 401, validateKey ağ hatasında false', async () => {

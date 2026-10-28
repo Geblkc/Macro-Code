@@ -28,6 +28,7 @@ import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
 import { useT } from '../lib/i18n';
 import { t } from '../lib/i18n/core';
 import type { Provider, ToolEvent } from '../types';
+import { getModePrompt } from '../lib/engine/agentModes';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 
 export interface AgentToolLine {
@@ -331,13 +332,16 @@ export function useAgent() {
         } catch {
           // Bağlam hazırlanamazsa agent yine çalışır (tool keşfi ile).
         }
+        const mode = session.agentMode ?? 'build';
         const run = createAgentRun(historyWithUser, {
           provider: providerName,
           apiKey,
           model,
+          agentMode: mode,
           systemPrompt:
             [
               session.systemPrompt || settings.systemPrompt || '',
+              getModePrompt(mode),
               // Faz 8 L5: skill registry'sindeki talimatlar modele ulaşır
               // (önceden `skillsPrompt` hiç çağrılmıyordu).
               skillsPrompt(listSkills().map((sk) => sk.name)),
@@ -568,14 +572,16 @@ export function useAgent() {
       }
 
       const callNames = new Map<string, string>();
+      const restoreMode = sess.agentMode ?? 'build';
       const run = createAgentRun(
         state.msgs,
         {
           provider: providerName,
           apiKey,
           model,
+          agentMode: restoreMode,
           systemPrompt:
-            `${sess.systemPrompt || settings.systemPrompt || ''}\n[workspace:${ws.label || ws.root}]`.trim() ||
+            `${sess.systemPrompt || settings.systemPrompt || ''}\n${getModePrompt(restoreMode)}\n[workspace:${ws.label || ws.root}]`.trim() ||
             undefined,
           workspaceRoot: ws.root,
           approvalMode: ws.approvalMode,

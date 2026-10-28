@@ -109,6 +109,8 @@ export type SessionCompaction = {
   coveredIds?: string[];
 };
 
+export type AgentMode = 'build' | 'plan' | 'ask';
+
 export type Session = {
   id: string;
   name: string;
@@ -118,6 +120,8 @@ export type Session = {
   provider: Provider;
   model: string;
   systemPrompt: string;
+  /** Agent çalışma modu: build (inşa/kodlama), plan (analiz/planlama), ask (danışma/soru-cevap). */
+  agentMode?: AgentMode;
   /** Faz 12 B.6: kalıcı compaction özeti (yoksa otomatik compaction yok). */
   compaction?: SessionCompaction;
 };

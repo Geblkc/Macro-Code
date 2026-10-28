@@ -77,6 +77,9 @@ export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClic
         ? t('status.approval.autoRead')
         : t('status.approval.autoEdit');
 
+  const agentMode = session?.agentMode ?? 'build';
+  const modeLabel = t(`mode.${agentMode}` as any);
+
   return (
     <div className="statusbar" role="status" aria-label={t('status.ariaLabel')}>
       <span className="sb-item strong">
@@ -92,6 +95,13 @@ export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClic
 
       <span className="sb-item" title={model}>
         {model}
+      </span>
+
+      <span className="sb-sep" aria-hidden="true" />
+
+      <span className="sb-item sb-mode-tag" title={t(`mode.${agentMode}Desc` as any)}>
+        <Icon name={agentMode === 'build' ? 'wrench' : agentMode === 'plan' ? 'list-checks' : 'message'} size="sm" />
+        {modeLabel}
       </span>
 
       {ctxWindow > 0 ? (

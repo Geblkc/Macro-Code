@@ -500,6 +500,10 @@ export const en: Record<TranslationKey, Message> = {
   'commands.help.approval': '  /approval [m]  approval mode (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
     '                  manual=write needs approval · auto-read=read-only · auto-edit=write without approval',
+  'commands.help.mode': '  /mode [m]      agent mode (build|plan|ask)',
+  'commands.help.build': '  /build         switch to build mode',
+  'commands.help.plan': '  /plan          switch to plan mode',
+  'commands.help.ask': '  /ask           switch to ask mode',
   'commands.help.context': "  /context        show the project context the agent knows",
   'commands.help.note':
     '  /note <note>   add a persistent project note (remembered in later sessions)',
@@ -524,6 +528,10 @@ export const en: Record<TranslationKey, Message> = {
   'commands.desc.undo': 'undo the last patch',
   'commands.desc.skill': 'list registered skills',
   'commands.desc.approval': 'approval mode',
+  'commands.desc.mode': 'agent mode (build/plan/ask)',
+  'commands.desc.build': 'switch to build mode',
+  'commands.desc.plan': 'switch to plan mode',
+  'commands.desc.ask': 'switch to ask mode',
   'commands.desc.context': 'show the project context',
   'commands.desc.note': 'persistent project note',
   'commands.desc.log': 'recent event log',
@@ -589,6 +597,15 @@ export const en: Record<TranslationKey, Message> = {
   'commands.approvalSet': '/// approval mode: {mode}',
   'commands.approvalNoWorkspace':
     ' · (no workspace — open agent mode with /root <path>)',
+  'commands.modeCurrent': '/// agent mode: {mode} · /mode build|plan|ask',
+  'commands.modeSet': '/// agent mode set to: {mode}',
+  'commands.modeInvalid': '✗ invalid agent mode · build | plan | ask',
+  'mode.build': 'Build',
+  'mode.plan': 'Plan',
+  'mode.ask': 'Ask',
+  'mode.buildDesc': 'Full access: writes code, edits files, runs commands',
+  'mode.planDesc': 'Read-only analysis: explores architecture, designs step-by-step plans',
+  'mode.askDesc': 'Consultation: answers questions, provides explanations without changing code',
   'commands.workspaceInfo': '/// workspace: {label} · approval: {mode}',
   'commands.rootUsage': '/// usage: /root [path|off|1-5] · no arg = folder dialog',
   'commands.workspaceSet': '/// workspace: {label} ({path})',
@@ -654,6 +671,8 @@ export const en: Record<TranslationKey, Message> = {
 
   /* ── Error messages ── */
   'errors.apiKeyInvalid': '✗ api error (401): invalid API key · update it with /key',
+  'errors.insufficientBalance':
+    '✗ insufficient balance: no credit on the provider account · top up from the provider dashboard (e.g. platform.deepseek.com)',
   'errors.rateLimit': '✗ rate limit: too many requests · wait a few seconds',
   'errors.contextLimit': '✗ context limit: the conversation grew too long · reset it with /reset',
   'errors.requestFailed': '✗ request error ({status}): {message} · see the commands with /help',

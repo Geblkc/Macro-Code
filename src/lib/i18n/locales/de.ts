@@ -506,6 +506,10 @@ export const de: Record<TranslationKey, Message> = {
   'commands.help.approval': '  /approval [m]  Genehmigungsmodus (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
     '                  manual=Schreiben braucht Freigabe · auto-read=nur lesen · auto-edit=Schreiben ohne Freigabe',
+  'commands.help.mode': '  /mode [m]      Agent-Modus (build|plan|ask)',
+  'commands.help.build': '  /build         in den Build-Modus wechseln',
+  'commands.help.plan': '  /plan          in den Plan-Modus wechseln',
+  'commands.help.ask': '  /ask           in den Ask-Modus wechseln',
   'commands.help.context': '  /context        zeigt den Projektkontext, den der Agent kennt',
   'commands.help.note':
     '  /note <notiz>   dauerhafte Projektnotiz hinzufügen (bleibt in späteren Sitzungen)',
@@ -530,6 +534,10 @@ export const de: Record<TranslationKey, Message> = {
   'commands.desc.undo': 'Patch zurücknehmen',
   'commands.desc.skill': 'registrierte Skills auflisten',
   'commands.desc.approval': 'Genehmigungsmodus',
+  'commands.desc.mode': 'Agent-Modus (build/plan/ask)',
+  'commands.desc.build': 'in den Build-Modus wechseln',
+  'commands.desc.plan': 'in den Plan-Modus wechseln',
+  'commands.desc.ask': 'in den Ask-Modus wechseln',
   'commands.desc.context': 'Projektkontext anzeigen',
   'commands.desc.note': 'dauerhafte Projektnotiz',
   'commands.desc.log': 'letzte Ereignisprotokolle',
@@ -598,6 +606,15 @@ export const de: Record<TranslationKey, Message> = {
   'commands.approvalSet': '/// Genehmigungsmodus: {mode}',
   'commands.approvalNoWorkspace':
     ' · (kein Arbeitsbereich — Agentenmodus mit /root <pfad> öffnen)',
+  'commands.modeCurrent': '/// Agent-Modus: {mode} · /mode build|plan|ask',
+  'commands.modeSet': '/// Agent-Modus geändert: {mode}',
+  'commands.modeInvalid': '✗ ungültiger Agent-Modus · build | plan | ask',
+  'mode.build': 'Build (Bauen)',
+  'mode.plan': 'Plan (Planung)',
+  'mode.ask': 'Ask (Fragen)',
+  'mode.buildDesc': 'Voller Zugriff: schreibt Code, bearbeitet Dateien, führt Befehle aus',
+  'mode.planDesc': 'Schreibgeschützte Analyse: untersucht die Architektur, erstellt Schritt-für-Schritt-Pläne',
+  'mode.askDesc': 'Beratung: beantwortet Fragen und erklärt Konzepte ohne Codeänderungen',
   'commands.workspaceInfo': '/// Arbeitsbereich: {label} · Freigabe: {mode}',
   'commands.rootUsage': '/// Verwendung: /root [pfad|off|1-5] · ohne Argument = Ordner-Dialog',
   'commands.workspaceSet': '/// Arbeitsbereich: {label} ({path})',
@@ -663,6 +680,8 @@ export const de: Record<TranslationKey, Message> = {
 
   /* ── Fehlermeldungen ── */
   'errors.apiKeyInvalid': '✗ API-Fehler (401): ungültiger API-Schlüssel · mit /key aktualisieren',
+  'errors.insufficientBalance':
+    '✗ unzureichendes Guthaben: kein Kredit auf dem Anbieter-Konto · über das Anbieter-Dashboard aufladen (z. B. platform.deepseek.com)',
   'errors.rateLimit': '✗ Rate-Limit: zu viele Anfragen · ein paar Sekunden warten',
   'errors.contextLimit':
     '✗ Kontextlimit: das Gespräch ist zu lang geworden · mit /reset zurücksetzen',

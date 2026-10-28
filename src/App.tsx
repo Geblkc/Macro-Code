@@ -516,6 +516,48 @@ export default function App() {
         });
         return;
       }
+      if (
+        low === '/mode' ||
+        low.startsWith('/mode ') ||
+        low === '/build' ||
+        low === '/plan' ||
+        low === '/ask'
+      ) {
+        let targetMode: 'build' | 'plan' | 'ask' | '' = '';
+        if (low === '/build') targetMode = 'build';
+        else if (low === '/plan') targetMode = 'plan';
+        else if (low === '/ask') targetMode = 'ask';
+        else {
+          const arg = trimmed.slice(5).trim().toLowerCase();
+          if (arg === 'build' || arg === 'plan' || arg === 'ask') {
+            targetMode = arg;
+          } else if (arg) {
+            pushExtra(sessionId, {
+              type: 'err',
+              content: t('commands.modeInvalid'),
+            });
+            return;
+          }
+        }
+
+        const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+        const currentMode = session?.agentMode ?? 'build';
+
+        if (!targetMode) {
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('commands.modeCurrent', { mode: t(`mode.${currentMode}` as any) }),
+          });
+          return;
+        }
+
+        useSessionStore.getState().setAgentMode(sessionId, targetMode);
+        pushExtra(sessionId, {
+          type: 'sys',
+          content: t('commands.modeSet', { mode: t(`mode.${targetMode}` as any) }),
+        });
+        return;
+      }
       if (low === '/root' || low.startsWith('/root ')) {
         // Klasör seçme altyapısı: diyaloğu / off / 1..5 / elle yol — tek yol.
         await runRootCommand(trimmed.slice(5).trim(), sessionId);
@@ -1124,6 +1166,12 @@ export default function App() {
               if (activeId) void handleRejectAll(activeId);
             }}
             focusRef={inputFocus}
+            mode={session?.agentMode ?? 'build'}
+            onModeChange={(m) => {
+              if (activeId) {
+                useSessionStore.getState().setAgentMode(activeId, m);
+              }
+            }}
           />
         </div>
       </div>

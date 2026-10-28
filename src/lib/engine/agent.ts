@@ -7,8 +7,9 @@ import { appendAudit } from '../db';
 import type { ChatItem, StreamChunk } from '../providers/common';
 import { mergeUsage, sumUsage, withRetry } from '../providers/common';
 import type { TokenUsage } from '../providers/common';
-import type { Message, Model, ModelParams, Provider } from '../../types';
+import type { AgentMode, Message, Model, ModelParams, Provider } from '../../types';
 import { CORE_TOOLS, strArg } from './toolspec';
+import { filterToolsForMode, getDisallowedToolsForMode } from './agentModes';
 import type { AgentEvent, ApprovalMode, ToolCall, ToolDefinition, UsageLike } from './types';
 import { decideTool } from './policy';
 import { t } from '../i18n/core';
@@ -60,6 +61,8 @@ export interface AgentDeps {
   runToolImpl?: (call: ToolCall) => Promise<string>;
   /** Faz 5: çekirdek setine eklenen araçlar (MCP registry). */
   extraTools?: ToolDefinition[];
+  /** Agent modu: build | plan | ask (araç erişimini ve yönergeleri etkiler). */
+  agentMode?: AgentMode;
   /** Faz 5b: bu listedeki araçlar çalıştırılmaz (salt-okunur alt-agent). */
   disallowTools?: string[];
   /** Faz 5b: alt-agent bütçesi için özel modeller (verilmezse registry). */
@@ -335,7 +338,8 @@ async function streamOneTurn(
     }
   };
   // G6: 429/5xx + ağ hatalarında retry (400/401/abort retry etmez).
-  const tools = deps.extraTools?.length ? [...CORE_TOOLS, ...deps.extraTools] : CORE_TOOLS;
+  const rawTools = deps.extraTools?.length ? [...CORE_TOOLS, ...deps.extraTools] : CORE_TOOLS;
+  const tools = filterToolsForMode(rawTools, deps.agentMode ?? 'build');
   const runStream = () => {
     if (deps.streamImpl) {
       return deps.streamImpl({
@@ -451,12 +455,16 @@ export function createAgentRun(
         ...(thinking.length > 0 ? { thinking: [...thinking] } : {}),
       });
       const nextPending: PendingEntry[] = [];
+      const effectiveDisallow = [
+        ...(deps.disallowTools ?? []),
+        ...getDisallowedToolsForMode(deps.agentMode ?? 'build'),
+      ];
       for (const call of toolCalls) {
         if (aborted || deps.signal?.aborted) break;
         deps.onEvent({ k: 'tool_call', call });
         const decision = decideTool(call.name, call.args, mode, deps.extraAllow ?? {});
-        if (deps.disallowTools?.includes(String(call.name))) {
-          const out = `hata: salt-okunur bağlam bu aracı kullanamaz: ${String(call.name)}`;
+        if (effectiveDisallow.includes(String(call.name))) {
+          const out = `hata: ${deps.agentMode ?? 'bu'} mod bu aracı kullanamaz: ${String(call.name)}`;
           deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
           msgs.push({
             role: 'tool', toolCallId: call.id, toolName: call.name, content: out, isError: true,

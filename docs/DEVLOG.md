@@ -382,6 +382,63 @@
 
 ---
 
+## 2026-10-28 — Agent çalışma modları (build / plan / ask) + sağlayıcı hata netliği
+
+> Kullanıcı işi: agent'ın her oturumda aynı yetkiyle çalışması yerine üç çalışma
+> moduna bölünmesi — inşa (tam yetki), planlama (salt-okunur) ve danışma (okuma +
+> cevap). Yanında sağlayıcı hata mesajlarının okunabilirliği.
+
+### A. Agent modları — motor
+
+- **`types`: `AgentMode = 'build' | 'plan' | 'ask'`** + `Session.agentMode`
+  (persist; yeni oturum `build`). Store: `setAgentMode(sessionId, mode)`.
+- **`engine/agentModes.ts`** (saf + testli):
+  - `filterToolsForMode`: build → tüm araçlar; plan → yalnız salt-okunur
+    (`read_file`, `list_dir`, `grep`, `glob`, `todo`, `plan`); ask → inceleme
+    (`read_file`, `list_dir`, `grep`, `glob` — plan/todo da yok).
+  - `getDisallowedToolsForMode`: plan/ask → `edit_file`, `write_file`,
+    `propose_patch`, `exec`, `subagent` (ikinci savunma hattı: model unutursa
+    motor reddeder).
+  - `getModePrompt`: modun sistem promptuna eklenen kısa talimat.
+- **`engine/agent.ts`**: `AgentDeps.agentMode`; araç listesi
+  `CORE_TOOLS(+extra)` → `filterToolsForMode`; `effectiveDisallow` =
+  `disallowTools` ∪ mod yasağı; red mesajı modu söyler
+  ("bu mod bu aracı kullanamaz"). Mevcut salt-okunur `disallowTools` davranışı
+  aynen korunur (birleşim).
+- **`useAgent`**: gönderim ve **run devamında** (`restorePendingRuns`) mod +
+  `getModePrompt` systemPrompt'a eklenir.
+
+### B. Agent modları — arayüz ve komutlar
+
+- **`ModeSelector.tsx`**: `InputBar`'da rozet + açılır seçici (ikon/renk:
+  🔧 build · 📋 plan · 💬 ask), streaming'de gizli/devre dışı.
+- **StatusBar**: `sb-mode-tag` — aktif mod + açıklama tooltip'i.
+- **Komutlar** (`COMMAND_SPECS` + help): `/mode [m]` (yoksa mevcudu gösterir),
+  `/build`, `/plan`, `/ask` → `setAgentMode` + `sys` satırı; geçersiz argüman
+  `commands.modeInvalid`.
+- **i18n**: `mode.*` ×6, `commands.mode*` ×3, `commands.desc.*`/`commands.help.*`
+  ×8 ×5 dil.
+
+### C. Sağlayıcı hata netliği
+
+- `common.ts`: **`httpErrorMessage`** — JSON govdeden `{error:{message,code}}` /
+  `{message}` ayıklanır (düz metin govde sınırlı); **402 →
+  `errors.insufficientBalance`**; status'suz SSE hataları için
+  `isInsufficientBalanceMessage` (DeepSeek/OpenRouter bakiye kalıpları).
+- `openaiCompatible.ts`: SSE error objesindeki `code` (ör. 402) status'a çevrilir.
+- `errors.insufficientBalance` ×5 dil.
+
+### D. Doğrulama + elle QA
+
+- `npm test`: **559/559** (70 dosya — `agentModes.test.ts`, `common.test.ts` yeni)
+  · `npm run build` temiz.
+- Elle QA: `/plan` sonrası `edit_file`/`exec` reddi + mod hata satırı; `/ask`'te
+  yazma/komut yok; `/mode plan` → StatusBar rozeti + sys satırı; streaming'de
+  ModeSelector gizli; bakiyesiz sağlayıcıda 402 hatası yerine Türkçe "yetersiz
+  bakiye" mesajı; yeni oturum `build` ile açılır (persist).
+
+---
+
 ## 2026-10-25 — Klasör Seçme Altyapısı (workspace picker + doğrulama + UI giriş noktaları)
 
 > Kullanıcı talebi: "AI modelinin çalışabilmesi için proje klasörü seçme altyapısı ekle".

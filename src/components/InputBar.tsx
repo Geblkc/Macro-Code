@@ -3,6 +3,8 @@ import { useKeyHistory } from '../hooks/useKeyHistory';
 import { useT } from '../lib/i18n';
 import { filterCommands, type CommandSpec } from '../lib/commands';
 import { Icon } from './icons';
+import ModeSelector from './ModeSelector';
+import type { AgentMode } from '../types';
 
 interface Props {
   onSend: (text: string, images: string[]) => void;
@@ -14,6 +16,8 @@ interface Props {
   onReject?: () => void;
   /** Dışarıdan odak tetiklemesi (arama kapanınca giriş alanına dönüş vb.). */
   focusRef?: MutableRefObject<(() => void) | null>;
+  mode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
 }
 
 const MAX_HEIGHT = 160;
@@ -60,6 +64,8 @@ export default function InputBar({
   onApprove,
   onReject,
   focusRef,
+  mode = 'build',
+  onModeChange,
 }: Props) {
   const t = useT();
   const [value, setValue] = useState('');
@@ -425,6 +431,9 @@ export default function InputBar({
               e.target.value = '';
             }}
           />
+          {!streaming && onModeChange && (
+            <ModeSelector mode={mode} onChange={onModeChange} disabled={streaming} />
+          )}
           {!streaming && (
             <button
               className="attach-btn"

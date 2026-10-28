@@ -118,6 +118,27 @@ export class ProviderError extends Error {
   }
 }
 
+/**
+ * HTTP hatasi mesajini govdeden ayiklar.
+ * JSON govdede `{error:{message}}` / `{error:{code}}` / `{message}` alanlari
+ * temiz mesaj olarak alinir; duz metin govde ilk 300 karakterle sinirlidir.
+ */
+export function httpErrorMessage(text: string, fallback: string): string {
+  const parsed = parseJsonPayload(text);
+  if (parsed) {
+    const err = parsed.error;
+    if (err && typeof err === 'object' && !Array.isArray(err)) {
+      const e = err as { message?: unknown; code?: unknown };
+      if (typeof e.message === 'string' && e.message.trim()) return e.message.trim();
+      if (typeof e.code === 'string' && e.code.trim()) return e.code.trim();
+    }
+    if (typeof parsed.message === 'string' && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+  }
+  return text.trim().slice(0, 300) || fallback;
+}
+
 /** HTTP hatalarini ProviderError'a cevirir (body okumaya calisir, basarisizsa kodu kullanir). */
 export async function throwIfHttpError(res: Response): Promise<void> {
   if (res.ok) return;
@@ -125,7 +146,7 @@ export async function throwIfHttpError(res: Response): Promise<void> {
   let detail = '';
   try {
     const text = await res.text();
-    detail = text.slice(0, 300);
+    detail = httpErrorMessage(text, `http ${status}`);
   } catch {
     // Govde okunamazsa sadece kodu kullan.
   }
@@ -328,6 +349,22 @@ export function parseDataUrl(url: string): { mime: string; data: string } | null
 }
 
 /**
+ * Bilinen "yetersiz bakiye" hata metinleri (DeepSeek `insufficient_balance_error`,
+ * OpenRouter `insufficient_credit` vb.). Provider'a gore kelime farkliligi vardir.
+ */
+export function isInsufficientBalanceMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('insufficient balance') ||
+    m.includes('insufficient credit') ||
+    m.includes('insufficient_balance') ||
+    m.includes('insufficient_credit') ||
+    m.includes('billing') ||
+    (m.includes('quota') && !m.includes('rate'))
+  );
+}
+
+/**
  * Yakalanan hatayi terminal `err` satirina cevirir.
  * Abort icin `null` doner (sessiz cikis — err satiri yazilmaz).
  */
@@ -344,6 +381,9 @@ export function formatProviderError(err: unknown): string | null {
     if (s === 401 || s === 403) {
       return t('errors.apiKeyInvalid');
     }
+    if (s === 402) {
+      return t('errors.insufficientBalance');
+    }
     if (s === 429) {
       return t('errors.rateLimit');
     }
@@ -359,6 +399,10 @@ export function formatProviderError(err: unknown): string | null {
     }
     if (s > 0) {
       return t('errors.apiFailed', { status: s, message: err.message });
+    }
+    // Status yok (SSE icindeki hata objesi) — metinden bilinen hata tipleri ayiklanir.
+    if (isInsufficientBalanceMessage(err.message)) {
+      return t('errors.insufficientBalance');
     }
   }
   if (err instanceof TypeError) {

@@ -502,6 +502,10 @@ export const tr = {
   'commands.help.approval': '  /approval [m]  onay modu (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
     '                  manual=yazma onaylı · auto-read=salt-okunur · auto-edit=yazma onaysız',
+  'commands.help.mode': '  /mode [m]      agent modu (build|plan|ask)',
+  'commands.help.build': '  /build         inşa/kodlama moduna geç',
+  'commands.help.plan': '  /plan          planlama/analiz moduna geç',
+  'commands.help.ask': '  /ask           soru-cevap/danışma moduna geç',
   'commands.help.context': "  /context        agent'in bildiği proje bağlamını göster",
   'commands.help.note':
     '  /note <not>     kalıcı proje notu ekle (sonraki oturumlarda hatırlanır)',
@@ -526,6 +530,10 @@ export const tr = {
   'commands.desc.undo': 'yamayı geri al',
   'commands.desc.skill': 'kayıtlı skill listesi',
   'commands.desc.approval': 'onay modu',
+  'commands.desc.mode': 'agent modu (build/plan/ask)',
+  'commands.desc.build': 'inşa/kodlama moduna geç',
+  'commands.desc.plan': 'planlama/analiz moduna geç',
+  'commands.desc.ask': 'soru-cevap/danışma moduna geç',
   'commands.desc.context': 'proje bağlamını göster',
   'commands.desc.note': 'kalıcı proje notu',
   'commands.desc.log': 'olay kayıtları',
@@ -591,6 +599,15 @@ export const tr = {
   'commands.approvalSet': '/// onay modu: {mode}',
   'commands.approvalNoWorkspace':
     ' · (workspace yok — /root <yol> ile agent modunu aç)',
+  'commands.modeCurrent': '/// agent modu: {mode} · /mode build|plan|ask',
+  'commands.modeSet': '/// agent modu değiştirildi: {mode}',
+  'commands.modeInvalid': '✗ geçersiz agent modu · build | plan | ask',
+  'mode.build': 'Build (İnşa)',
+  'mode.plan': 'Plan (Planlama)',
+  'mode.ask': 'Ask (Soru-Cevap)',
+  'mode.buildDesc': 'Tam yetki: kod yazar, düzenler, komut çalıştırır',
+  'mode.planDesc': 'Salt-okunur analiz: mimariyi inceler, adım adım plan üretir',
+  'mode.askDesc': 'Danışma modu: açıklar, yönlendirir, kod değişikliği yapmaz',
   'commands.workspaceInfo': '/// workspace: {label} · onay: {mode}',
   'commands.rootUsage': '/// kullanım: /root [yol|off|1-5] · argümansız = klasör diyaloğu',
   'commands.workspaceSet': '/// workspace: {label} ({path})',
@@ -656,6 +673,8 @@ export const tr = {
 
   /* ── Hata mesajları ── */
   'errors.apiKeyInvalid': '✗ api hatası (401): geçersiz API anahtarı · /key ile güncelleyebilirsin',
+  'errors.insufficientBalance':
+    '✗ yetersiz bakiye: sağlayıcı hesabında kredi yok · bakiye yüklemek için sağlayıcı paneline git (ör. platform.deepseek.com)',
   'errors.rateLimit': '✗ rate limit: çok fazla istek · birkaç saniye bekle',
   'errors.contextLimit': '✗ context limit: konuşma çok uzadı · /reset ile sıfırla',
   'errors.requestFailed': '✗ istek hatası ({status}): {message} · /help ile komutlara bak',
