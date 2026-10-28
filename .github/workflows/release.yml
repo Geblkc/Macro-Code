@@ -41,6 +41,8 @@ jobs:
         run: |
           npx tsc --noEmit
           npm test
+          # generate_context! `frontendDist: ../dist` ister — cargo test öncesi dist derlenmeli.
+          npm run build
           cargo test --lib --manifest-path src-tauri/Cargo.toml
 
       - name: Paketleri derle
