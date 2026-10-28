@@ -148,6 +148,27 @@
   word-break: break-word;
 }
 
+/* Faz 4: hata satırı "tekrar dene" eylemi */
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 2px 9px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.retry-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ── Reasoning (düşünüyor) bloğu ── */
 
 .reasoning {
@@ -279,6 +300,29 @@
   color: var(--text-primary);
 }
 
+/* Agent ipucu — workspace seçilmemişken görünür giriş noktası. */
+.welcome-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--sp-5);
+  padding: 9px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+.welcome-hint:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  box-shadow: var(--sh-glow);
+}
+
 /* ── En alta kaydır butonu ── */
 
 .jump-latest {
@@ -303,6 +347,74 @@
   transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
 .jump-latest:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Konuşma içi arama (Ctrl+F) ── */
+
+.term-search {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-4);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  color: var(--text-tertiary);
+  animation: dd-in var(--dur-2) var(--ease-out);
+}
+
+.term-search-field {
+  width: 200px;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.term-search-field::placeholder { color: var(--text-tertiary); }
+
+.term-search-count {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  min-width: 44px;
+  text-align: right;
+}
+
+.term-search-hint {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 8px;
+}
+
+.term-search-close {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+}
+.term-search-close:hover { color: var(--text-primary); background: var(--bg-overlay); }
+
+/* Satır vurgusu: eşleşen satır + aktif eşleşme (accent kenarlık) */
+.msg.match-hit { background: var(--bg-overlay); }
+.msg.match-current {
+  background: var(--bg-overlay);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+@media (max-width: 700px) {
+  .term-search-hint { display: none; }
+  .term-search-field { width: 120px; }
+}
 
 /* ── Görseller ── */
 

@@ -10,6 +10,8 @@ interface Props {
   onClear: () => void;
   onExportJson: () => void;
   onImportFile: (file: File) => void;
+  /** Silme onayı App kökündeki genel ConfirmDialog'dan sorulur. */
+  onRequestDelete: (id: string, name: string) => void;
 }
 
 interface Group {
@@ -69,6 +71,7 @@ export default function Sidebar({
   onClear,
   onExportJson,
   onImportFile,
+  onRequestDelete,
 }: Props) {
   const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
@@ -83,6 +86,37 @@ export default function Sidebar({
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
 
   const store = useSessionStore.getState;
+
+  // ── Faz 3: satır içi yeniden adlandırma (çift tık veya kalem butonu) ──
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameRef = useRef<HTMLInputElement>(null);
+  // Escape → iptal edilip input kapanınca blur tetiklenirse commit yapılmasın diye bayrak.
+  const skipBlurRef = useRef(false);
+
+  const startRename = useCallback((id: string, name: string) => {
+    setEditingId(id);
+    setRenameValue(name);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (editingId && renameValue.trim()) {
+      store().renameSession(editingId, renameValue);
+    }
+    setEditingId(null);
+  }, [editingId, renameValue]);
+
+  const cancelRename = useCallback(() => {
+    skipBlurRef.current = true;
+    setEditingId(null);
+  }, []);
+
+  // Yeniden adlandırmaya geçince input'a odaklan + adın tamamını seç.
+  useEffect(() => {
+    if (!editingId) return;
+    renameRef.current?.focus();
+    renameRef.current?.select();
+  }, [editingId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr');
@@ -159,49 +193,98 @@ export default function Sidebar({
             <div className="group-head">{t(g.labelKey)}</div>
             {g.items.map((s) => {
               const active = s.id === activeId;
+              const editing = editingId === s.id;
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   aria-current={active}
-                  className={`session-item${active ? ' active' : ''}`}
-                  onClick={() => store().setActiveSession(s.id)}
+                  className={`session-item${active ? ' active' : ''}${editing ? ' editing' : ''}`}
+                  onClick={() => {
+                    if (!editing) store().setActiveSession(s.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (editing) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      store().setActiveSession(s.id);
+                    }
+                  }}
+                  onDoubleClick={() => {
+                    if (!editing) startRename(s.id, s.name);
+                  }}
                   title={t('sidebar.messageCount', { name: s.name, count: s.count })}
                 >
                   <span className={`session-dot${active ? ' on' : ''}`} aria-hidden="true" />
-                  <span className="session-body">
-                    <span className="session-name">{s.name}</span>
-                    <span className="session-meta">
-                      <span className="smodel">{currentModel}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{relativeTime(s.updatedAt, t)}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{s.count}</span>
+                  {editing ? (
+                    <span className="session-body">
+                      <input
+                        ref={renameRef}
+                        className="session-rename"
+                        value={renameValue}
+                        maxLength={60}
+                        aria-label={t('sidebar.renameAria', { name: s.name })}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => {
+                          if (skipBlurRef.current) {
+                            skipBlurRef.current = false;
+                            return;
+                          }
+                          commitRename();
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                      />
                     </span>
-                  </span>
+                  ) : (
+                    <span className="session-body">
+                      <span className="session-name">{s.name}</span>
+                      <span className="session-meta">
+                        <span className="smodel">{currentModel}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{relativeTime(s.updatedAt, t)}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{s.count}</span>
+                      </span>
+                    </span>
+                  )}
                   <span className="session-actions">
-                    <span
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title={t('sidebar.renameSession')}
+                      aria-label={t('sidebar.renameAria', { name: s.name })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!editing) startRename(s.id, s.name);
+                      }}
+                    >
+                      <Icon name="pencil" size="sm" />
+                    </button>
+                    <button
+                      type="button"
                       className="icon-btn danger"
-                      role="button"
-                      tabIndex={0}
                       title={t('sidebar.deleteSession')}
                       aria-label={t('sidebar.deleteSessionAria', { name: s.name })}
                       onClick={(e) => {
                         e.stopPropagation();
-                        store().deleteSession(s.id);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          store().deleteSession(s.id);
-                        }
+                        onRequestDelete(s.id, s.name);
                       }}
                     >
-                      <Icon name="x" size="sm" />
-                    </span>
+                      <Icon name="trash" size="sm" />
+                    </button>
                   </span>
-                </button>
+                </div>
               );
             })}
           </div>

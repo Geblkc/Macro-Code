@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  COMMAND_SPECS,
   approxTokens,
   buildExportMarkdown,
   buildSessionBackup,
+  filterCommands,
   handleSlashCommand,
   parseSessionBackup,
   tokenSummaryLine,
   type CommandContext,
 } from './commands';
+import { t } from './i18n/core';
+import type { TranslationKey } from './i18n/locales/tr';
 import type { Session } from '../types';
 
 function sampleSession(over: Partial<Session> = {}): Session {
@@ -296,5 +300,50 @@ describe('B — slash komutları', () => {
     const js = handleSlashCommand('/export json', fakeCtx(s));
     expect(js.exportText).toContain('toolCalls');
     expect(js.exportText).toContain('toolCallId');
+  });
+});
+
+describe('Slash önerileri (COMMAND_SPECS tek kaynağı)', () => {
+  it('komut adları benzersizdir ve her komutun /help satır anahtarı 5 dilde vardır', () => {
+    const names = COMMAND_SPECS.map((c) => c.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const c of COMMAND_SPECS) {
+      // Anahtar eksikse t() ham anahtarı döndürür (fallback zinciri son adımı).
+      const key = `commands.help.${c.name}` as TranslationKey;
+      expect(t(key)).not.toBe(key);
+      expect(t(c.descKey)).not.toBe(c.descKey);
+    }
+  });
+
+  it('requiresArg yalnızca argümanı zorunlu komutlarda', () => {
+    expect(COMMAND_SPECS.filter((c) => c.requiresArg).map((c) => c.name)).toEqual([
+      'provider',
+      'note',
+    ]);
+  });
+
+  it('filtre: boş sorgu tüm tabloyu döndürür (/ islak veya kuru)', () => {
+    expect(filterCommands('/')).toHaveLength(COMMAND_SPECS.length);
+    expect(filterCommands('')).toHaveLength(COMMAND_SPECS.length);
+  });
+
+  it('filtre: önek eşleşmeleri ilk, içerme eşleşmeleri sonra', () => {
+    expect(filterCommands('/ex').map((c) => c.name)).toEqual(['export', 'context']);
+    expect(filterCommands('/se').map((c) => c.name)).toEqual(['session', 'reset']);
+  });
+
+  it('filtre: "/" öneki ve büyük/küçük harf önemsizdir', () => {
+    expect(filterCommands('/EX').map((c) => c.name)).toEqual(['export', 'context']);
+  });
+
+  it('filtre: eşleşme yoksa boş liste', () => {
+    expect(filterCommands('/zzz')).toEqual([]);
+  });
+
+  it('/help tablodan üretilir; satır sayısı ve zorunlu alanlar korunur', () => {
+    const r = handleSlashCommand('/help', fakeCtx(sampleSession()));
+    expect(r.lines.length).toBe(COMMAND_SPECS.length + 2); // başlık + approvalModes
+    expect(r.lines.some((l) => l.content.includes('manual='))).toBe(true);
+    expect(r.lines.some((l) => l.content.includes('anthropic/openai'))).toBe(true);
   });
 });

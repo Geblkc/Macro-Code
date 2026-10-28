@@ -116,3 +116,42 @@ describe('Faz 7 A3 — agent mesaj bütünlüğü', () => {
     expect(msgs[msgs.length - 1]).toMatchObject({ role: 'assistant', content: 'yanıt' });
   });
 });
+
+describe('Faz 3 — renameSession', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [], activeSessionId: null });
+  });
+
+  it('adı değiştirir (trim) ve diğer oturumlara dokunmaz', () => {
+    const a = useSessionStore.getState().createSession();
+    const b = useSessionStore.getState().createSession();
+    useSessionStore.getState().renameSession(a.id, '  Yeni Ad  ');
+    const sessA = useSessionStore.getState().sessions.find((x) => x.id === a.id)!;
+    const sessB = useSessionStore.getState().sessions.find((x) => x.id === b.id)!;
+    expect(sessA.name).toBe('Yeni Ad');
+    expect(sessB.name).not.toBe('Yeni Ad');
+  });
+
+  it('boş/beyaz ad yok sayılır (mevcut ad korunur)', () => {
+    const a = useSessionStore.getState().createSession();
+    const before = useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name;
+    useSessionStore.getState().renameSession(a.id, '   ');
+    expect(useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name).toBe(before);
+  });
+
+  it('60 karakterde kesilir (taşma koruması)', () => {
+    const a = useSessionStore.getState().createSession();
+    useSessionStore.getState().renameSession(a.id, 'x'.repeat(80));
+    expect(
+      useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name,
+    ).toHaveLength(60);
+  });
+
+  it('bilinmeyen id hiçbir şeyi değiştirmez', () => {
+    const a = useSessionStore.getState().createSession();
+    const before = useSessionStore.getState().sessions.length;
+    useSessionStore.getState().renameSession('yok-boyle-bir-id', 'ad');
+    expect(useSessionStore.getState().sessions).toHaveLength(before);
+    expect(useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name).not.toBe('ad');
+  });
+});

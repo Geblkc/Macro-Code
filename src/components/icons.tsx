@@ -19,6 +19,7 @@ export type IconName =
   | 'check'
   | 'copy'
   | 'trash'
+  | 'pencil'
   | 'settings'
   | 'eye'
   | 'eye-off'
@@ -70,6 +71,12 @@ const P: Record<IconName, ReactNode> = {
   ),
   trash: (
     <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M6.5 7v4M9.5 7v4" />
+  ),
+  pencil: (
+    <>
+      <path d="M11.2 2.8l2 2L6 12H4v-2z" />
+      <path d="M9.4 4.6l2 2" />
+    </>
   ),
   settings: (
     <>

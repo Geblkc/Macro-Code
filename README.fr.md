@@ -65,6 +65,7 @@ npm test             # tests unitaires
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — la structure du projet, module par module
 - [`docs/MODELS.md`](docs/MODELS.md) — le catalogue de modèles et sa fusion avec models.dev
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — construire `.deb` / `.rpm` / AppImage en local, installateurs Windows via CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — journal daté de chaque changement
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — recommandations pour les pull requests
 

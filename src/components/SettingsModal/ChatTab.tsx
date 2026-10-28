@@ -3,6 +3,7 @@ import { PROVIDER_DEFS, PROVIDER_IDS } from '../../lib/providers';
 import { useT } from '../../lib/i18n';
 import type { Provider } from '../../types';
 import Switch from '../Switch';
+import ModelPicker from '../ModelPicker';
 import type { Draft } from './types';
 import { modelView } from './modelList';
 import { allowListIssues } from './types';
@@ -10,6 +11,8 @@ import { allowListIssues } from './types';
 interface Props {
   draft: Draft;
   patch: (p: Partial<Draft>) => void;
+  /** "anahtar ekle" satırı → sağlayıcılar sekmesi. */
+  onOpenProviders: () => void;
 }
 
 /**
@@ -19,7 +22,7 @@ interface Props {
  * Görünüm ayarları (yazı boyutu, kontrast, saat) `AppearanceTab`'e taşındı —
  * önceden burada ve `LangTab`'da **iki kez** tanımlıydı.
  */
-export default function ChatTab({ draft, patch }: Props) {
+export default function ChatTab({ draft, patch, onOpenProviders }: Props) {
   const t = useT();
   // API anahtarı olmayan sağlayıcının modelleri listelenmez.
   const view = useMemo(() => modelView(draft), [draft]);
@@ -78,31 +81,18 @@ export default function ChatTab({ draft, patch }: Props) {
 
         <div className="field">
           <label className="field-label">{t('settings.chat.summarizerModel')}</label>
-          <select
-            className="input"
+          {/* Faz 7: native <select> yerine Titlebar ile aynı model dropdown'ı. */}
+          <ModelPicker
             value={draft.summarizerModel}
-            onChange={(e) => patch({ summarizerModel: e.target.value })}
-          >
-            <option value="">{t('settings.chat.useActiveModel')}</option>
-            {!summarizerKnown && (
-              <option value={draft.summarizerModel}>
-                {t('settings.chat.customModel', { model: draft.summarizerModel })}
-              </option>
-            )}
-            {PROVIDER_IDS.map((p) => {
-              const models = view.visible.filter((m) => m.provider === p);
-              if (models.length === 0) return null;
-              return (
-                <optgroup key={p} label={PROVIDER_DEFS[p]?.label ?? p}>
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id}
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
+            models={view.visible}
+            locked={view.locked}
+            extraValue={!summarizerKnown ? draft.summarizerModel : undefined}
+            extraLabel={t('settings.chat.customModel', { model: draft.summarizerModel })}
+            placeholder={t('settings.chat.useActiveModel')}
+            emptyLabel={t('settings.chat.useActiveModel')}
+            onChange={(v) => patch({ summarizerModel: v })}
+            onOpenSettings={onOpenProviders}
+          />
           <span className="field-note">{t('settings.chat.summarizerNote')}</span>
         </div>
       </div>

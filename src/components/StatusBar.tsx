@@ -10,8 +10,12 @@ import { Icon } from './icons';
 interface Props {
   /** Bekleyen onay sayısı (badge + uyarı). */
   pendingCount?: number;
+  /** Akış sürüyor (nabız atan rozet — Faz 7). */
+  isStreaming?: boolean;
   /** Bekleyen onaya kaydır. */
   onPendingClick?: () => void;
+  /** Klasör rozetine tıkla → /root diyalog yolunu aç (App'te kodlanır). */
+  onWorkspaceClick?: () => void;
 }
 
 function fmtCount(n: number): string {
@@ -20,7 +24,7 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
-export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
+export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClick, onWorkspaceClick }: Props) {
   const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeSessionId);
@@ -140,6 +144,16 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
         </>
       ) : null}
 
+      {isStreaming ? (
+        <>
+          <span className="sb-sep" aria-hidden="true" />
+          <span className="sb-item" title={t('status.streaming')}>
+            <span className="stream-dot" aria-hidden="true" />
+            {t('status.streaming')}
+          </span>
+        </>
+      ) : null}
+
       <span className="sb-item" title={t('status.approvalMode')}>
         <Icon name="activity" size="sm" />
         {approvalLabel}
@@ -147,10 +161,15 @@ export default function StatusBar({ pendingCount = 0, onPendingClick }: Props) {
 
       <span className="sb-right">
         {root ? (
-          <span className="sb-item clickable" title={root}>
+          <button
+            className="sb-item btn-reset clickable"
+            title={onWorkspaceClick ? t('status.workspaceTitle') : root}
+            aria-label={t('status.workspaceTitle')}
+            onClick={onWorkspaceClick}
+          >
             <Icon name="folder" size="sm" />
             {label || root.split('/').filter(Boolean).pop() || root}
-          </span>
+          </button>
         ) : null}
         {mcpOn > 0 ? (
           <>

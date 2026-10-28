@@ -17,7 +17,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dist:linux": "bash scripts/build-linux.sh",
+    "dist:deb": "bash scripts/build-linux.sh --bundles deb",
+    "dist:rpm": "bash scripts/build-linux.sh --bundles rpm",
+    "dist:appimage": "bash scripts/build-linux.sh --bundles appimage",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",

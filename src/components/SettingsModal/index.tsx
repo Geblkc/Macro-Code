@@ -25,7 +25,7 @@ import AboutTab from './AboutTab';
 import { Icon } from '../icons';
 import type { CustomDraft, Draft, McpDiscovery, McpDraft, SecretDraft, TabId, TestConn } from './types';
 import { TABS, emptySecret, maskLast4, mergeVisited, nextTabIndex, parseEnvText, serializeEnv } from './types';
-import ConfirmDialog from './ConfirmDialog';
+import ConfirmDialog from '../ConfirmDialog';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { McpClient } from '../../lib/engine/mcp/client';
 import { createHttpTransport } from '../../lib/engine/mcp/transports/http';
@@ -969,7 +969,11 @@ export default function SettingsModal({ open, onClose }: Props) {
             )}
             {visited.includes('chat') && (
               <TabPanel id="chat" active={tab === 'chat'}>
-                <ChatTab draft={draft} patch={patch} />
+                <ChatTab
+                  draft={draft}
+                  patch={patch}
+                  onOpenProviders={() => selectTab('providers')}
+                />
               </TabPanel>
             )}
             {visited.includes('appearance') && (

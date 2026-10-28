@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Icon } from '../icons';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Icon } from './icons';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -17,7 +17,9 @@ interface Props {
 }
 
 /**
- * Ayarlar modalı içinde kullanılan onay kutusu.
+ * Genel onay kutusu (uygulama kökünde tek instance; App'ten `confirmState`
+ * ile sürülür — ayarlar modalının kirli kapanışı ve Sidebar oturum silme
+ * aynı bileşeni kullanır).
  *
  * - `Escape` → iptal, `Enter` → onay
  * - Odak döngüsü kendi içinde (modalın döngüsü devre dışı kalır)
@@ -44,7 +46,7 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const handleKeyDown = (e: ReactKeyboardEvent) => {
-    // Diyalog modalın klavye işleyicisine sızdırmaz.
+    // Diger katmanların (modal/terminal) klavye isleyicisine sizdirmaz.
     e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -53,7 +55,7 @@ export default function ConfirmDialog({
     }
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement | null;
-      // Metin alanlarında Enter satır atlıyor olabilir → onaylama.
+      // Metin alanlarinda Enter satir atliyor olabilir → onaylama.
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
       e.preventDefault();
       onConfirm();
@@ -66,7 +68,7 @@ export default function ConfirmDialog({
     <div
       className="confirm-overlay"
       onClick={(e) => {
-        // Dış modal katmanına sızma (orada da "kapat" işleyicisi var).
+        // Dis katmanlara sizma (orada da "kapat" isleyicisi var).
         e.stopPropagation();
         onCancel();
       }}

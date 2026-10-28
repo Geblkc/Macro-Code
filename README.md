@@ -50,6 +50,7 @@ authentication headers sent directly to the provider you configured.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the project is structured, module by module
 - [`docs/MODELS.md`](docs/MODELS.md) — the model catalog and how it merges with models.dev
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — building `.deb` / `.rpm` / AppImage locally and Windows installers via CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — dated record of every change
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — guidelines for pull requests
 

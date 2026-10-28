@@ -64,6 +64,7 @@ npm test             # birim testler
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — projenin yapısı, modül modül
 - [`docs/MODELS.md`](docs/MODELS.md) — model kataloğu ve models.dev ile birleşim kuralları
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — `.deb` / `.rpm` / AppImage yerel derleme + Windows kurulumu (CI)
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — her değişikliğin tarihli kaydı
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — katkı kuralları
 

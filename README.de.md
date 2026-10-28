@@ -65,6 +65,7 @@ npm test             # Unit-Tests
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Projektaufbau, Modul für Modul
 - [`docs/MODELS.md`](docs/MODELS.md) — Modellkatalog und die Verschmelzung mit models.dev
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — `.deb` / `.rpm` / AppImage lokal bauen, Windows-Installer per CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — datiertes Protokoll jeder Änderung
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Richtlinien für Pull-Requests
 

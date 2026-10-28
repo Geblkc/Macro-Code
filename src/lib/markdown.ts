@@ -12,6 +12,7 @@
  * ![görsel](url).
  */
 
+import { copyText } from './clipboard';
 import { highlight } from './highlight';
 import { t } from './i18n/core';
 
@@ -372,35 +373,6 @@ function parseList(lines: string[], start: number, ordered: boolean): ParsedList
    Render
    ══════════════════════════════════════════════════════════════════ */
 
-function copyText(text: string): Promise<boolean> {
-  try {
-    const nav = globalThis.navigator as Navigator | undefined;
-    const clipboard = nav?.clipboard;
-    if (clipboard?.writeText) {
-      return clipboard.writeText(text).then(
-        () => true,
-        () => false,
-      );
-    }
-  } catch {
-    // Asagidaki fallback'e dus.
-  }
-  try {
-    const doc = globalThis.document;
-    const ta = doc.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    doc.body.appendChild(ta);
-    ta.select();
-    const ok = doc.execCommand('copy');
-    ta.remove();
-    return Promise.resolve(ok);
-  } catch {
-    return Promise.resolve(false);
-  }
-}
-
 function renderInline(doc: Document, parent: HTMLElement, text: string): void {
   for (const t of tokenizeInlineRich(text)) {
     switch (t.kind) {
@@ -570,15 +542,15 @@ function buildCodeBlock(doc: Document, lang: string, code: string): HTMLElement 
   const copy = doc.createElement('button');
   copy.type = 'button';
   copy.className = 'md-copy';
-  copy.textContent = 'kopyala';
-  copy.setAttribute('aria-label', `${lang} kodunu kopyala`);
+  copy.textContent = t('markdown.copyBtn');
+  copy.setAttribute('aria-label', t('markdown.copyCode', { lang }));
   copy.addEventListener('click', (e) => {
     e.stopPropagation();
     void copyText(code).then((ok) => {
       copy.textContent = ok ? t('message.copyOk') : t('message.copyFail');
       copy.classList.toggle('copied', ok);
       globalThis.setTimeout(() => {
-        copy.textContent = 'kopyala';
+        copy.textContent = t('markdown.copyBtn');
         copy.classList.remove('copied');
       }, 1500);
     });

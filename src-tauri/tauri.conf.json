@@ -26,14 +26,34 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "MacroCode",
+    "homepage": "https://github.com/Geblkc/Macro-Code",
     "category": "DeveloperTool",
     "copyright": "MIT",
+    "shortDescription": "AI terminal desktop app",
+    "longDescription": "MacroCode — AI terminal desktop app: local agent with approval-first execution, multi-provider chat, MCP servers and SQLite sessions.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["librsvg2-2"]
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3", "librsvg2"]
+      }
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Turkish"],
+        "displayLanguageSelector": true
+      }
+    }
   },
   "plugins": {
     "sql": {

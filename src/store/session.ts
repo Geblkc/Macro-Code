@@ -33,6 +33,8 @@ interface SessionStore {
 
   createSession: () => Session;
   deleteSession: (id: string) => void;
+  /** Faz 3: oturumu yeniden adlandır (boş ad yok sayılır, 60 karakterde kesilir). */
+  renameSession: (id: string, name: string) => void;
   setActiveSession: (id: string) => void;
   addMessage: (sessionId: string, message: Message) => void;
   /** Faz 1 (K5): tool sonuçlarını kalıcı katmana sistem mesajı olarak yazar. */
@@ -125,6 +127,16 @@ export const useSessionStore = create<SessionStore>()(
               : s.activeSessionId;
           return { sessions, activeSessionId };
         }),
+
+      renameSession: (id, name) => {
+        const clean = name.trim().slice(0, 60);
+        // Boş ad yok sayılır (satır silinmesin); updatedAt'e dokunulmaz
+        // (yeniden adlandırma grup sırasını oynatmaz).
+        if (!clean) return;
+        set((s) => ({
+          sessions: s.sessions.map((sess) => (sess.id === id ? { ...sess, name: clean } : sess)),
+        }));
+      },
 
       setActiveSession: (id) =>
         set((s) => (s.sessions.some((sess) => sess.id === id) ? { activeSessionId: id } : {})),

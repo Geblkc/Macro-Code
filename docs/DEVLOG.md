@@ -2,10 +2,460 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-10-21
+> Son güncelleme: 2026-10-27
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-10-27 — Dağıtım altyapısı (deb · rpm · AppImage · Windows)
+
+> Kullanıcı talebi: `scripts/` klasöründen uygulamanın dağıtımlarının kolayca
+> yapılması (AppImage, `.deb`, `.rpm`, Windows kurulumu).
+
+### A. Bundle yapılandırması — `src-tauri/tauri.conf.json`
+
+- `publisher`, `homepage`, `shortDescription`, `longDescription` eklendi.
+- `linux.deb.depends`: `librsvg2-2` (Tauri bundler webkit2gtk + gtk3'ü otomatik
+  ekler — elle eklemek tekrarlanan Depends üretiyordu, doğrulandı);
+  `linux.rpm.requires` → `depends`: `webkit2gtk4.1`, `gtk3`, `librsvg2`.
+- Windows: `webviewInstallMode: embedBootstrapper` (WebView2 Runtime NSIS
+  kurulumuna gömülür), NSIS `installMode: currentUser` (yönetici hakkı yok),
+  `languages: [English, Turkish]` + `displayLanguageSelector`.
+
+### B. Yerel Linux betiği — `scripts/build-linux.sh` (yeni)
+
+- `--bundles deb|rpm|appimage` seçimli (varsayılan: üçü); `--skip-install` hızlandırması.
+- Ön kontrol: npm/cargo, `pkg-config` ile webkit2gtk-4.1 + gtk+-3.0; eksikse
+  Debian/Fedora/Arch kurulum komutlarıyla hata. AppImage için libfuse2 uyarısı.
+- `npm run tauri build -- --bundles …` → çıktıkları `bundles/` klasörüne kopyalar
+  + `SHA256SUMS` üretir.
+
+### C. Sürüm yayınlama — `scripts/release.sh` (yeni)
+
+- `bash scripts/release.sh X.Y.Z [--dry-run]`: versiyonu senkronlar
+  (package.json, package-lock.json, tauri.conf.json, Cargo.toml + Cargo.lock),
+  `release: vX.Y.Z` commit + tag oluşturur ve push eder.
+- Koşullar: main dalı, temiz ağaç, benzersiz tag — aksi halde net hata mesajı.
+
+### D. CI dağıtımı — `.github/workflows/release.yml` (yeni)
+
+- `v*` tag push'u üç işi tetikler: **linux** (ubuntu-22.04, deb+rpm+AppImage;
+  testler de koşar), **windows** (windows-latest, NSIS `.exe` + `.msi`),
+  **release** (artifact'ları toplar, SHA256SUMS üretir, GitHub Release'e yükler).
+
+### E. Dokümantasyon + destek
+
+- `docs/PACKAGING.md` (yeni): üretim tablosu, sistem bağımlılıkları, Windows CI
+  akışı, NSIS notları, sorun giderme.
+- `package.json`: `dist:linux`, `dist:deb`, `dist:rpm`, `dist:appimage`, `release`.
+- `.gitignore` + `bundles/`. README'lere (5 dil) PACKAGING bağlantısı.
+- `ARCHITECTURE.md`: script tablosu, dizin yapısı, build komutları, CI satırı.
+
+### Doğrulama
+
+- `bash -n` (her iki betik) + `--help`/argüman yolu çalıştırmaları temiz.
+- **Gerçek derleme:** `--bundles deb,rpm` ve `--bundles appimage` uçtan uca
+  koşuldu → `bundles/` altında `MacroCode_0.1.0_amd64.deb` (7.2M),
+  `MacroCode-0.1.0-1.x86_64.rpm` (7.2M), `MacroCode_0.1.0_amd64.AppImage`
+  (113M, WebKit gömülü) + `SHA256SUMS`.
+- **Paket içeriği:** deb `Depends: librsvg2-2, libwebkit2gtk-4.1-0, libgtk-3-0`
+  (tekrarsız); rpm `webkit2gtk4.1, gtk3, librsvg2`.
+- **Yakalanan hata:** `--bundles deb,rpm` (virgül) `case " $BUNDLES "`
+  eşleşmesini kaçırıyordu → kopyalama sessizce atlanıyordu; parse edilmiş
+  `TARGETS` dizisiyle düzeltildi. `rpm.requires` alanı Tauri şemasında yok
+  (`depends` olmalı) — `tauri info` ile bulunup düzeltildi.
+- `npm test`: 539/539 geçti · `npm run build` (tsc + vite) temiz ·
+  `npm run tauri info` config'i hatasız okuyor.
+
+---
+
+## 2026-10-26 — Slash komut otomatik tamamlama (inputbar öneri menüsü)
+
+> Kullanıcı talebi: kullanılabilirliği olumlu yönde etkileyecek geliştirme planının
+> ilk işi. `/` yazımında öneri çıkmıyordu; komut keşfi tek yol `/help` metniydi.
+
+### A. Tek kaynak komut tablosu — `src/lib/commands.ts`
+
+- `CommandSpec` + `COMMAND_SPECS` (22 komut): ad, argüman ipucu (`<...>` zorunlu ·
+  `[...]` opsiyonel), `commands.desc.*` kısa açıklama anahtarı ve `requiresArg` sözleşmesi.
+- `filterCommands(query)` saf filtre: önce önek, sonra içerme; `/` öneki ve
+  büyük/küçük harf duyarsız (`'EX'` → `['export', 'context']`).
+- `helpLines()` tablolaştı: `/help` satırları `commands.help.<ad>` kalıbından üretilir,
+  `approvalModes` ara satırı korunur. Koruma: testte her komutun yardım +
+  açıklama anahtarının 5 dilde varlığı doğrulanır (eksik anahtar → ham key döner).
+
+### B. Inputbar öneri menüsü — `src/components/InputBar.tsx` + `src/styles/shell.css`
+
+- Popup yalnızca tek satırlık `/<komut-adı>` yazımında açılır (boşluk = argüman aşaması);
+  `.cmd-menu` model-dropdown desenli, inputbar'ın üstünde açılır.
+- Tuşlar: `↑/↓` gezinme · `Tab` / `→` (imleç sonda) tamamlar · `Enter` gönderir ·
+  `Esc` kapatır. Zorunlu argümanlı komutlarda (`/provider`, `/note`) Enter yalnız
+  tamamlar, imleç argümana geçer. Onay kartı kısayolları (Enter onay / Esc reddet)
+  önceleyi korur — popup onay beklerken tuş devralmaz.
+- `submit()` ham metin override'ı aldı (popup Enter birleştirmesi state yarışına girmez);
+  gönder butonu `onClick={() => submit()}` ile MouseEvent sızıntısına kapandı.
+- İpuçları satırı: `<kbd>/</kbd> komut önerisi` eklendi.
+
+### C. i18n + test
+
+- Yeni anahtarlar tr/en/de/fr/es'e eşit eklendi: `commands.desc.*` (22 kısa açıklama),
+  `input.hint.commands`, `input.slashMenuAria`, `input.cmdHint`. Parite testi yeşil.
+- `commands.test.ts` +7 test: tablo bütünlüğü (benzersiz ad + 5 dilde anahtar),
+  `requiresArg` sözleşmesi (`provider`/`note`), filtre önceliği ve `/help` satır sayısı.
+
+### Doğrulama
+
+- `npm test`: 522/522 geçti · `npm run build` (`tsc --noEmit` + vite) temiz.
+
+---
+
+## 2026-10-26 — Kopyalama + konuşma içi arama (Ctrl+F)
+
+> Kullanılabilirlik planının ikinci işi: içerik yakalama. Mesaj başına kopyalama
+> `MessageLine`'da zaten vardı ama hiçbir yere bağlanmamıştı (ölü kod); konuşma
+> içinde arama hiç yoktu.
+
+### A. Pano katmanı — `src/lib/clipboard.ts` (yeni) + `src/hooks/useCopy.ts` (yeni)
+
+- `copyText` (`navigator.clipboard` + textarea/execCommand fallback) `markdown.ts`
+  içinden çıkarılıp `lib/clipboard.ts`'e taşındı — tek kaynak; markdown.ts import eder.
+- `useCopy()` hook'u: kopyala + toast geri bildirimi (`message.copyOk` / `copyFail`),
+  tüm bileşenler ortak kullanır.
+
+### B. Mesaj kopyalama + `/copy` komutu
+
+- **Terminal → MessageLine `onCopy` bağlantısı:** satır üstünde kopyala butonu artık
+  canlı (eskisi `onCopy` prop'u hiç geçilmiyordu). `MessageLine`'a arama vurgusu için
+  `className` / `dataLineKey` props'ları da eklendi (memo karşılaştırması genişletildi).
+- **`/copy [md|json]`** (`App.tsx` motor dalı): oturum transkriptini panoya yazar
+  (markdown varsayılan, `json` → `/backup` zarfı); geri bildirim terminal satırı.
+  `COMMAND_SPECS`'e kaydedildi → popup'ta ve `/help`'te görünür.
+
+### C. Konuşma içi arama — `src/lib/search.ts` (yeni) + `Terminal.tsx`
+
+- Saf motor: `findHits` (satır bazlı, büyük/küçük harf duyarsız) + `stepHit`
+  (wrap-around tur navigasyonu). Markdown kaynağı aranır, render edilmiş DOM değil.
+- `Ctrl+F` (window dinleyicisi, giriş alanı odakta bile) → üstte arama çubuğu:
+  sayaç (`2 / 5`, `aria-live`), `Enter`/`Shift+Enter` gezinme, `Esc`/✕ kapatır ve
+  **giriş alanına odak döner** (`InputBar.focusRef`). Oturum değişince kapanır;
+  ayarlar modalı açıkken devre dışı (`searchEnabled`).
+- Eşleşen satırlar `match-hit`, aktif eşleşme `match-current` (accent kenarlık) ile
+  vurgulanır ve `scrollIntoView({block:'center'})` ile ortalanır; streaming yapışması
+  (`stickRef`) arama sırasında kapatılır. Eşleşme araması O(1) `hitMap` ile.
+
+### D. i18n + test + doğrulama
+
+- 5 dile eşit eklendi (9 anahtar): `commands.help.copy` / `commands.desc.copy` /
+  `commands.copyEmpty` / `commands.copyDone` / `commands.copyFailed`,
+  `terminal.searchAria` / `searchPlaceholder` / `searchCount` / `searchHint`.
+- `search.test.ts` (yeni): 7 test (boş sorgu, duyarsızlık, sıra, wrap-around,
+  geçersiz indeks). `/help` satır sayısı testi `COMMAND_SPECS.length` ile kendini
+  günceller (23 komut + 2).
+- `npm test`: 529/529 geçti · `npm run build` temiz.
+
+---
+
+## 2026-10-27 — Oturum yönetimi (yeniden adlandırma, onaylı silme, geçmiş persist, kısayollar)
+
+> Kullanılabilirlik planının üçüncü işi: oturumlar yalnız silinebiliyordu (onaysız),
+> yeniden adlandırılamıyordu; ↑↓ giriş geçmişi restart'ta sıfırlanıyordu.
+
+### A. Store + genel onay katmanı
+
+- **`store/session.ts` → `renameSession(id, name)`:** trim + 60 karakter kesme;
+  boş ad yok sayılır (satır kaybolmasın); `updatedAt`'e dokunulmaz (grup sırası
+  oynamaz). Bilinmeyen id no-op.
+- **`ConfirmDialog` taşındı:** `SettingsModal/ConfirmDialog.tsx` →
+  `components/ConfirmDialog.tsx` (importlar `./icons` + `../hooks/useFocusTrap`
+  olarak güncellendi; SettingsModal import'u `../ConfirmDialog`). Davranış aynı:
+  `alertdialog` · Esc=iptal · Enter=onay · kendi odak döngüsü.
+
+### B. Sidebar — satır içi yeniden adlandırma + onaylı silme
+
+- Satır `<button>` → **`div role="button"`** yapıldı (içinde gerçek `<button>`
+  eylemler geçersiz HTML'den kurtuldu; a11y kazancı). Klavye: Enter/Space seçer.
+- **Yeniden adlandırma:** çift tık veya hover'da kalem butonu (`pencil` ikonu
+  eklendi) → satır içi `.session-rename` input (açılışta odak + ad seçili).
+  `Enter` kaydet · `Esc` iptal (blur→commit yarışına karşı `skipBlurRef` bayrağı) ·
+  blur commit. `aria-label` mevcut adla dinamik.
+- **Silme:** `role="button"` span → gerçek `<button>` (`trash` ikonu); ✕ yerine
+  çöp kutusu. Doğrudan silme yok — App kökündeki genel `confirmState`'e bağlanır
+  (danger + odak **iptalde**; onayda `deleteSession`).
+
+### C. Giriş geçmişi persist — `hooks/useKeyHistory.ts`
+
+- `macrocode-keyhistory` localStorage anahtarı: modül düzeyinde tek depo
+  (InputBar tek instance), ilk erişimde yüklenir, `push` yazma anında kalıcı yazar
+  (son 50, zincir tekrar temizliği korunur).
+- `parseStoredHistory(raw, limit)` saf ayrıştırıcı: bozuk JSON / uygunsuz tip /
+  boş- whitespace öğeler → güvenli şekilde elenir (uygulama çökmez).
+- `resetKeyHistory()` dışa aktarıldı ve **`/reset` komutuna bağlandı**
+  (`App.tsx` → `resetSession`: session + compaction özetinden sonra giriş geçmişi
+  de temizlenir). `useKeyHistory().reset()` aynı çekirdeği çağırır.
+
+### D. Global kısayollar — `App.tsx` + InputBar
+
+- Pencere seviyesi `keydown`: **`Ctrl+N`** yeni oturum · **`Ctrl+Tab`** /
+  **`Ctrl+Shift+Tab`** oturumlar arasında döngü. Modifier'lı olduğundan IME'den
+  bağımsız (Faz 4 `isComposing` guard'ı bu kısayolları kapsamaz); ayarlar modalı
+  açıkken devre dışı. `preventDefault` ile WebView varsayılanları (yeni pencere /
+  sekme değişimi) bastırılır.
+- InputBar ipucu satırı: `<kbd>Ctrl+N</kbd> yeni oturum`.
+
+### E. i18n + test + doğrulama
+
+- 5 dile eşit eklendi (6 anahtar): `sidebar.renameSession` / `renameAria` /
+  `confirmDeleteTitle` / `confirmDeleteMessage` / `confirmDeleteOk`,
+  `input.hint.newSession`.
+- `session.test.ts` +4 (`renameSession`: trim, boş ad, 60 kesme, bilinmeyen id) ·
+  `useKeyHistory.test.ts` (yeni): +6 (`parseStoredHistory` girdi matrisi +
+  `historyPush` limit/tekrar sözleşmesi).
+- `npm test`: 539/539 geçti · `npm run build` (`tsc --noEmit` + vite) temiz.
+
+---
+
+## 2026-10-27 — Performans + dilbilgisi (IME, iptal, stream throttle, i18n temizliği, tekrar dene)
+
+> Kullanılabilirlik planının dördüncü işi: akış performansı, IME/erişilebilirlik
+> açıkları ve kullanıcıya görünen sabit Türkçe metinler.
+
+### A. IME `isComposing` guard'ı
+
+- **`InputBar`:** textarea `onKeyDown` başında `e.nativeEvent.isComposing` kontrolü —
+  bestesi sürerken Enter göndermez, `↑/↓` geçmişi çağırmaz, `Ctrl+L` tetiklenmez
+  (Japonca/Çince/Korece giriş bozulmaz).
+- **App global kısayolları** ve **Terminal Ctrl+F** dinleyicileri de
+  `e.isComposing` ile kapatıldı.
+
+### B. `Ctrl+C` akış iptali
+
+- App pencere dinleyicisinde: **metin seçiliyse** varsayılan kopyalamaya bırakılır;
+  **seçim yoksa ve akış sürüyorsa** (`store.isStreaming`) `preventDefault` + `abort()`
+  (stream + agent run birlikte). `abort` artık `useCallback` (dinleyici yeniden
+  kurulmaz); dinleyici bağımlılıkları `[settingsOpen, streaming, abort]`.
+
+### C. Stream throttle — `MessageLine`
+
+- Streaming sırasında markdown **trailing-edge throttle** (`STREAM_RENDER_MS = 50`):
+  her delta'da tam parse yerine en fazla 50ms'de bir `setRendered`; eski zamanlayıcı
+  her içerik değişiminde iptal edilip yeniden planlanır (son içerik garanti).
+  Akış bitince `isStreaming` etkisi içeriği **anlık** senkronlar (kayıp yok).
+- Kopyala butonu tam `content`'i kopyalar (throttled değil); memo karşılaştırması
+  `onRetry`'yı da kapsar.
+
+### D. Sabit Türkçe metinlerin i18n'e taşınması
+
+- **`useAgent.ts` (11 nokta):** `(boş)` önizlemesi, workspace/özel uç/api anahtarı/
+  tools-desteksiz model/boş yanıt hataları, "reddedildi" satırları (×2) ve
+  "⏸ onay bekleniyor … [Enter onayla / Esc reddet]" satırı (×2) → `t()` anahtarları.
+  **İki mevcut anahtar yeniden kullanıldı:** `agent.noWorkspace` (metin birebir aynı
+ ydı) ve `agent.cannotRestart`.
+- **`markdown.ts` (3 nokta):** kod bloğu kopyala butonu metni + `aria-label`
+  (`{lang} kodunu kopyala`) → `markdown.copyBtn` / `markdown.copyCode`.
+
+### E. Hata satırında "tekrar dene"
+
+- `ExtraLine.retry?: () => void` (yalnız bellek içi) → `ViewLine` → `MessageLine`
+  `onRetry` → `.log-err` altıda `refresh` ikonlu buton (`message.retry`).
+- App'in iki hata yolu (agent + düz akış) `retry: () => handleSendRef.current?.(trimmed, images)`
+  bağlar — aynı girdi tüm pipeline'dan (root/onay/komut kontrolü dahil) yeniden geçer.
+  `pushExtra` imzası `Omit<ExtraLine, 'id' | 'ts'>` olarak genişletildi
+  (`TerminalLine`/`ToolEvent` import'u App'den düştü).
+
+### F. i18n + doğrulama
+
+- 10 anahtar × 5 dil: `message.retry`, `markdown.copyBtn`, `markdown.copyCode`,
+  `agent.previewEmpty`, `agent.errCustomEndpoint`, `agent.errNoTools`,
+  `agent.errNoApiKey`, `agent.errEmptyReply`, `agent.rejected`,
+  `agent.pendingLine`.
+- `npm test`: 539/539 geçti · `npm run build` (`tsc --noEmit` + vite) temiz.
+
+---
+
+## 2026-10-27 — Görsel giriş sürtünmesi (yapıştırma + sürükle-bırak)
+
+> Kullanılabilirlik planının beşinci işi: görsel ekleme yollarını tek hatta
+> toplayıp panodan yapıştırma ve sürükle-bırak desteği eklemek.
+
+### A. Tek attach hattı: `attachImages`
+
+- `onFiles` → **`attachImages(files: FileList | File[])`** olarak yeniden adlandırıldı
+  ve `File[]` kabul edecek şekilde genişletildi (paste `getAsFile()` File[] verir).
+- Kurallar aynı ve tek yerde: odaya göre dilim (max 4 → `input.maxImages`), yalnız
+  `image/*` (`input.onlyImages`), ≤1568px JPEG 0.85 (`downscaleImage`) — buton,
+  paste ve drop arasında çift davranış yok.
+
+### B. Panodan yapıştırma
+
+- Textarea `onPaste`: `clipboardData.items` içinde `kind === 'file'` + `image/*`
+  varsa `preventDefault` + `attachImages(imgs)`; **yalnız metin varsa varsayılan
+  yapıştırma akmaya devam eder** (kod/metin bloğu kopyalama bozulmaz).
+
+### C. Sürükle-bırak
+
+- `.inputbar-inner` üzerinde `onDragEnter/Over/Leave/Drop`:
+  - `dragover` yalnız `Files` tipinde engellenir + `dropEffect = 'copy'`;
+    **her koşulda `preventDefault`** (aksi hâlde webview dosyayı açmaya çalışır).
+  - `dragDepthRef` sayacı: çocuk elemanların `dragleave`'i highlight'ı titretmez.
+  - `.dropping` sınıfı → kesikli accent outline; `dragOver` iken `drop-hint`
+    katmanı (`role="status"`, `input.dropHint`) input'u örter.
+  - `drop` → sayaç sıfırlanır, highlight kalkar, `attachImages(dataTransfer.files)`.
+
+### D. Streaming kapsamı + i18n + doğrulama
+
+- Buton streaming'de gizliyken paste/drop da **yok sayılır** (plandaki "buton
+  mevcut davranışla aynı" maddesi); drop yine de engellenir ki webview dosyayı
+  açmasın.
+- Yeni anahtar: `input.dropHint` × 5 dil (tr/en/de/fr/es — parite testi yeşil).
+- `npm test`: 539/539 geçti · `npm run build` (`tsc --noEmit` + vite) temiz.
+- Elle QA: Ctrl+V ile görsel ekleme, masaüstünden sürükle-bırak (vurgu + ipucu),
+  4 sınırı → `input.maxImages`, metin dosyası → `input.onlyImages`, streaming'de
+  bırakma → yok sayılır, EN/DE/FR/ES `input.dropHint`.
+
+---
+
+## 2026-10-28 — Gösterim & polish (streaming rozeti, aria-live, ortak model dropdown, cap uyarısı)
+
+> Kullanılabilirlik planının son işi (Faz 7): görünürlük/erişilebilirlik ve
+> tekrar eden model seçim arayüzünün tek bileşende toplanması.
+
+### A. StatusBar streaming rozeti
+
+- `isStreaming` prop'u (`pendingCount` deseniyle): akış sürerken nabız atan
+  `.stream-dot` + `status.streaming` metni. `statusbar` zaten `role="status"`
+  (canlı bölge) — metin akış başlangıcında ekran okuyucu tarafından duyurulur;
+  bitişte düğüm kaldırılır (kaldırma duyurulmaz). `prefers-reduced-motion`
+  global koruması nabız animasyonunu da kapatır.
+
+### B. Terminal aria-live
+
+- `.terminal-view` → `role="log" aria-live="polite" aria-relevant="additions"`:
+  yalnız **yeni satırlar** duyurulur (akışta metin değişimi sessiz — spam yok).
+  Streaming caret zaten `aria-hidden`.
+
+### C. Ortak `ModelDropdown.tsx`
+
+- Titlebar'ın ~100 satırlık dropdown'ı **`components/ModelDropdown.tsx`**'e
+  çıkarıldı: arama + sağlayıcı gruplama + yetenek rozetleri + "anahtar ekle"
+  satırı + klavye gezinimi (↑↓ Home End Enter Esc, `data-idx` scroll).
+  Tetikleyici tüketicide kalır; `models`/`locked` listesini tüketici süzer
+  (Titlebar: anahtar + devre dışı süzgeci; ayarlar: `modelView(draft)`).
+- **`ModelPicker` datalist'ten vazgeçti**: form alanındaki tetikleyici +
+  `anchor="field"` panel. `locked` + `onOpenSettings` + `extraLabel` prop'ları
+  eklendi; `emptyLabel` → panelde temizleme satırı ("aktif modeli kullan"),
+  bilinmeyen değer → extra satır.
+- **ChatTab özetleyici `<select>`** (optgroup'lu) ModelPicker'a döndü;
+  `onOpenProviders` prop'u eklendi → "anahtar ekle" satırı sağlayıcılar
+  sekmesine atlama yapar (ModelsTab'daki mevcut desenle aynı). Sağlayıcı
+  `<select>` (özetleyici — sağlayıcı aşaması) korunur.
+- **Esc/klavye ayrıştırması:** panel dinleyicisi window yerine panelin
+  React `onKeyDown`'una taşındı — ayarlar modalında Esc **yalnız paneli**
+  kapatır (`stopPropagation` modalın React handler'ını geçirmez), panel
+  dışındaki alanların ok tuşları ele geçirilmez. Buton odakta Enter native
+  tıklamaya bırakılır (çakışma yok).
+- ModelsTab: `selectModels` IIFE kaldırıldı (liste arama kutusuna bağlılık
+  çözüldü) → `models={view.visible}`; seçim davranışı panelin kendi aramasıyla.
+
+### D. Extras cap 200 uyarısı
+
+- `pushExtra`'ya **ilk kırpma** tespiti: `extrasCountRef` (pushExtra içinde
+  senkron sayaç — aynı tick'teki 1000 satırlık komut döngüsünde bile doğru)
+  + `extrasCappedRef` (oturum başına tek uyarı; `clearView` sayacı sıfırlar,
+  bayrağı bırakmaz; silinen oturumlarda iki ref de budanır). Uyari satırı
+  `sys` + `extrasCapped` ("/// eskiler görünümden atıldı · /export ile yedekle").
+- Karar **updater dışında** alınır (StrictMode'da updater çift çalışır —
+  yan etki saf değil). Komut çıktıları artık tek tek `pushExtra` ile eklenir
+  (cap + uyarı tek yerde yaşar; eski toplu `setExtrasBySession` bloğu kaldırıldı).
+
+### E. i18n + doğrulama
+
+- 2 anahtar × 5 dil: `status.streaming`, `extrasCapped` (parite yeşil).
+- `npm test`: 539/539 geçti · `npm run build` (`tsc --noEmit` + vite) temiz.
+- Elle QA: akışta statusbar rozeti + nabız; ekran okuyucu ile yeni satır
+  duyurusu (oturum değişiminde tüm içerik duyurulabilir — `key` yeniden
+  bağlama); Titlebar/ayarlar model seçimi aynı panel + aynı arama; panel açıkken
+  Esc → yalnız panel kapanır (modal açık kalır); özetleyici "aktif modeli
+  kullan" temizleme satırı; EN/DE/FR/ES `status.streaming` + `extrasCapped`;
+  200+ satırlık komut sonrası cap uyarısı tek sefer görünür.
+
+---
+
+## 2026-10-25 — Klasör Seçme Altyapısı (workspace picker + doğrulama + UI giriş noktaları)
+
+> Kullanıcı talebi: "AI modelinin çalışabilmesi için proje klasörü seçme altyapısı ekle".
+> Agent motoru (fs/shell/patch tool'ları + onaylar) zaten vardı; bu iş, klasörün
+> güvenli ve kullanışlı **seçilmesini** sağlar — önceden `/root <mutlak-yol>`
+> doğrulamasız elle yazımı tek yöntemdi.
+
+### A. Yerel klasör diyaloğu (Rust + JS plugin)
+
+- **`src-tauri/Cargo.toml`** → `tauri-plugin-dialog = "2"` (2.8.3 — JS paketiyle aynı sürüm).
+- **`src-tauri/src/lib.rs`** → `.plugin(tauri_plugin_dialog::init())` (tek satır; diğer Rust kodu yok).
+- **`src-tauri/capabilities/default.json`** → `dialog:default` izni.
+- **`package.json`** → `@tauri-apps/plugin-dialog` ^2.8.3.
+- CSP değişikliği gerekmez (diyalog native; Linux'ta xdg portal hazır).
+
+### B. Çekirdek katman — `src/lib/workspace.ts` (yeni) + `workspace.test.ts`
+
+- Saf fonksiyonlar: `normalizeRoot` (trim + `\`→`/` + sondaki ayraç), `labelOfRoot`,
+  `rootForbidCode` (reddetme kodları: `empty|relative|root|home|sensitive` — dosya
+  sistemi kökleri [`/`, `C:`], sistem dizinleri [`/etc`, `C:/Windows`…], home bütünü
+  [/home/x · /Users/x · C:/Users/x], hassas adlar [.ssh/.gnupg/.aws/AppData…]
+  derin bileşende bile). `node_modules/.git` gibi blocks.json adları bilinçli
+  olarak bulaşmaz — bu adlı meşru proje klasörleri kabul edilir.
+- `rootForbidKey` → i18n anahtarı (`workspace.forbid.*`); `validateRootInput`
+  → `{ok:true, root, label}` | `{ok:false, key}` (`key`: `TranslationKey`-tiple).
+- `checkRootExists` → mevcut Rust `list_dir` jail komutu üzerinden varlık/dizinlik
+  kontrolü (yeni Rust komutu eklenmedi; tek doğruluk kaynağı jail). Tarayıcı-dev'de kontrolsüz geçer.
+- `pickWorkspaceFolder` → `dialog.open({directory:true})` köprüsü; Tauri dışında `null`.
+- `src/lib/workspace.test.ts` (yeni): saf katman + `pushRecent` için 13 test.
+
+### C. `/root` komut katmanı — `App.tsx` (tek yol: `applyRoot` + `runRootCommand`)
+
+- **Argümansız `/root`:** Tauri'de yerel diyaloğu açar; seçilince doğrulama+apply,
+  iptalde mevcut workspace bilgisini gösterir. Tarayıcı-dev'de eski usage/bilgi davranışı.
+- **`/root <yol>`:** artık aynı doğrulamadan geçer — hata seçim anında düşer
+  (`✗ klasör bulunamadı`, `✗ hassas dizin…` — eskiden ilk agent turunda patlıyordu).
+- **`/root off`** (yeni): `clearWorkspace()` (store'da ölü aksiyondu) + bilgi satırı.
+- **`/root 1..5`** (yeni): son klasörlerden hızlı geçiş.
+- **Boot kontrolü** (yeni): persist edilmiş kök artık yoksa `!` uyarı satırı
+  (`workspaceNotFound`) — otomatik silme yok, kullanıcı karar verir.
+- Tekilleştirme: eski `App.tsx` label/split kopyaları → `labelOfRoot` tek kaynak.
+
+### D. UI giriş noktaları
+
+- **`Titlebar.tsx`:** pasif `workspace-chip` span → buton + açılır **workspace menüsü**
+  (Klasör seç… / Son klasörler [son 5, ✕ listeden sil] / Workspace'i kaldır).
+  `dropdown-backdrop` + Esc kapatma + model menüsüyle karşılıklı dışlama.
+- **`StatusBar.tsx`:** klasör rozeti `span(clickable)` → gerçek buton
+  (tıkla → diyalog; mevcut `btn-reset` sınıfı).
+- **`Terminal.tsx` + `Welcome.tsx`:** boş oturumda workspace yoksa
+  "Agent modu için proje klasörü seç · /root" butonu (prop zinciriyle `/root` yoluna bağlı).
+- **CSS:** `shell.css` → `.ws-menu*` bloğu + chip hover/open durumu; `message.css` → `.welcome-hint`.
+
+### E. Recents — `store/workspace.ts`
+
+- `recent: WorkspaceRecentEntry[]` (max 5, `pushRecent` saf: başa alma + dedupe + cap).
+- `removeRecent` / `removeRecentAll` aksiyonları. Persist anahtarı değişmedi
+  (`macrocode-workspace`) — eski kullanıcıda `recent` boş başlar.
+
+### F. i18n (5 dil — tr kaynak)
+
+- Yeni: `workspace.pick/recents/recentsNone/remove/removeRecent`
+  + `workspace.forbid.{empty,relative,root,home,sensitive}`,
+  `commands.workspaceNotFound/workspaceCleared/workspaceRecentEmpty`,
+  `titlebar.workspaceMenu`, `status.workspaceTitle`, `welcome.agentHint`.
+- Güncellendi: `commands.help.root` + `commands.rootUsage` (yeni kullanım metinleri).
+
+### G. Doğrulama
+
+- `npm test` → **515 passed** (66 dosya; 13 yeni workspace testi dâhil).
+- `npm run build` → `tsc --noEmit` + vite ✓.
+- `cargo check` → tauri-plugin-dialog 2.8.3 + rfd 0.16.1 ✓.
+- Kapsam dışı (bilinçli): sandbox jail/policy/onaylar **dokunulmadı** — bu iş sadece
+  seçim sürecini sağlamlaştırır.
 
 ---
 

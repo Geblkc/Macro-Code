@@ -121,6 +121,7 @@
 }
 
 .titlebar-right {
+  position: relative;
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -142,6 +143,14 @@
   color: var(--text-secondary);
   background: var(--bg-inset);
   white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+
+.workspace-chip:hover,
+.workspace-chip.open {
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
 /* Model rozeti (pill) */
@@ -187,6 +196,81 @@
 
 .dropdown-backdrop { position: fixed; inset: 0; z-index: 200; }
 
+/* ── Workspace menüsü (klasör seçme altyapısı) ── */
+
+.ws-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 201;
+  min-width: 300px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+  overflow: hidden;
+  animation: dd-in var(--dur-2) var(--ease-out);
+}
+
+.ws-menu-title {
+  padding: 7px 12px 5px;
+  font-size: var(--fs-2xs, 10px);
+  font-family: var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+
+.ws-menu-row { display: flex; align-items: stretch; }
+
+.ws-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws-menu-item:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.04)); }
+.ws-menu-item.danger { color: var(--col-err); }
+.ws-menu-item.danger:hover { background: rgba(248, 113, 113, 0.08); }
+
+.ws-menu-label { flex-shrink: 0; }
+.ws-menu-path {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* yol uzunsa sondaki (en yakın) kısmı göster */
+}
+
+.ws-menu-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.ws-menu-x:hover { color: var(--col-err); }
+
+/* ── Model dropdown ── */
 .model-dropdown {
   position: fixed;
   z-index: 201;
@@ -230,6 +314,40 @@
   font-size: var(--fs-sm);
 }
 .model-search::placeholder { color: var(--text-tertiary); }
+
+/* ── Faz 7: form alanındaki model seçici (ModelPicker) + alan içi panel ── */
+
+.model-field { position: relative; }
+
+.model-field-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+}
+.model-field-btn .mval {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-field-btn.empty .mval { color: var(--text-tertiary); }
+.model-field-btn:hover { border-color: var(--accent); }
+
+.model-dropdown.anchor-field {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  width: 100%;
+  min-width: 320px;
+  max-width: 440px;
+  max-height: 380px;
+}
 
 .model-dropdown-list { overflow-y: auto; padding: var(--sp-2); }
 
@@ -439,6 +557,23 @@
 }
 .session-item.active .session-name { color: var(--text-primary); font-weight: 500; }
 
+/* Satır içi yeniden adlandırma (Faz 3) */
+.session-rename {
+  display: block;
+  width: 100%;
+  padding: 1px 6px;
+  background: var(--bg-inset);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+  box-shadow: var(--ring, 0 0 0 3px var(--ring-color));
+}
+.session-item.editing { cursor: default; }
+.session-item.editing .session-actions { opacity: 1; }
+
 .session-meta {
   display: flex;
   align-items: center;
@@ -561,6 +696,20 @@
   overflow: hidden;
 }
 
+/* Faz 7: streaming rozeti (nabız atan nokta) */
+.stream-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: stream-pulse 1.2s ease-in-out infinite;
+}
+@keyframes stream-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
 .sb-item {
   display: flex;
   align-items: center;
@@ -609,7 +758,92 @@
   flex-shrink: 0;
 }
 
-.inputbar-inner { max-width: var(--measure); margin: 0 auto; }
+.inputbar-inner { max-width: var(--measure); margin: 0 auto; position: relative; }
+
+/* ── Faz 5: sürükle-bırak görsel bırakma ── */
+
+.inputbar-inner.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+  border-radius: var(--r-md);
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: var(--bg-panel);
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-md);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* ── Slash komut önerisi (inputbar üstünde, terminal menu desenli) ── */
+
+.cmd-menu {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 340px);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  animation: cmd-in var(--dur-2) var(--ease-out);
+}
+
+@keyframes cmd-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.cmd-menu-list { overflow-y: auto; padding: var(--sp-2); scrollbar-width: thin; }
+
+.cmd-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.cmd-item.active { background: var(--bg-overlay); color: var(--text-primary); }
+
+.cmd-name { color: var(--accent); font-weight: 600; flex-shrink: 0; }
+
+.cmd-args { color: var(--text-tertiary); font-size: var(--fs-xs); flex-shrink: 0; }
+
+.cmd-desc {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+}
+
+.cmd-menu-foot {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
 
 .input-row {
   display: flex;

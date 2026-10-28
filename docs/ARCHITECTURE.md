@@ -3,9 +3,43 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-21 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-10-27 · Sürüm: `0.1.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
 > **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
+> **Klasör seçme altyapısı** eklendi: `tauri-plugin-dialog` ile yerel klasör diyaloğu
+> (argümansız `/root`), yol doğrulama+normalize katmanı (`lib/workspace.ts`),
+> Titlebar workspace menüsü (son klasörler/Son 5 off), StatusBar rozet tıklaması,
+> Welcome agent ipucu ve boot'ta eksik kök uyarısı.
+> **Slash komut otomatik tamamlama** eklendi: `COMMAND_SPECS` tek kaynak komut tablosu
+> (22 komut + `commands.desc.*` kısa açıklamalar), inputbar `/` öneri menüsü
+> (↑↓ gez · Tab tamamla · Enter gönder · Esc kapat; zorunlu argümanlı komutlarda
+> Enter yalnız tamamlar), `/help` çıktısı tablodan üretilir — bkz. `lib/commands.ts`.
+> **Kopyalama + konuşma içi arama** eklendi: satır üstü kopyala butonu artık canlı
+> (`onCopy` bağlantılı, toast geri bildirimli), `/copy [md|json]` oturum transkriptini
+> panoya yazar, `Ctrl+F` ile satır bazlı arama (vurgu + tur navigasyonu + kapanınca
+> giriş alanına odak) — bkz. `lib/search.ts`, `lib/clipboard.ts`, `hooks/useCopy.ts`.
+> **Oturum yönetimi** eklendi: satır içi yeniden adlandırma (çift tık veya kalem
+> butonu; Enter kaydet · Esc iptal), onaylı oturum silme (genel `ConfirmDialog` —
+> `SettingsModal`'dan `components/`'a taşındı, App kökünde tek instance),
+> giriş geçmişi localStorage persist (`macrocode-keyhistory`, son 50; `/reset`
+> temizler) ve global kısayollar `Ctrl+N` (yeni oturum) + `Ctrl+Tab` /
+> `Ctrl+Shift+Tab` (oturum gezinmesi; ayarlar modalı açıkken pasif).
+> **Performans + dilbilgisi** eklendi: streaming markdown render throttle
+> (~50ms trailing-edge, `MessageLine`), IME `isComposing` guard'ı (input +
+> global kısayollar + Ctrl+F), `Ctrl+C` akış iptali (seçim varken kopyalamaya
+> bırakılır), hata satırlarında "tekrar dene" (`ExtraLine.retry` →
+> `handleSendRef`), `useAgent.ts`/`markdown.ts` sabit Türkçe metinleri i18n'e
+> taşındı (10 yeni anahtar × 5 dil). **Görsel giriş sürtünmesi** azaltıldı:
+> panodan `Ctrl+V` yapıştırma ve inputbar'a sürükle-bırak görsel ekleme tek
+> `attachImages` hattından geçer (max 4 · `image/*` · ≤1568px JPEG); sürükleme
+> `.dropping` kesikli vurgu + `drop-hint` (`input.dropHint`) ile işaretlenir,
+> streaming'de buton gizliyken paste/drop da yok sayılır. **Gösterim & polish
+> (Faz 7)** eklendi: StatusBar'da streaming rozeti (nabız atan nokta +
+> `status.streaming`), Terminal `.terminal-view` `role="log" aria-live="polite"`
+> (yeni satırlar duyurulur), model dropdown'ı `ModelDropdown.tsx` olarak ortak
+> bileşene çıkarıldı (Titlebar pill + `ModelPicker` + ChatTab özetleyici aynı
+> paneli kullanır; Esc yalnız paneli kapatır) ve extras cap 200'ün ilk
+> kırılmasında oturum başına tek `extrasCapped` sys satırı uyarısı.
 
 ---
 
@@ -71,7 +105,7 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 | Keystore + settings | 7 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
 | Provider katmanı | 7 sağlayıcı SSE streaming, registry + capability lookup |
 | Model kataloğu | `docs/MODELS.md` — registry listesi (27 model) + models.dev eşleşmesi |
-| Slash komutları + streaming hook | 15 komut + `/export` varyantları, abort + usage kaydı |
+| Slash komutları + streaming hook | 22 komut (`COMMAND_SPECS` tek kaynak + inputbar öneri menüsü) + `/export` varyantları, abort + usage kaydı |
 | Terminal UI | Markdown render, boot sequence, SQLite persist (debounce) |
 | Rust proxy | `stream_anthropic` (tool-use + vision + thinking, saf proxy) |
 | Agent motoru | `createAgentRun` (maxSteps 8, duraklatılabilir) + workspace fs/patch/shell tool'ları + skills + `subagent` aracı |
@@ -102,6 +136,9 @@ Build:            Vite + tauri-cli (tauri-bundler)
 | `test` | `vitest run` | Engine + providers + commands testleri |
 | `test:watch` | `vitest` | İzleme modu |
 | `tauri` | `tauri` | `npm run tauri dev` / `build` |
+| `dist:linux` | `bash scripts/build-linux.sh` | Linux paketleri (deb+rpm+AppImage) → `bundles/` |
+| `dist:deb` / `dist:rpm` / `dist:appimage` | `bash scripts/build-linux.sh --bundles …` | Tekil Linux paketi |
+| `release` | `bash scripts/release.sh` | Versiyon bump + tag + push → CI tüm paketleri üretir |
 
 ### Bağımlılıklar
 
@@ -140,7 +177,16 @@ MacroCode/
 ├── docs/
 │   ├── ARCHITECTURE.md          ← BU BELGE (güncel mimari)
 │   ├── MODELS.md                ← model kataloğu
+│   ├── PACKAGING.md             ← dağıtım rehberi (deb/rpm/AppImage/Windows)
 │   └── DEVLOG.md                ← tarihli işlem kayıtları
+├── scripts/                     # betikler
+│   ├── build-linux.sh           # Linux paketleri (deb/rpm/AppImage) → bundles/
+│   ├── release.sh               # versiyon bump + tag + push → CI tüm paketleri üretir
+│   └── smoke-test.sh            # gerçek uygulama smoke testi (Faz 10)
+├── .github/workflows/
+│   ├── ci.yml                   # PR/push: tsc+vitest+build+fmt+clippy+cargo test + smoke
+│   └── release.yml              # v* tag: Linux (deb/rpm/AppImage) + Windows (NSIS/msi) → GitHub Release
+├── bundles/                     # dağıtım çıktıları (git ignored)
 ├── README.md                    # Kurulum / build / kalıcılık notları
 ├── index.html                   # HTML girişi — JetBrains Mono font linki, favicon (/macrocode-logo.svg), lang="tr"
 ├── public/macrocode-logo.svg     # favicon (src-tauri/icons kaynağının kopyası, Vite root'tan servis edilir)
@@ -159,23 +205,25 @@ MacroCode/
 │   ├── store/
 │   │   ├── session.ts           # Zustand: sessions/activeSessionId/isStreaming + persist (+ updateSessionModel/setMessageUsage)
 │   │   ├── settings.ts          # Zustand: apiKeys/model/systemPrompt/fontSize/keyStatus (+ providerNeedsKey, isTauri re-export)
-│   │   └── workspace.ts         # Zustand: root/label/approvalMode persist (agent modu)
+│   │   └── workspace.ts         # Zustand: root/label/approvalMode/recent persist (agent modu; pushRecent saf)
 │   ├── hooks/
 │   │   ├── useStream.ts         # AI mesaj gönderimi (stream + abort + hata yönetimi + usage kaydı)
 │   │   ├── useAgent.ts          # Agent'lı gönderim (createAgentRun + tool eventleri + repo bağlamı)
-│   │   ├── useKeyHistory.ts     # ↑↓ komut geçmişi (50 öğe, saf fonksiyonlar + hook)
+│   │   ├── useKeyHistory.ts     # ↑↓ komut geçmişi (50 öğe, saf fonksiyonlar + hook) · localStorage persist · resetKeyHistory (/reset)
+│   │   ├── useCopy.ts           # pano kopyalama + toast geri bildirimi (Terminal satırı / komutlar)
 │   │   └── useFocusTrap.ts      # Modal odak döngüsü + açılış odaklaması (Faz 13)
 │   ├── lib/
+│   │   ├── workspace.ts          # Klasör seçme altyapısı: normalize/label/forbidden (saf) + dialog.open köprüsü + list_dir varlık kontrolü
 │   │   └── tabNav.ts            # Sekme/alt-seme klavye navigasyonu (nextTabIndex) — Faz 13
 │   ├── components/
-│   │   ├── Titlebar.tsx         # Traffic lights, orta başlık, logo + model badge + dropdown
-│   │   ├── Sidebar.tsx          # Session listesi + footer butonları + JSON import/export
+│   │   ├── Titlebar.tsx         # Traffic lights, orta başlık, logo + model badge (panel → ModelDropdown)
+│   │   ├── ModelDropdown.tsx    # Ortak model paneli: arama + gruplama + kilitli satır + klavye (Faz 7)
+│   │   ├── Sidebar.tsx          # Session listesi (yeniden adlandırma + onaylı silme) + footer butonları + JSON import/export
 │   │   ├── Terminal.tsx         # Mesaj görünümü, scroll stick, clearedBefore, thumbnail
 │   │   ├── MessageLine.tsx      # Tek satır: prefix, markdown render, thinking/cursor, reasoning dim blok
-│   │   ├── InputBar.tsx         # ❯ input, [SEND]/[DUR], [IMG] görsel ekleme, kısayollar, meta bar
+│   │   ├── InputBar.tsx         # ❯ input, [SEND]/[DUR], [IMG] görsel ekleme, '/' öneri menüsü, kısayollar, meta bar
 │   │   ├── Segmented.tsx        # Alt sekme kontrolü (segmented) — Faz 13
-│   │   └── SettingsModal/       # Sekmeli ayarlar: index (kabuk+draft+Kaydet) + types + 7 sekme
-│   │       ├── ConfirmDialog.tsx # Kaydedilmemiş değişiklik onayı (Faz 13)
+│   │   ├── SettingsModal/       # Sekmeli ayarlar: index (kabuk+draft+Kaydet) + types + 7 sekme
 │   │       ├── modelList.ts      # Ortak model listesi mantığı (görünürlük + süzgeç) — Faz 13
 │   │       ├── ProvidersTab.tsx # Maskeli anahtarlar, test et, özel URL, özel uçlar, Ollama keşfi
 │   │       ├── ModelsTab.tsx    # Alt sekmeler: Liste │ Katalog & keşif │ Elle ekle
@@ -183,6 +231,7 @@ MacroCode/
 │   │       ├── ChatTab.tsx      # System prompt + özetleyici model + düşünme/cache + shell allowlist
 │   │       ├── AppearanceTab.tsx # Görünüm (font/kontrast/saat/zaman damgası) + Dil
 │   │       └── AboutTab.tsx     # Logo, sürüm, lisans, gizlilik notu
+│   │   └── ConfirmDialog.tsx    # Genel onay kutusu (ayarlar + oturum silme; App kökü tek instance)
 │   ├── lib/
 │   │   ├── i18n/                # Çoklu dil motoru (sıfır bağımlılık) — §18
 │   │   │   ├── index.ts         # genel API (t/useT/setLocale/...)
@@ -193,12 +242,14 @@ MacroCode/
 │   │   ├── tauri.ts             # Tek isTauri() tanımı (tüm modüller buradan import eder)
 │   │   ├── logger.ts            # Faz 10: log kanalı (halka arabellek + redaksiyon) · `/log` komutu
 │   │   ├── toast.ts             # Faz 13: kısa bildirim kanalı (showToast/toast.*) — sıfır bağımlılık
+│   │   ├── clipboard.ts         # pano kopyalama tek kaynağı (clipboard API + textarea fallback)
 │   │   ├── appInfo.ts           # Faz 13: sürüm/kaynak bağlantısı (package.json'dan gömülür)
 │   │   ├── db.ts                # SQLite oku/yaz + debounce persister + model migration + sqlError (Faz 7 A1)
 │   │   ├── tauri-config.test.ts # capability/migration sözleşme koruması (Faz 7 A1)
-│   │   ├── commands.ts          # /slash komut işleyici + /export(md|json) + /backup + /tokens(gerçek+yaklaşık+maliyet) + backup parse/build
+│   │   ├── commands.ts          # COMMAND_SPECS tek kaynak + filterCommands + /slash komut işleyici + /export(md|json) + /backup + /tokens(gerçek+yaklaşık+maliyet) + backup parse/build
 │   │   ├── pricing.ts           # costForMessage/formatCost/sessionCost (1M token/USD birimi)
 │   │   ├── markdown.ts          # Blok + satır içi markdown tokenizer + güvenli DOM render
+│   │   ├── search.ts            # konuşma içi arama (saf): findHits satır bazlı + stepHit tur gezinmesi
 │   │   ├── engine/              # UI'dan bağımsız motor (vitest'li)
 │   │   │   ├── agent.ts         # createAgentRun (maxSteps 8, onay-bekleyenlerde durur) + buildAgentHistory
 │   │   │   ├── context.ts       # ignore/secret/budget/prioritize + summarizeWorkspace
@@ -249,11 +300,11 @@ MacroCode/
     ├── Cargo.toml
     ├── build.rs
     ├── tauri.conf.json          # Pencere, bundle, plugin config, kısıtlı CSP
-    ├── capabilities/default.json# core/store/sql :default izinleri (shell YOK)
+    ├── capabilities/default.json# core/store/sql :default + dialog:default izinleri (shell YOK)
     ├── icons/                   # macrocode-logo.svg (kaynak) + üretilmiş: 32x32.png, 128x128.png, icon.ico, icon.icns
     └── src/
         ├── main.rs              # fn main() { macrocode_lib::run() }
-        ├── lib.rs               # Tauri Builder: pluginler + invoke_handler (keystore + stream_anthropic + fs/exec/mcp) + McpState + exit hook
+        ├── lib.rs               # Tauri Builder: pluginler (store/sql/**dialog**) + invoke_handler (keystore + stream_anthropic + fs/exec/mcp) + McpState + exit hook
         └── commands/
             ├── mod.rs           # pub mod keystore/stream/fs/exec/mcp/paths + re-export'lar
             ├── keystore.rs      # set/get/delete_api_key, key_status, has_any_key, key_hint (7 + custom_*)
@@ -355,7 +406,8 @@ type ExtraLine = TerminalLine & { ts: number };
   sahipsiz sonuç user mesajına çevrilir).
 - **Geçici katman:** `App` içindeki `extrasBySession: Record<sessionId, ExtraLine[]>`
   (boot satırları, komut çıktıları, hatalar, tool_call/tool_result) → **saklanmaz**, sadece görünür.
-  Session başına 200 satırla cap'lenir.
+  Session başına 200 satırla cap'lenir; **ilk kırpma anında** oturum başına tek
+  `extrasCapped` sys satırı eklenir (`extrasCountRef`/`extrasCappedRef` — Faz 7).
 - **Temizleme:** `clearedBefore: Record<sessionId, number>` → `/clear` veya ✕ clear,
   mesajların `timestamp >= clearedBefore` olanları gösterilir (veri silinmez!).
 
@@ -385,6 +437,7 @@ interface SessionStore {
 
   createSession(): Session;
   deleteSession(id): void;
+  renameSession(id, name): void;   // Faz 3: boş ad yok sayılır, 60 karakterde kesilir
   setActiveSession(id): void;
   addMessage(sessionId, message): void;
   updateLastMessage(sessionId, content): void;   // streaming delta
@@ -508,9 +561,20 @@ partialize: (s) => isTauri()
 
 ### 5.3 `store/workspace.ts` → `useWorkspaceStore`
 
-- `root/label/approvalMode` tutar, persist `macrocode-workspace`.
+- `root/label/approvalMode/recent` tutar, persist `macrocode-workspace`
+  (`recent`: son 5 klasör — `WorkspaceRecentEntry {root, label}`, secret içermez).
 - `root` doluysa normal chat yerine agent yolu çalışır (`useAgent`).
-- `/root` ile set/göster, `/files` ile listele.
+- `/root` ile seç (argümansız = Tauri'de **yerel klasör diyaloğu**; `off` = kaldır,
+  `1..5` = recents geçişi, `<yol>` = elle giriş), `/files` ile listele.
+- Tüm `/root` dalları tek yoldan geçer: `App.tsx → applyRoot()` →
+  `lib/workspace.ts` SAF katmanı (`validateRootInput`: normalize + label +
+  `rootForbidCode` reddetmeleri [boş/bağıl/kök/sistem/home/hassas dizin]) →
+  `checkRootExists()` (Rust `list_dir` jail'i üzerinden varlık kontrolü) →
+  `setWorkspace()` (`store/workspace.ts`, `pushRecent` saf güncelleme).
+- UI giriş noktaları: Titlebar `workspace-chip` (açılır menü: seç / son klasörler
+  / kaldır), StatusBar klasör rozeti (tıkla → diyalog), Welcome agent ipucu.
+- Boot'ta persist edilmiş kök artık yoksa `!` uyarı satırı düşer
+  (otomatik silme yok — kullanıcı karar verir).
 
 ---
 
@@ -825,7 +889,7 @@ const { sendAgent } = useAgent();
 | `/export json` / `/backup` | JSON yedek indirir |
 | `/tokens` | Gerçek usage varsa gerçek, yoksa karakter/4 approx; fiyat varsa `· maliyet ~$X` (kısmi fiyatta not) |
 | `/system <text>` | System prompt günceller |
-| `/root` `/files` `/apply` `/undo` `/skill` `/compact` `/audit` `/approval` `/note` `/context` | `/root`/`/files`/`/skill`/`/compact`/`/audit [n]`/`/approval [m]` `App.tsx handleSend`'de; `/apply` aktif run varsa `resolve` yolundan devam eder, yoksa doğrudan `applyPendingPatch` (kalıcı `pending_approvals` + bellek `PendingPatch`). **Faz 8 L7:** `/approval manual\|auto-read\|auto-edit` onay modunu değiştirir (`auto-edit` seçilirse uyarı satırı düşer). **Faz 9:** `/note <not>` kalıcı proje notu ekler, `/context` repo bağlamını gösterir. |
+| `/root` `/files` `/apply` `/undo` `/skill` `/compact` `/audit` `/approval` `/note` `/context` | `/root` (argümansız=klasör diyaloğu · `off` · `1..5` · `<yol>` — hepsi `applyRoot` tek yolundan: SAF doğrulama → Rust `list_dir` varlık → `setWorkspace`) `/files`/`/skill`/`/compact`/`/audit [n]`/`/approval [m]` `App.tsx handleSend`'de; `/apply` aktif run varsa `resolve` yolundan devam eder, yoksa doğrudan `applyPendingPatch` (kalıcı `pending_approvals` + bellek `PendingPatch`). **Faz 8 L7:** `/approval manual\|auto-read\|auto-edit` onay modunu değiştirir (`auto-edit` seçilirse uyarı satırı düşer). **Faz 9:** `/note <not>` kalıcı proje notu ekler, `/context` repo bağlamını gösterir. |
 | bilinmeyen | `✗ bilinmeyen komut · /help ile listeye bak` |
 
 **Yardımcılar:** `approxTokens` (karakter/4), `realTokens`, `formatTokenCount` (k kısaltması),
@@ -903,8 +967,15 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- Yerel state: `settingsOpen`, `extrasBySession` (cap 200), `clearedBefore`,
-  `pendingBySession`.
+- Yerel state: `settingsOpen`, `extrasBySession` (cap 200 + ilk kırpma
+  `extrasCapped` satırı), `clearedBefore`, `pendingBySession`.
+- **Global kısayollar (pencere `keydown`, Faz 4):** `Ctrl+N` yeni oturum ·
+  `Ctrl+Tab` / `Ctrl+Shift+Tab` oturum gezinmesi · `Ctrl+C` **yalnız seçim yokken**
+  ve akış sürüyorsa iptal (seçim varsa normal kopyalamaya bırakılır). Hepsi
+  `e.isComposing` ile IME'ye kapalı; ayarlar modalı açıkken pasif.
+- **Genel onay + hata tekrarı (Faz 3/4):** `confirmState` → kökte tek
+  `ConfirmDialog` (Sidebar oturum silme); `pushExtra(err, retry)` →
+  `handleSendRef` ile aynı girdiyi yeniden gönderir ("tekrar dene").
 - SQLite yansıtma: store `subscribe` → `persister.schedule(...)`; cleanup'ta `flush()`.
 - Silinen session'ların `extras/clearedBefore/pending` kayıtları budanır.
 - Görünüm tercihleri `<html>` niteliklerine yazılır: `data-contrast`, `data-uifont`.
@@ -917,11 +988,16 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 - **Sol hizalı kimlik kümesi**: logo (18px) + "MacroCode" + oturum adı (ellipsis).
   Gerçek "ortalanmış başlık" dar pencerede model rozetiyle çarpışıyordu.
 - Pencere düğmeleri platforma göre: macOS traffic light · Windows/Linux kare glifler.
-- Workspace rozeti (yalnız `/root` ayarlıysa).
+- Workspace rozeti (yalnız `/root` ayarlıysa) — tıklanınca klasör diyaloğu
+  açılır (`App.tsx → runRootCommand('')`); ayrıca açılır **workspace menüsü**:
+  seç / son 5 klasör (tıkla → `/root <n>` yolu) / workspace'i kaldır (`off`).
 - **Model rozeti (pill)**: durum noktası + **görünür ad** (`Claude Opus 5.5`) + sağlayıcı
   + chevron. Ham model id'si gösterilmez.
-- Açılır liste: arama kutusu + sağlayıcı grupları + **klavye navigasyonu**
-  (↑↓ Home End Enter Esc, `aria-selected`) + yetenek ikonları (🛠/👁/🧠 → SVG).
+- **Açılır liste (Faz 7 → `ModelDropdown.tsx` ortak paneli)**: arama kutusu +
+  sağlayıcı grupları + **klavye navigasyonu** (↑↓ Home End Enter Esc,
+  `aria-selected`) + yetenek ikonları (🛠/👁/🧠 → SVG) + "anahtar ekle" satırı.
+  Panel `ModelPicker` ile paylaşılır; Esc yalnız paneli kapatır (React
+  baloncuğu `stopPropagation` — modalı kapatmaz), ok tuşları panel dışına sızmaz.
 
 ### 11.3 `Sidebar.tsx`
 
@@ -929,7 +1005,11 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 - Başlık: "OTURUMLAR" + adet çipi + `+` (yeni oturum artık tepede).
 - Arama kutusu (her zaman görünür).
 - Oturumlar **zaman gruplarına** ayrılır: Bugün / Dün / Bu Hafta / Daha Eski.
-- Satır: ad + sağlayıcı/model + göreli zaman + mesaj sayısı; hover'da sil.
+- Satır: ad + sağlayıcı/model + göreli zaman + mesaj sayısı; hover'da **kalem
+  (yeniden adlandır)** + **çöp kutusu (sil)**. Satır `div role="button"` (içindeki
+  gerçek butonlar geçerli); çift tık veya kalem → satır içi input (Enter kaydet ·
+  Esc iptal · blur commit; açılışta ad seçili). Silme → App kökündeki genel
+  `ConfirmDialog` (danger + odak iptalde).
 - Footer: yeni oturum · ayarlar · 4 ikon butonu (temizle, dışa aktar, içe aktar, daralt).
 
 ### 11.4 `Terminal.tsx`
@@ -940,6 +1020,17 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 - Araç çağrıları **id ile eşleştirilir** (çağrı + sonuç tek kartta birleşir).
 - Boş oturum → `<Welcome />` (logo + ürün adı).
 - Otomatik scroll (120px stick eşiği) + "yeni mesaj" butonu.
+- **aria-live (Faz 7):** `.terminal-view` → `role="log" aria-live="polite"`
+  `aria-relevant="additions"` — ekran okuyucu yalnız yeni satırları duyurur
+  (akış metin değişimi sessiz); streaming caret `aria-hidden`.
+- **Konuşma içi arama (Ctrl+F):** saf motor `lib/search.ts` (`findHits` satır bazlı,
+  `stepHit` tur gezinmesi). Üstte `.term-search` çubuğu: `aria-live` sayaç
+  (`2 / 5`), `Enter`/`Shift+Enter` gezinme, `Esc`/✕ kapatır **ve giriş alanına odak
+  döner** (`InputBar.focusRef`). Eşleşen satır `match-hit`, aktif eşleşme
+  `match-current` (accent kenarlık); `data-line-key` çapası + `scrollIntoView`
+  ortalama; streaming yapışması (`stickRef`) aramada kapatılır. Eşleşme araması O(1)
+  `hitMap`. Ayarlar modalı açıkken devre dışı (`searchEnabled`); oturum değişince kapanır.
+  Satır kopyalama: `useCopy()` → `onCopy` her `MessageLine`'a bağlı (toast `message.copyOk`).
 
 ### 11.5 `MessageLine.tsx`
 
@@ -948,7 +1039,15 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 - `///` · `✗` · `!` işaretleri içerikten **gutter'a taşınır** (çift işaret olmaz).
 - AI mesajı sol ray (`--accent-line`) ile ayrışır — kart değil (akış "belge" hissi).
 - Reasoning: `<details>` bloğu + canlı düşünüyor göstergesi (3 nokta nabız).
-- Streaming caret (accent, glow'lu) + hover'da kopyala eylemi.
+- Streaming caret (accent, glow'lu) + satır üstünde kopyala butonu (`onCopy` prop'u
+  Terminal'den gelir; başarısızlıkta `message.copyFail` toast).
+- `className` / `dataLineKey` prop'ları: arama vurgusu (`match-hit` / `match-current`)
+  + DOM çapası (`data-line-key`) — memo karşılaştırması bunları da kapsar.
+- **Stream throttle (Faz 4):** streaming sırasında markdown render trailing-edge
+  ~50ms'de bir (`STREAM_RENDER_MS`); her delta'da tam parse yok, akış bitince
+  içerik anlık senkronlanır (`isStreaming` etkisi).
+- **"tekrar dene" (Faz 4):** `err` satırlarında `onRetry` butonu (`message.retry` +
+  `refresh` ikonu, `.retry-btn`) — `App.handleSendRef` aynı girdiyi yeniden gönderir.
 - `React.memo` + içerik/karşılaştırması → tamamlanmış mesajlar yeniden render edilmez.
 
 ### 11.6 `InputBar.tsx`
@@ -956,11 +1055,34 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 - `❯` + textarea + `[Gönder]`/`[Dur]` + görsel ekleme (canvas 1568px JPEG, max 4).
 - **Odak halkası**: satır kutusu focus'ta accent kenarlık + 3px halka.
 - `Enter` gönder · `↑/↓` geçmiş · `Ctrl+L` temizle. Meta bar: kısayollar + karakter/token.
+- **IME guard (Faz 4):** `e.nativeEvent.isComposing` ise tüm tuşlar yok sayılır
+  (Enter göndermez, ↑↓ geçmişi çağırmaz — Japonca/Çince/Korece bestesi bozulmaz).
+- **Slash öneri menüsü** (`lib/commands.ts` → `filterCommands`, `.cmd-menu`): tek satırlık
+  `/<komut>` yazımında inputbar üstünde açılır (boşluk = argüman aşaması). `↑↓` gezin ·
+  `Tab`/`→` (imleç sonda) tamamla · `Enter` gönderir — zorunlu argümanlı komutlarda
+  (`/provider`, `/note`) yalnız tamamlar ve imleç argümana geçer · `Esc` kapatır.
+  Onay kartı kısayolları (Enter onay / Esc reddet) popup'tan önce gelir; aktif satır
+  `scrollIntoView` ile görünürde tutulur. `submit()` ham metin override'ı alır
+  (popup Enter birleştirmesi state yarışına girmez).
+- **Tek görsel ekleme hattı (Faz 5):** `attachImages(files: FileList | File[])` —
+  buton dosya seçici, panodan yapıştırma (`onPaste` → `clipboardData.items` içinde
+  `image/*` varsa `preventDefault` + hattı çalıştırır; düz metin varsayılan akar) ve
+  sürükle-bırak (`.inputbar-inner` `onDragEnter/Over/Leave/Drop`) aynı fonksiyonu
+  çağırır: max 4 (odaya göre dilim), yalnız `image/*`, ≤1568px JPEG. Dosya
+  sürüklemede `.dropping` kesikli accent vurgu + `drop-hint` (`input.dropHint`,
+  `role="status"`) görünür; `preventDefault` her koşulda (aksi hâlde webview dosyayı
+  açmaya çalışır), `dragDepthRef` çocuk eleman titremesini engeller. Streaming'de
+  buton gizliyken paste/drop da yok sayılır.
 
 ### 11.7 `useKeyHistory.ts`
 
 - `historyPush`: boş ve art arda tekrar yok sayılır; son 50 öğe.
 - `historyMove`: `up` taslağı saklar, `down` `-1`'de draft'ı geri koyar.
+- **Persist (Faz 3):** `macrocode-keyhistory` localStorage anahtarı — modül
+  düzeyinde tek depo (tek InputBar), ilk erişimde `parseStoredHistory` ile
+  yüklenir (bozuk kayıt → boş geçmiş), `push` yazma anında kalıcı yazar.
+  `resetKeyHistory()` dışa aktarımlıdır ve `/reset` komutuna bağlıdır
+  (session + compaction özetinden sonra giriş geçmişi de temizlenir).
 
 ### 11.8 `SettingsModal/` — sekmeli ayarlar
 
@@ -1045,13 +1167,14 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 | Bileşen | Rol |
 |---|---|
 | `icons.tsx` | 36 ikonluk SVG seti (16px, 1.5 stroke, `currentColor`) — emoji yok |
-| `StatusBar.tsx` | sağlayıcı · model · context ölçer · token ↑↓ · maliyet · bekleyen onay · onay modu · workspace · MCP |
+| `StatusBar.tsx` | sağlayıcı · model · context ölçer · token ↑↓ · maliyet · bekleyen onay · **streaming rozeti (nabız)** · onay modu · workspace (tıkla → klasör diyaloğu) · MCP |
 | `Welcome.tsx` | karşılama ekranı (logo + MacroCode) |
 | `ToolCallCard.tsx` | araç kartı (ikon, ad, argüman, süre, durum, genişletilebilir çıktı) |
 | `ApprovalCard.tsx` | onay kartı (tam komut, uyarı, Onayla/Reddet, "her zaman çalıştır") |
 | `TaskPanel.tsx` | görev checklist paneli |
 | `Switch.tsx` | native checkbox yerine özel anahtar |
-| `ModelPicker.tsx` | arama yapılabilir model seçici (`datalist`) |
+| `ModelPicker.tsx` | arama yapılabilir model seçici — tetikleyici form alanı + ortak `ModelDropdown` paneli (Faz 7) |
+| `ModelDropdown.tsx` | ortak model paneli: arama + sağlayıcı gruplama + yetenek rozetleri + "anahtar ekle" + clear/extra satır + panel içi klavye (Faz 7) |
 | `Segmented.tsx` | alt sekme kontrolü (segmented) — Faz 13 |
 | `Toast.tsx` | kısa bildirim konteyneri (sağ alt) — Faz 13 |
 
@@ -1348,6 +1471,8 @@ npm run dev          # sadece vite (http://localhost:1420, strict)
 npm run tauri dev    # tam masaüstü dev (Rust derlemesi REQUIRED)
 npm run build        # tsc --noEmit + vite build
 npm run tauri build  # platform paketleri
+npm run dist:linux   # Linux dağıtımı: deb + rpm + AppImage → bundles/ (bkz. PACKAGING.md)
+npm run release X.Y.Z  # sürüm bump + tag + push → CI Linux + Windows paketlerini üretir
 npm run test         # vitest run (tek sefer)
 npm run test:watch   # vitest (izleme)
 ```
@@ -1357,7 +1482,8 @@ npm run test:watch   # vitest (izleme)
 **Node (taşınabilir, sudo'suz):** Node v22 LTS tarball'unu `/tmp/opencode/toolchain` altına çıkar,
 `PATH`'e ekle (`export PATH="/tmp/opencode/toolchain/node-v22.23.3-linux-x64/bin:$PATH"`);
 sistem Node'u yoksa `npm run build/test` böyle koşar.
-**Çıktılar** (`bundle.targets: all`): `.exe` setup · `.dmg` · `.deb` + `.AppImage`.
+**Çıktılar** (`bundle.targets: all`): `.exe` (NSIS) · `.msi` · `.deb` + `.rpm` + `.AppImage`
+(bkz. `docs/PACKAGING.md`; Linux çıktıları `bundles/` klasöründe toplanır).
 
 ### Kalıcılık Dosyaları
 
@@ -1371,7 +1497,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 
 ### Git Ignore
 
-`node_modules/`, `dist/`, `src-tauri/target/`, `src-tauri/gen/`, `.DS_Store`, `.env`, `.env.local`
+`node_modules/`, `dist/`, `src-tauri/target/`, `src-tauri/gen/`, `bundles/`, `.DS_Store`, `.env`, `.env.local`
 
 ---
 
@@ -1414,6 +1540,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Log/gözlemlenebilirlik | `lib/logger.ts` (`logInfo/logWarn/logError` + redaksiyon) + `/log` komutu |
 | Proxy sertleştirme | `commands/proxy.rs` (method/header/IP/timeout/boyut kısıtları) + `rustFetch.ts` |
 | CI | `.github/workflows/ci.yml` (tsc+vitest+build+fmt+**clippy**+cargo test) + `scripts/smoke-test.sh` |
+| Dağıtım | `scripts/build-linux.sh` (deb/rpm/AppImage → `bundles/`) + `scripts/release.sh` (tag) + `.github/workflows/release.yml` (Linux+Windows → GitHub Release) + `docs/PACKAGING.md` |
 | Prompt cache | `providers/promptCache.ts` (eşik + işaretleme) + `anthropic.ts` (`cache_control`) + `openaiCompatible.ts` (`prompt_cache_key`) + ayar `cachePrompts` |
 | Kalıcı compaction | `engine/compactionMemo.ts` (memoToPersisted/memoFromPersisted/resolveMemo) + `Session.compaction` + `store/session.ts` (`setCompaction`) |
 | Ajan devamı (run_state) | `engine/agent.ts` (`AgentRunState` + `createAgentRun(..., resume)`) + `engine/approvals.ts` (`runState`) + `useAgent.ts` (`restorePendingRuns`) |
@@ -1421,7 +1548,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Yeni UI metni | `lib/i18n/locales/tr.ts` → anahtar ekle → `en/de/fr/es.ts` aynı anahtarı ekle → bileşende `t()`/`useT()` |
 | Yeni dil | `lib/i18n/types.ts` (`LOCALES`) + `LOCALE_META` + `locales/<dil>.ts` + `core.ts` (`DICTIONARIES`) |
 | Modal odak döngüsü | `hooks/useFocusTrap.ts` (`useFocusTrap`/`cycleFocus`) + bileşende `onKeyDown` |
-| Onay kutusu | `components/SettingsModal/ConfirmDialog.tsx` (Escape/Enter + odak döngüsü) |
+| Onay kutusu | `components/ConfirmDialog.tsx` (Escape/Enter + odak döngüsü; App kökünde tek instance) |
 | Alt sekme (segmented) | `components/Segmented.tsx` + `lib/tabNav.ts` (`nextTabIndex`) |
 | Model listesi filtresi | `SettingsModal/modelList.ts` (`keyedProviders`/`modelView`/`filterModels`) |
 | Toast bildirimi | `lib/toast.ts` (`toast.ok/err/info`) + `components/Toast.tsx` (`ToastHost`) |

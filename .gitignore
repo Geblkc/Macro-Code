@@ -4,6 +4,8 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/
+# dağıtım çıktıları (scripts/build-linux.sh toplar)
+bundles/
 # os
 .DS_Store
 # env

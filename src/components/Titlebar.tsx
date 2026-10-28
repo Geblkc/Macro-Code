@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  PROVIDER_DEFS,
-  getCapabilitiesForModel,
   getModel,
   hasProviderKey,
   hiddenProviders,
@@ -15,7 +13,8 @@ import { isTauri, useSettingsStore } from '../store/settings';
 import { useSessionStore } from '../store/session';
 import { useWorkspaceStore } from '../store/workspace';
 import { useT } from '../lib/i18n';
-import { Icon, type IconName } from './icons';
+import { Icon } from './icons';
+import ModelDropdown from './ModelDropdown';
 
 interface Props {
   sessionName: string;
@@ -23,13 +22,9 @@ interface Props {
   sessionModel?: string;
   /** Ayarları aç (anahtar ekle satırı). */
   onOpenSettings?: () => void;
+  /** /root tek yol: '' = diyalog, 'off', '1..5' (App'te kodlanır). */
+  onRootCommand?: (arg: string) => void;
 }
-
-const CAP_ICONS: { key: 'tools' | 'vision' | 'reasoning'; icon: IconName; labelKey: 'titlebar.capTools' | 'titlebar.capVision' | 'titlebar.capReasoning' }[] = [
-  { key: 'tools', icon: 'wrench', labelKey: 'titlebar.capTools' },
-  { key: 'vision', icon: 'eye', labelKey: 'titlebar.capVision' },
-  { key: 'reasoning', icon: 'spark', labelKey: 'titlebar.capReasoning' },
-];
 
 /** Platform tespiti: macOS'ta traffic light, diğerinde kare düğmeler. */
 function isMac(): boolean {
@@ -43,6 +38,7 @@ export default function Titlebar({
   sessionProvider,
   sessionModel,
   onOpenSettings,
+  onRootCommand,
 }: Props) {
   const t = useT();
   const provider = useSettingsStore((s) => s.currentProvider);
@@ -52,11 +48,10 @@ export default function Titlebar({
   const apiKeys = useSettingsStore((s) => s.apiKeys);
   const workspaceLabel = useWorkspaceStore((s) => s.label);
   const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const recent = useWorkspaceStore((s) => s.recent ?? []);
+  const removeRecent = useWorkspaceStore((s) => s.removeRecent);
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState(0);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [wsOpen, setWsOpen] = useState(false);
 
   // Rozet aktif KONUSMANIN modelini gosterir (global varsayilani degil).
   const displayProvider = sessionProvider ?? provider;
@@ -66,94 +61,41 @@ export default function Titlebar({
 
   const all = useMemo(() => resolveModels(customModels), [customModels]);
 
-  const groups = useMemo(() => {
-    // Anahtarı olmayan saglayicinin modelleri listelenmez.
-    const visible = visibleModels(all, apiKeys).filter((m) =>
-      isModelEnabled(disabledModels, m.id),
-    );
-    const q = query.trim().toLowerCase();
-    const filtered = q
-      ? visible.filter(
-          (m) =>
-            m.id.toLowerCase().includes(q) ||
-            m.name.toLowerCase().includes(q) ||
-            (m.family ?? '').toLowerCase().includes(q),
-        )
-      : visible;
-    const map = new Map<string, Model[]>();
-    for (const m of filtered) {
-      const list = map.get(m.provider) ?? [];
-      list.push(m);
-      map.set(m.provider, list);
-    }
-    return [...map.entries()];
-  }, [all, apiKeys, disabledModels, query]);
+  // Görünür modeller: anahtarı olmayan sağlayıcının ve devre dışı modellerin
+  // listesi panelde görünmez (süzgeç tüketicide kalır — Faz 7 paneli paylaşır).
+  const visible = useMemo(
+    () =>
+      visibleModels(all, apiKeys).filter((m) => isModelEnabled(disabledModels, m.id)),
+    [all, apiKeys, disabledModels],
+  );
 
   // Anahtari olmayan ama modeli bulunan saglayicilar ("anahtar ekle" satirlari).
   const locked = useMemo(() => hiddenProviders(all, apiKeys), [all, apiKeys]);
 
-  // Düz liste (klavye gezinmesi için).
-  const flat = useMemo(() => groups.flatMap(([, models]) => models), [groups]);
-
-  // Dropdown acilinca arama kutusuna odaklan.
+  // Workspace menüsü: Esc ile kapat; model menüsüyle aynı anda açık kalmasın.
   useEffect(() => {
-    if (open) searchRef.current?.focus();
-    else {
-      setQuery('');
-      setCursor(0);
-    }
-  }, [open]);
-
-  // Klavye ile gezinme: oklar / home / end / enter / esc.
-  useEffect(() => {
-    if (!open) return;
+    if (!wsOpen) return;
+    setOpen(false);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setCursor((c) => Math.min(c + 1, flat.length - 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setCursor((c) => Math.max(c - 1, 0));
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        setCursor(0);
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        setCursor(Math.max(0, flat.length - 1));
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        const m = flat[cursor];
-        if (m) {
-          select(m);
-          return;
-        }
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         e.stopPropagation();
-        setOpen(false);
+        setWsOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, flat, cursor]);
-
-  // Kursor görünür kıldığında listeye kaydır.
-  useEffect(() => {
-    if (!open) return;
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${cursor}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [cursor, open]);
+  }, [wsOpen]);
 
   const select = (m: Model) => {
     const settings = useSettingsStore.getState();
     settings.setProvider(m.provider);
     settings.setModel(m.id);
     // Secim aktif konusmaya da yansir (yoksa rozet ile davranis uyusmazdi).
+    // Panel kapanışını ModelDropdown kendisi yapar (onClose).
     const activeId = useSessionStore.getState().activeSessionId;
     if (activeId) {
       useSessionStore.getState().updateSessionModel(activeId, { provider: m.provider, model: m.id });
     }
-    setOpen(false);
   };
 
   const displayName =
@@ -242,14 +184,63 @@ export default function Titlebar({
 
       <span className="titlebar-right no-drag">
         {workspaceRoot ? (
-          <span
-            className="workspace-chip"
+          <button
+            className={`workspace-chip${wsOpen ? ' open' : ''}`}
             title={workspaceRoot}
             aria-label={t('titlebar.workspace', { name: workspaceLabel || workspaceRoot })}
+            aria-haspopup="menu"
+            aria-expanded={wsOpen}
+            onClick={() => setWsOpen((v) => !v)}
           >
             <Icon name="folder" size="sm" />
             {workspaceLabel || workspaceRoot.split('/').filter(Boolean).pop() || workspaceRoot}
-          </span>
+            <Icon name="chevron-down" size="sm" />
+          </button>
+        ) : null}
+
+        {wsOpen && onRootCommand ? (
+          <>
+            <div className="dropdown-backdrop" onClick={() => setWsOpen(false)} />
+            <div className="ws-menu" role="menu" aria-label={t('titlebar.workspaceMenu')}>
+              <button role="menuitem" className="ws-menu-item" onClick={() => { setWsOpen(false); onRootCommand(''); }}>
+                <Icon name="folder" size="sm" />
+                {t('workspace.pick')}
+              </button>
+              {recent.length > 0 ? (
+                <>
+                  <div className="ws-menu-title">{t('workspace.recents')}</div>
+                  {recent.map((entry, i) => (
+                    <div key={entry.root} className="ws-menu-row" role="none">
+                      <button
+                        role="menuitem"
+                        className="ws-menu-item"
+                        title={entry.root}
+                        onClick={() => { setWsOpen(false); onRootCommand(String(i + 1)); }}
+                      >
+                        <Icon name="folder" size="sm" />
+                        <span className="ws-menu-label">{entry.label}</span>
+                        <span className="ws-menu-path">{entry.root}</span>
+                      </button>
+                      <button
+                        className="ws-menu-x"
+                        aria-label={t('workspace.removeRecent', { name: entry.label })}
+                        title={t('workspace.removeRecent', { name: entry.label })}
+                        onClick={() => removeRecent(entry.root)}
+                      >
+                        <Icon name="x" size="sm" />
+                      </button>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="ws-menu-title">{t('workspace.recentsNone')}</div>
+              )}
+              <button role="menuitem" className="ws-menu-item danger" onClick={() => { setWsOpen(false); onRootCommand('off'); }}>
+                <Icon name="x" size="sm" />
+                {t('workspace.remove')}
+              </button>
+            </div>
+          </>
         ) : null}
 
         <button
@@ -269,96 +260,16 @@ export default function Titlebar({
           <Icon name="chevron-down" size="sm" />
         </button>
 
-        {open && (
-          <>
-            <div className="dropdown-backdrop" onClick={() => setOpen(false)} />
-            <div className="model-dropdown" role="listbox" aria-label={t('titlebar.modelSelect')}>
-              <div className="model-search-row">
-                <Icon name="search" size="sm" />
-                <input
-                  ref={searchRef}
-                  className="model-search"
-                  type="text"
-                  placeholder={t('titlebar.searchPlaceholder')}
-                  value={query}
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setCursor(0);
-                  }}
-                />
-              </div>
-              <div className="model-dropdown-list" ref={listRef}>
-                {groups.length === 0 ? (
-                  <div className="model-group-title">
-                    {query ? t('titlebar.noMatch') : t('titlebar.noVisible')}
-                  </div>
-                ) : (
-                  groups.map(([p, models]) => (
-                    <div key={p} className="model-group">
-                      <div className="model-group-title">
-                        {PROVIDER_DEFS[p as Provider]?.label ?? p}
-                      </div>
-                      {models.map((m) => {
-                        const caps = getCapabilitiesForModel(m.id);
-                        const idx = flat.indexOf(m);
-                        return (
-                          <button
-                            key={m.id}
-                            role="option"
-                            aria-selected={m.id === displayModel}
-                            data-idx={idx}
-                            className={`model-item${m.id === displayModel ? ' active' : ''}${
-                              idx === cursor ? ' cursor' : ''
-                            }`}
-                            title={m.description || m.name}
-                            onMouseEnter={() => setCursor(idx)}
-                            onClick={() => select(m)}
-                          >
-                            <span className="mid">{m.id}</span>
-                            {caps ? (
-                              <span className="cap">
-                                {CAP_ICONS.map((c) => (
-                                  <span
-                                    key={c.key}
-                                    className={caps[c.key] ? 'on' : 'off'}
-                                    title={t(c.labelKey)}
-                                  >
-                                    <Icon name={c.icon} size="sm" />
-                                  </span>
-                                ))}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))
-                )}
-                {locked.length > 0 ? (
-                  <div className="model-group">
-                    <div className="model-group-title">{t('titlebar.lockedProviders')}</div>
-                    {locked.map((p) => (
-                      <button
-                        key={p}
-                        className="model-item model-item-lock"
-                        title={t('titlebar.needKey', { provider: PROVIDER_DEFS[p as Provider]?.label ?? p })}
-                        onClick={() => {
-                          setOpen(false);
-                          onOpenSettings?.();
-                        }}
-                      >
-                        <Icon name="key" size="sm" />
-                        {PROVIDER_DEFS[p]?.label ?? p} — {t('titlebar.addKey')}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
-        )}
+        {/* Faz 7: ortak ModelDropdown paneli (arama + gruplama + kilitli satırlar). */}
+        <ModelDropdown
+          open={open}
+          onClose={() => setOpen(false)}
+          models={visible}
+          locked={locked}
+          activeModel={displayModel}
+          onSelect={select}
+          onOpenSettings={onOpenSettings}
+        />
       </span>
     </div>
   );

@@ -8,7 +8,7 @@ import {
   suggestProvider,
 } from './providers';
 import { sessionCost, formatCost } from './pricing';
-import { t } from './i18n/core';
+import { t, type TranslationKey } from './i18n/core';
 import type { CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
 
 export interface CommandLine {
@@ -49,34 +49,84 @@ export interface CommandResult {
 
 const VALID_PROVIDERS: Provider[] = [...PROVIDER_IDS];
 
-/** Yardım metni (dil ayarına göre üretilir). */
+/**
+ * Slash komut tanımları — öneri popup'ı ve /help için TEK KAYNAK.
+ * Sıra /help çıktısının sırasıdır; yeni komut buraya eklenir.
+ */
+export interface CommandSpec {
+  /** Komut adı ('/' olmadan, küçük harf). */
+  name: string;
+  /** Argüman ipucu (terminal söz dizimi: <...> zorunlu, [...] opsiyonel). */
+  args?: string;
+  /** Popup'taki kısa açıklama: i18n anahtarı (commands.desc.*). */
+  descKey: TranslationKey;
+  /** Parametreli açıklama (örn. /provider metnindeki {providers}). */
+  descParams?: Record<string, string>;
+  /**
+   * true: argümansız gönderilmesi hata/durum metnine düşer
+   * (örn. /provider <p>, /note <note>) → Enter yalnız tamamlar, göndermez.
+   */
+  requiresArg?: boolean;
+}
+
+export const COMMAND_SPECS: CommandSpec[] = [
+  { name: 'help', descKey: 'commands.desc.help' },
+  { name: 'clear', descKey: 'commands.desc.clear' },
+  { name: 'reset', descKey: 'commands.desc.reset' },
+  { name: 'session', descKey: 'commands.desc.session' },
+  { name: 'model', args: '[id]', descKey: 'commands.desc.model' },
+  {
+    name: 'provider',
+    args: '<p>',
+    descKey: 'commands.desc.provider',
+    descParams: { providers: PROVIDER_IDS.join('/') },
+    requiresArg: true,
+  },
+  { name: 'key', descKey: 'commands.desc.key' },
+  { name: 'export', args: '[md|json]', descKey: 'commands.desc.export' },
+  { name: 'backup', descKey: 'commands.desc.backup' },
+  { name: 'copy', args: '[md|json]', descKey: 'commands.desc.copy' },
+  { name: 'tokens', descKey: 'commands.desc.tokens' },
+  { name: 'compact', descKey: 'commands.desc.compact' },
+  { name: 'system', args: '[text]', descKey: 'commands.desc.system' },
+  { name: 'root', args: '[yol|off]', descKey: 'commands.desc.root' },
+  { name: 'files', descKey: 'commands.desc.files' },
+  { name: 'apply', args: '[id]', descKey: 'commands.desc.apply' },
+  { name: 'undo', args: '[id]', descKey: 'commands.desc.undo' },
+  { name: 'skill', descKey: 'commands.desc.skill' },
+  { name: 'approval', args: '[m]', descKey: 'commands.desc.approval' },
+  { name: 'context', descKey: 'commands.desc.context' },
+  { name: 'note', args: '<note>', descKey: 'commands.desc.note', requiresArg: true },
+  { name: 'log', args: '[n]', descKey: 'commands.desc.log' },
+  { name: 'audit', args: '[n]', descKey: 'commands.desc.audit' },
+];
+
+/**
+ * Slash önerisi filtresi: önce önek eşleşmesi, sonra içerme.
+ * Girdi '/' ile gelsin gelmesin normalize edilir ('/mo' ve 'mo' aynıdır).
+ */
+export function filterCommands(query: string): CommandSpec[] {
+  const q = query.trim().toLowerCase().replace(/^\//, '');
+  const starts = COMMAND_SPECS.filter((c) => c.name.startsWith(q));
+  if (!q) return starts;
+  const rest = COMMAND_SPECS.filter((c) => !c.name.startsWith(q) && c.name.includes(q));
+  return [...starts, ...rest];
+}
+
+/**
+ * Yardım metni — COMMAND_SPECS'ten üretilir; satır anahtarı her komut için
+ * `commands.help.<name>` kalıbına uyar (bütünlüğü slash.test.ts korur).
+ */
 function helpLines(): CommandLine[] {
-  return [
-    { type: 'sys', content: t('commands.help.header') },
-    { type: 'sys', content: t('commands.help.help') },
-    { type: 'sys', content: t('commands.help.clear') },
-    { type: 'sys', content: t('commands.help.reset') },
-    { type: 'sys', content: t('commands.help.session') },
-    { type: 'sys', content: t('commands.help.model') },
-    { type: 'sys', content: t('commands.help.provider', { providers: PROVIDER_IDS.join('/') }) },
-    { type: 'sys', content: t('commands.help.key') },
-    { type: 'sys', content: t('commands.help.export') },
-    { type: 'sys', content: t('commands.help.backup') },
-    { type: 'sys', content: t('commands.help.tokens') },
-    { type: 'sys', content: t('commands.help.compact') },
-    { type: 'sys', content: t('commands.help.system') },
-    { type: 'sys', content: t('commands.help.root') },
-    { type: 'sys', content: t('commands.help.files') },
-    { type: 'sys', content: t('commands.help.apply') },
-    { type: 'sys', content: t('commands.help.undo') },
-    { type: 'sys', content: t('commands.help.skill') },
-    { type: 'sys', content: t('commands.help.approval') },
-    { type: 'sys', content: t('commands.help.approvalModes') },
-    { type: 'sys', content: t('commands.help.context') },
-    { type: 'sys', content: t('commands.help.note') },
-    { type: 'sys', content: t('commands.help.log') },
-    { type: 'sys', content: t('commands.help.audit') },
-  ];
+  const lines: CommandLine[] = [{ type: 'sys', content: t('commands.help.header') }];
+  for (const c of COMMAND_SPECS) {
+    const helpKey = `commands.help.${c.name}` as TranslationKey;
+    lines.push({ type: 'sys', content: t(helpKey, c.descParams) });
+    if (c.name === 'approval') {
+      lines.push({ type: 'sys', content: t('commands.help.approvalModes') });
+    }
+  }
+  return lines;
 }
 
 /** Karakter/4 yaklasik token sayimi. */

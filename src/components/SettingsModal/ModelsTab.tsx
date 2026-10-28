@@ -95,16 +95,6 @@ export default function ModelsTab(props: Props) {
     draft.currentModel !== '' && !isModelEnabled(draft.disabledModels, draft.currentModel);
   const modelKnown = view.all.some((m) => m.id === draft.currentModel);
 
-  // Varsayılan model seçimi: filtreli liste + seçili model her zaman görünür.
-  const selectModels = (() => {
-    const list = [...filteredAll];
-    if (draft.currentModel && !list.some((m) => m.id === draft.currentModel)) {
-      const cur = view.all.find((m) => m.id === draft.currentModel);
-      if (cur) list.unshift(cur);
-    }
-    return list;
-  })();
-
   // models.dev keşfi diğer kaynaklardan farklı: yüzlerce model → arama/filtre.
   const catalogRows = (props.found ?? []).filter((m) => m.source === 'modelsDev');
   const isCatalog = catalogRows.length > 0;
@@ -171,10 +161,12 @@ export default function ModelsTab(props: Props) {
             <span className="field-label">{t('settings.models.modelLabel')}</span>
             <ModelPicker
               value={draft.currentModel}
-              models={selectModels}
+              models={view.visible}
+              locked={view.locked}
               extraValue={!modelKnown || currentDisabled ? draft.currentModel : undefined}
               placeholder={t('settings.models.pickerPlaceholder')}
               onChange={(v) => patch({ currentModel: v, activeEndpointId: null })}
+              onOpenSettings={props.onOpenProviders}
             />
           </label>
           {currentDisabled ? (

@@ -65,6 +65,7 @@ npm test             # модульные тесты
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — устройство проекта, модуль за модулем
 - [`docs/MODELS.md`](docs/MODELS.md) — каталог моделей и объединение с models.dev
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — сборка `.deb` / `.rpm` / AppImage локально, Windows-установщики через CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — датированный журнал всех изменений
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — правила оформления pull request'ов
 

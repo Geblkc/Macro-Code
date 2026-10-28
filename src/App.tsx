@@ -5,9 +5,11 @@ import Terminal from './components/Terminal';
 import InputBar from './components/InputBar';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
+import ConfirmDialog from './components/ConfirmDialog';
 import ToastHost from './components/Toast';
 import { useStream } from './hooks/useStream';
 import { getActiveAgentRun, useAgent } from './hooks/useAgent';
+import { resetKeyHistory } from './hooks/useKeyHistory';
 import { useWorkspaceStore } from './store/workspace';
 import { listSkills } from './lib/engine/skills';
 import { applyPendingPatch, listPending, undoLastPatch } from './lib/engine/tools/patch';
@@ -18,12 +20,15 @@ import { summarizeWorkspace } from './lib/engine/context';
 import { budgetFor } from './lib/engine/tokens';
 import { clearMemo } from './lib/engine/compactionMemo';
 import { appendMemory, buildRepoContext, clearRepoContextCache } from './lib/engine/repoContext';
+import { checkRootExists, pickWorkspaceFolder, validateRootInput } from './lib/workspace';
+import { isTauri } from './lib/tauri';
 import { recentLogs } from './lib/logger';
 import { compactSessionMessages, shouldCompact } from './lib/engine/compact';
 import { makeSummarizeFn, summarizerConfig } from './lib/summarize';
-import { buildSessionBackup, handleSlashCommand, parseSessionBackup, type CommandContext } from './lib/commands';
+import { buildExportMarkdown, buildSessionBackup, handleSlashCommand, parseSessionBackup, type CommandContext } from './lib/commands';
+import { copyText } from './lib/clipboard';
 import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsToDb, sqlError } from './lib/db';
-import type { ExtraLine, Provider, TerminalLine, ToolEvent } from './types';
+import type { ExtraLine, Provider } from './types';
 import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
 import { ALL_MODELS, getCapabilitiesForModel, hasProviderKey } from './lib/providers';
@@ -50,10 +55,25 @@ function stampedFilename(prefix: string, ext: string): string {
   return `${prefix}-${stamp}.${ext}`;
 }
 
+/** Genel onay isteği — App kökündeki tek ConfirmDialog instance'ını sürer. */
+interface ConfirmRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  danger?: boolean;
+  initialFocus?: 'confirm' | 'cancel';
+  onConfirm: () => void;
+}
+
 export default function App() {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [extrasBySession, setExtrasBySession] = useState<Record<string, ExtraLine[]>>({});
+  /** Terminal araması kapanınca giriş alanına odak döner (InputBar yayını). */
+  const inputFocus = useRef<(() => void) | null>(null);
+  /** Genel onay isteği — ConfirmDialog uygulama kökünde tek instance. */
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const [clearedBefore, setClearedBefore] = useState<Record<string, number>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, PendingApproval[]>>({});
   const bootedRef = useRef(false);
@@ -61,10 +81,10 @@ export default function App() {
   const prevSessionIdsRef = useRef<Set<string>>(new Set());
   const { send, abort: abortStream } = useStream();
   const { sendAgent, resolvePending, restorePendingRuns, abort: abortAgent } = useAgent();
-  const abort = () => {
+  const abort = useCallback(() => {
     abortStream();
     abortAgent();
-  };
+  }, [abortStream, abortAgent]);
 
   const activeId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -78,17 +98,34 @@ export default function App() {
   const session = sessions.find((s) => s.id === activeId) ?? null;
 
   const MAX_EXTRAS_PER_SESSION = 200;
+  /**
+   * Faz 7: extras cap — sayaç pushExtra içinde senkron tutulur (aynı tick'te
+   * art arda gelen eklemelerde bile ilk-kırpma anı doğru görülür); uyarı
+   * bayrağı oturum başına tektir (`clearView` sayacı sıfırlar, bayrağı bırakmaz).
+   */
+  const extrasCountRef = useRef<Map<string, number>>(new Map());
+  const extrasCappedRef = useRef<Set<string>>(new Set());
 
   const pushExtra = useCallback(
-    (sessionId: string, line: Omit<TerminalLine, 'id'> & { tool?: ToolEvent }) => {
+    (sessionId: string, line: Omit<ExtraLine, 'id' | 'ts'>) => {
       const full: ExtraLine = { ...line, id: createId(), ts: Date.now() };
+      const count = (extrasCountRef.current.get(sessionId) ?? 0) + 1;
+      extrasCountRef.current.set(sessionId, count);
+      // Uyarı kararı + ek satır updater DIŞINDA: StrictMode'da updater iki kez
+      // çalışır; yan etkisiz saf kalması gerekir.
+      const firstCap = count > MAX_EXTRAS_PER_SESSION && !extrasCappedRef.current.has(sessionId);
+      if (firstCap) extrasCappedRef.current.add(sessionId);
+      const warn: ExtraLine | null = firstCap
+        ? { id: createId(), ts: Date.now(), type: 'sys', content: t('extrasCapped') }
+        : null;
       setExtrasBySession((prev) => {
-        const next = [...(prev[sessionId] ?? []), full];
-        const capped = next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
+        const next = [...(prev[sessionId] ?? []), full, ...(warn ? [warn] : [])];
+        const capped =
+          next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
         return { ...prev, [sessionId]: capped };
       });
     },
-    [],
+    [t],
   );
 
   /** Onay kartındaki "bu komutu her zaman çalıştır" kutusu -> allowlist. */
@@ -101,6 +138,7 @@ export default function App() {
   }, []);
 
   const clearView = useCallback((sessionId: string) => {
+    extrasCountRef.current.set(sessionId, 0);
     setExtrasBySession((prev) => ({ ...prev, [sessionId]: [] }));
     setClearedBefore((prev) => ({ ...prev, [sessionId]: Date.now() }));
   }, []);
@@ -150,6 +188,97 @@ export default function App() {
     },
     [pendingBySession, resolvePending, pushExtra, setPending],
   );
+
+  /**
+   * `/root` tek yol: klasör diyaloğu (arg boş), `off`, `1..5` (son klasörler)
+   * veya elle yol — hepsi aynı doğrulama + apply katmanından geçer.
+   * UI rozetleri de buraya bağlanır (sessionId verilmezse aktif session).
+   */
+  const applyRoot = useCallback(
+    async (raw: string, sessionId: string) => {
+      const check = validateRootInput(raw);
+      if (!check.ok) {
+        pushExtra(sessionId, { type: 'err', content: t(check.key) });
+        return;
+      }
+      // Varlık kontrolü: Rust jail list_dir üzerinden (olmayan / dosya → hata).
+      const exists = await checkRootExists(check.root);
+      if (!exists) {
+        pushExtra(sessionId, {
+          type: 'err',
+          content: t('commands.workspaceNotFound', { path: check.root }),
+        });
+        return;
+      }
+      useWorkspaceStore.getState().setWorkspace(check.root, check.label);
+      pushExtra(sessionId, {
+        type: 'sys',
+        content: t('commands.workspaceSet', { label: check.label, path: check.root }),
+      });
+    },
+    [t, pushExtra],
+  );
+
+  const runRootCommand = useCallback(
+    async (arg: string, sessionIdInput?: string) => {
+      let sess = useSessionStore.getState().getActiveSession();
+      if (!sess) sess = useSessionStore.getState().createSession();
+      const sessionId = sessionIdInput ?? sess.id;
+      const ws = useWorkspaceStore.getState();
+      if (!arg) {
+        // (a) Argümansız: Tauri'de yerel klasör diyaloğu aç.
+        if (isTauri()) {
+          const picked = await pickWorkspaceFolder();
+          if (picked) {
+            await applyRoot(picked, sessionId);
+          } else {
+            // İptal/eski plugin: mevcut workspace bilgiyi göster.
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: ws.root
+                ? t('commands.workspaceInfo', { label: ws.label || ws.root, mode: ws.approvalMode })
+                : t('commands.rootUsage'),
+            });
+          }
+          return;
+        }
+        // (b) Tarayıcı-dev: diyaloğu yok — usage/bilgi göster.
+        pushExtra(sessionId, {
+          type: 'sys',
+          content: ws.root
+            ? t('commands.workspaceInfo', { label: ws.label || ws.root, mode: ws.approvalMode })
+            : t('commands.rootUsage'),
+        });
+        return;
+      }
+      // (c) `off` → workspace kaldır (agent modu kapanır).
+      if (arg === 'off') {
+        ws.clearWorkspace();
+        pushExtra(sessionId, { type: 'sys', content: t('commands.workspaceCleared') });
+        return;
+      }
+      // (d) `1..5` → son klasörlerden hızlı geçiş.
+      const idxMatch = /^([1-5])$/.exec(arg);
+      if (idxMatch) {
+        const entry = (ws.recent ?? [])[Number(idxMatch[1]) - 1];
+        if (!entry) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('commands.workspaceRecentEmpty'),
+          });
+          return;
+        }
+        await applyRoot(entry.root, sessionId);
+        return;
+      }
+      // (e) elle yol — aynı doğrulama.
+      await applyRoot(arg, sessionId);
+    },
+    [t, applyRoot, pushExtra],
+  );
+
+  /** Faz 4: hata satırındaki "tekrar dene" aynı girdiyi yeniden gönderir. */
+  const handleSendRef = useRef<((text: string, images?: string[]) => void) | null>(null);
 
   const handleSend = useCallback(
     async (text: string, images: string[] = []) => {
@@ -237,6 +366,22 @@ export default function App() {
             content: t('commands.compactFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
           });
         }
+        return;
+      }
+      if (low === '/copy' || low.startsWith('/copy ')) {
+        // /export'ın dosyasız ikizi: transkript panoya (varsayılan md, [json]).
+        const active = useSessionStore.getState().getActiveSession();
+        if (!active || active.messages.length === 0) {
+          pushExtra(sessionId, { type: 'warn', content: t('commands.copyEmpty') });
+          return;
+        }
+        const copyArg = trimmed.slice(5).trim().toLowerCase();
+        const text = copyArg === 'json' ? buildSessionBackup(active) : buildExportMarkdown(active);
+        const ok = await copyText(text);
+        pushExtra(sessionId, {
+          type: ok ? 'sys' : 'err',
+          content: ok ? t('commands.copyDone') : t('commands.copyFailed'),
+        });
         return;
       }
       if (low === '/log' || low.startsWith('/log')) {
@@ -372,20 +517,8 @@ export default function App() {
         return;
       }
       if (low === '/root' || low.startsWith('/root ')) {
-        const arg = trimmed.slice(5).trim();
-        if (!arg) {
-          const ws = useWorkspaceStore.getState();
-          pushExtra(sessionId, {
-            type: 'sys',
-            content: ws.root
-              ? t('commands.workspaceInfo', { label: ws.label || ws.root, mode: ws.approvalMode })
-              : t('commands.rootUsage'),
-          });
-          return;
-        }
-        const label = arg.split('/').filter(Boolean).pop() ?? arg;
-        useWorkspaceStore.getState().setWorkspace(arg, label);
-        pushExtra(sessionId, { type: 'sys', content: t('commands.workspaceSet', { label, path: arg }) });
+        // Klasör seçme altyapısı: diyaloğu / off / 1..5 / elle yol — tek yol.
+        await runRootCommand(trimmed.slice(5).trim(), sessionId);
         return;
       }
       if (low === '/files' || low.startsWith('/files')) {
@@ -530,6 +663,8 @@ export default function App() {
               // Faz 7: sıfırlamadan sonra eski özet kullanılmaz.
               clearMemo(s.id);
             }
+            // Faz 3: giriş geçmişi de temizlenir (persist dahil).
+            resetKeyHistory();
           },
           setProvider: (p: Provider) => {
             useSettingsStore.getState().setProvider(p);
@@ -560,18 +695,8 @@ export default function App() {
         };
         const result = handleSlashCommand(trimmed, ctx);
         if (result.lines.length > 0) {
-          const base = Date.now();
-          const lines: ExtraLine[] = result.lines.map((l, i) => ({
-            ...l,
-            id: createId(),
-            ts: base + i,
-          }));
-          setExtrasBySession((prev) => {
-            const next = [...(prev[sessionId] ?? []), ...lines];
-            const capped =
-              next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
-            return { ...prev, [sessionId]: capped };
-          });
+          // Faz 7: tek tek pushExtra — cap + ilk kırpma uyarısı tek yerde yaşar.
+          for (const l of result.lines) pushExtra(sessionId, l);
         }
         if (result.exportText) {
           const isJson = (result.exportMime ?? '').includes('json');
@@ -608,7 +733,12 @@ export default function App() {
               pending.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
             ),
         );
-        if (err) pushExtra(sessionId, { type: 'err', content: err });
+        if (err)
+          pushExtra(sessionId, {
+            type: 'err',
+            content: err,
+            retry: () => handleSendRef.current?.(trimmed, images),
+          });
         return;
       }
 
@@ -618,10 +748,16 @@ export default function App() {
         (fb) => pushExtra(sessionId, { type: 'sys', content: t('agent.fallbackUsed', { model: fb }) }),
         (line) => pushExtra(sessionId, { type: 'sys', content: line }),
       );
-      if (err) pushExtra(sessionId, { type: 'err', content: err });
+      if (err)
+        pushExtra(sessionId, {
+          type: 'err',
+          content: err,
+          retry: () => handleSendRef.current?.(trimmed, images),
+        });
     },
-    [send, sendAgent, clearView, pushExtra, setPending],
+    [send, sendAgent, clearView, pushExtra, setPending, runRootCommand],
   );
+  handleSendRef.current = handleSend;
 
   useEffect(() => {
     if (bootedRef.current) return;
@@ -698,6 +834,22 @@ export default function App() {
       const st = useSessionStore.getState();
       let sess = st.getActiveSession();
       if (!sess) sess = st.createSession();
+      // Klasör seçme altyapısı (boot): persist edilmiş kök artık yoksa uyar —
+      // otomatik silme yok (kullanıcı /root veya rozet ile karar verir).
+      try {
+        const wsBoot = useWorkspaceStore.getState();
+        if (wsBoot.root) {
+          const rootOk = await checkRootExists(wsBoot.root);
+          if (!rootOk) {
+            pushExtra(sess.id, {
+              type: 'warn',
+              content: t('commands.workspaceNotFound', { path: wsBoot.root }),
+            });
+          }
+        }
+      } catch {
+        // Kontrol hatası boot'u durdurmaz.
+      }
       const fresh = st.sessions.length <= 1 && sess.messages.length === 0;
       if (!fresh) return;
       const id = sess.id;
@@ -762,6 +914,13 @@ export default function App() {
       if (!ids.has(id)) clearMemo(id);
     }
     prevSessionIdsRef.current = ids;
+    // Faz 7: extras cap sayaçları da yalnız yaşayan oturumlar için tutulur.
+    for (const id of [...extrasCountRef.current.keys()]) {
+      if (!ids.has(id)) {
+        extrasCountRef.current.delete(id);
+        extrasCappedRef.current.delete(id);
+      }
+    }
     setExtrasBySession((prev) => {
       const dead = Object.keys(prev).filter((k) => !ids.has(k));
       if (dead.length === 0) return prev;
@@ -854,6 +1013,49 @@ export default function App() {
     [importBackupText, pushExtra],
   );
 
+  // ── Faz 3: global oturum kısayolları ──────────────────────────────
+  // Ctrl+N yeni oturum · Ctrl+Tab / Ctrl+Shift+Tab oturum gezinmesi.
+  // Modifier'lı olduğu için IME'den bağımsız; ayarlar modalı açıkken pasif.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (settingsOpen) return;
+      // IME bestesi sırasında kısayollar tetiklenmez (Faz 4).
+      if (e.isComposing) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      // Ctrl+C: metin seçiliyse kopyalamaya bırak; seçim yok ve akış
+      // sürüyorsa iptal et (terminal davranışı — Faz 4).
+      if (e.key.toLowerCase() === 'c' && !e.shiftKey) {
+        if (window.getSelection()?.toString()) return;
+        if (!streaming) return;
+        e.preventDefault();
+        abort();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const { sessions, activeSessionId, setActiveSession } = useSessionStore.getState();
+        if (sessions.length < 2) return;
+        e.preventDefault();
+        const idx = sessions.findIndex((s) => s.id === activeSessionId);
+        const next = e.shiftKey
+          ? idx <= 0
+            ? sessions.length - 1
+            : idx - 1
+          : idx === -1 || idx === sessions.length - 1
+            ? 0
+            : idx + 1;
+        setActiveSession(sessions[next].id);
+        return;
+      }
+      if (e.key.toLowerCase() === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        useSessionStore.getState().createSession();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [settingsOpen, streaming, abort]);
+
   return (
     <div className="app">
       <Titlebar
@@ -861,6 +1063,7 @@ export default function App() {
         sessionProvider={session?.provider}
         sessionModel={session?.model}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRootCommand={(arg) => void runRootCommand(arg)}
       />
       <div className="body">
         <Sidebar
@@ -870,6 +1073,18 @@ export default function App() {
           }}
           onExportJson={exportActiveJson}
           onImportFile={importBackupFile}
+          onRequestDelete={(id, name) =>
+            setConfirmReq({
+              title: t('sidebar.confirmDeleteTitle'),
+              message: t('sidebar.confirmDeleteMessage', { name }),
+              confirmLabel: t('sidebar.confirmDeleteOk'),
+              cancelLabel: t('common.cancel'),
+              danger: true,
+              // Silme gibi geri alınamaz işlemde odak güvenli tarafa.
+              initialFocus: 'cancel',
+              onConfirm: () => useSessionStore.getState().deleteSession(id),
+            })
+          }
         />
         <div className="main-col">
           <Terminal
@@ -890,6 +1105,9 @@ export default function App() {
                 if (activeId) handleAlwaysAllow(activeId, cmd);
               }
             }
+            onRootCommand={(arg) => void runRootCommand(arg)}
+            onFocusInput={() => inputFocus.current?.()}
+            searchEnabled={!settingsOpen}
           />
           <InputBar
             onSend={(t, imgs) => void handleSend(t, imgs)}
@@ -905,17 +1123,34 @@ export default function App() {
             onReject={() => {
               if (activeId) void handleRejectAll(activeId);
             }}
+            focusRef={inputFocus}
           />
         </div>
       </div>
       <StatusBar
         pendingCount={activeId ? (pendingBySession[activeId]?.length ?? 0) : 0}
+        isStreaming={streaming}
         onPendingClick={() => {
           const el = document.querySelector('.approval');
           el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }}
+        onWorkspaceClick={() => void runRootCommand('')}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ConfirmDialog
+        open={confirmReq !== null}
+        title={confirmReq?.title ?? ''}
+        message={confirmReq?.message ?? ''}
+        confirmLabel={confirmReq?.confirmLabel ?? ''}
+        cancelLabel={confirmReq?.cancelLabel ?? ''}
+        danger={confirmReq?.danger}
+        initialFocus={confirmReq?.initialFocus}
+        onConfirm={() => {
+          confirmReq?.onConfirm();
+          setConfirmReq(null);
+        }}
+        onCancel={() => setConfirmReq(null)}
+      />
       <ToastHost />
     </div>
   );

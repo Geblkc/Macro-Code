@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useKeyHistory } from '../hooks/useKeyHistory';
 import { useT } from '../lib/i18n';
+import { filterCommands, type CommandSpec } from '../lib/commands';
 import { Icon } from './icons';
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   pendingCount?: number;
   onApprove?: () => void;
   onReject?: () => void;
+  /** Dışarıdan odak tetiklemesi (arama kapanınca giriş alanına dönüş vb.). */
+  focusRef?: MutableRefObject<(() => void) | null>;
 }
 
 const MAX_HEIGHT = 160;
@@ -56,14 +59,47 @@ export default function InputBar({
   pendingCount,
   onApprove,
   onReject,
+  focusRef,
 }: Props) {
   const t = useT();
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<string[]>([]);
   const [attachErr, setAttachErr] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [cmdIdx, setCmdIdx] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
   const { push, move } = useKeyHistory();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  /** Sürükle-bırak derinliği: çocuk elemanlardan geçen dragleave ile titremesin. */
+  const dragDepthRef = useRef(0);
+
+  /** Popup yalnızca tek satırlık `'/' + komut adı` yazımında açıktır (boşluk = argüman aşaması). */
+  const cmdQuery = useMemo(() => (/^\s*\/[^\s]*$/.test(value) ? value.trim().toLowerCase() : null), [value]);
+  const cmdSuggestions = useMemo(
+    () => (cmdQuery === null ? [] : filterCommands(cmdQuery)),
+    [cmdQuery],
+  );
+  const cmdOpen = cmdQuery !== null && !dismissed && cmdSuggestions.length > 0;
+
+  // Yeni sorgu → seçim başa döner, kapatma (dismiss) sıfırlanır; sorgu silinip
+  // yeniden yazıldığında popup taze davranır.
+  useEffect(() => {
+    setCmdIdx(0);
+    setDismissed(false);
+  }, [cmdQuery]);
+
+  // Seçili satır görünür kalsın (klavye gezinmesinde listelerin dışına taşmaz).
+  useEffect(() => {
+    if (!cmdOpen) return;
+    menuRef.current
+      ?.querySelector(`[data-cmd-i="${cmdIdx}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [cmdIdx, cmdOpen]);
+
+  /** Tamamlama metni: komut + argüman alanı varsa boşluk bırakılır. */
+  const fillOf = useCallback((c: CommandSpec) => `/${c.name}${c.args ? ' ' : ''}`, []);
 
   const autoresize = useCallback(() => {
     const el = areaRef.current;
@@ -76,19 +112,53 @@ export default function InputBar({
     autoresize();
   }, [value, autoresize]);
 
-  const submit = useCallback(() => {
-    const text = value.trim();
-    if ((!text && pending.length === 0) || streaming) return;
-    if (text) push(text);
-    setValue('');
-    setPending([]);
-    setAttachErr(null);
-    onSend(text, pending);
-    requestAnimationFrame(() => areaRef.current?.focus());
-  }, [value, pending, streaming, push, onSend]);
+  // Dışarıdan odak: arama kapanınca yazmaya doğrudan devam (Ctrl+F akışı).
+  useEffect(() => {
+    if (focusRef) focusRef.current = () => areaRef.current?.focus();
+  }, [focusRef]);
 
-  const onFiles = useCallback(
-    async (files: FileList | null) => {
+  /**
+   * Gönderi. Ham metin verilmezse alanın güncel değerini kullanır
+   * (popup Enter birleştirmesi güncel state'i beklememesi için override'lı).
+   */
+  const submit = useCallback(
+    (raw?: string) => {
+      const text = (raw ?? value).trim();
+      if ((!text && pending.length === 0) || streaming) return;
+      if (text) push(text);
+      setValue('');
+      setPending([]);
+      setAttachErr(null);
+      onSend(text, pending);
+      requestAnimationFrame(() => areaRef.current?.focus());
+    },
+    [value, pending, streaming, push, onSend],
+  );
+
+  /** Öneriden seçim: zorunlu argümanlı komutlar tamamlanır, diğerleri doğrudan gönderilir. */
+  const pickCommand = useCallback(
+    (c: CommandSpec) => {
+      if (c.requiresArg) {
+        setValue(fillOf(c));
+        requestAnimationFrame(() => {
+          const el = areaRef.current;
+          if (el) el.selectionStart = el.selectionEnd = fillOf(c).length;
+        });
+      } else {
+        submit(fillOf(c));
+      }
+      setDismissed(true);
+    },
+    [fillOf, submit],
+  );
+
+  /**
+   * Tek görsel ekleme hattı (Faz 5): buton dosya seçici, panodan yapıştırma
+   * ve sürükle-bırak hep buradan geçer — kurallar tek yerde, çift davranış yok.
+   * Kurallar: yalnız `image/*`, odaya göre dilim (max 4), ≤1568px JPEG.
+   */
+  const attachImages = useCallback(
+    async (files: FileList | File[] | null) => {
       if (!files || files.length === 0) return;
       setAttachErr(null);
       const room = MAX_IMAGES - pending.length;
@@ -111,6 +181,42 @@ export default function InputBar({
     [pending.length, t],
   );
 
+  // ── Sürükle-bırak (Faz 5): yalnız dosya sürükleme vurgulanır. ──
+  // preventDefault her koşulda yapılır — aksi hâlde webview dosyayı açmaya çalışır;
+  // streaming'de buton gizliyken de bırakma yok sayılır.
+  const onDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      if (!streaming) setDragOver(true);
+    },
+    [streaming],
+  );
+  const onDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      if (!streaming) setDragOver(true);
+    },
+    [streaming],
+  );
+  const onDragLeave = useCallback(() => {
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  }, []);
+  const onDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDragOver(false);
+      if (streaming) return; // buton gizliyken kabul edilmediği gibi
+      void attachImages(e.dataTransfer.files);
+    },
+    [streaming, attachImages],
+  );
+
   const moveHistory = useCallback(
     (dir: 'up' | 'down', current: string) => {
       const next = move(dir, current);
@@ -129,7 +235,18 @@ export default function InputBar({
 
   return (
     <div className="inputbar">
-      <div className="inputbar-inner">
+      <div
+        className={`inputbar-inner${dragOver ? ' dropping' : ''}`}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {dragOver && (
+          <div className="drop-hint" role="status">
+            {t('input.dropHint')}
+          </div>
+        )}
         {pending.length > 0 && (
           <div className="pending-images">
             {pending.map((url, i) => (
@@ -148,6 +265,41 @@ export default function InputBar({
           </div>
         )}
 
+        {cmdOpen && (
+          <div
+            className="cmd-menu"
+            role="listbox"
+            aria-label={t('input.slashMenuAria')}
+            ref={menuRef}
+          >
+            <div className="cmd-menu-list">
+              {cmdSuggestions.map((c, i) => (
+                <div
+                  key={c.name}
+                  data-cmd-i={i}
+                  role="option"
+                  aria-selected={i === cmdIdx}
+                  className={`cmd-item${i === cmdIdx ? ' active' : ''}`}
+                  onMouseDown={(e) => {
+                    // Alan odaklanmayı korunsun (blur → kapanış yarışını engeller).
+                    e.preventDefault();
+                    setCmdIdx(i);
+                    pickCommand(c);
+                  }}
+                  onMouseEnter={() => setCmdIdx(i)}
+                >
+                  <span className="cmd-name">/{c.name}</span>
+                  {c.args ? <span className="cmd-args">{c.args}</span> : null}
+                  <span className="cmd-desc">{t(c.descKey, c.descParams)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="cmd-menu-foot" aria-hidden="true">
+              {t('input.cmdHint')}
+            </div>
+          </div>
+        )}
+
         <div className="input-row">
           <span className="prompt" aria-hidden="true">
             ❯
@@ -163,8 +315,29 @@ export default function InputBar({
             aria-label={t('input.ariaLabel')}
             placeholder={streaming ? t('input.placeholderWaiting') : t('input.placeholder')}
             onChange={(e) => setValue(e.target.value)}
+            onPaste={(e) => {
+              // Panoda görsel varsa düz metin yapıştırma yerine görsel hattı
+              // çalışır (Faz 5) — streaming'de buton gizliyken de yok sayılır.
+              const items = e.clipboardData?.items;
+              if (!items) return;
+              const imgs: File[] = [];
+              for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                  const f = item.getAsFile();
+                  if (f) imgs.push(f);
+                }
+              }
+              if (imgs.length === 0) return;
+              e.preventDefault();
+              if (streaming) return;
+              void attachImages(imgs);
+            }}
             onKeyDown={(e) => {
-              // Faz 1 K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
+              // IME bestesi sırasında tuşlar uygulamaya sızmasın:
+              // Enter göndermesin, ↑↓ geçmişi çağırmasın (Faz 4).
+              if (e.nativeEvent.isComposing) return;
+              // K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
               if (hasPending && value.trim() === '') {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -180,6 +353,47 @@ export default function InputBar({
                 e.preventDefault();
                 onReject?.();
                 return;
+              }
+              // Slash önerisi: açıkken temel girişin tuşlarını devralır.
+              if (cmdOpen) {
+                const sel = cmdSuggestions[Math.min(cmdIdx, cmdSuggestions.length - 1)];
+                if (e.key === 'ArrowDown' && !e.shiftKey) {
+                  e.preventDefault();
+                  setCmdIdx((i) => Math.min(i + 1, cmdSuggestions.length - 1));
+                  return;
+                }
+                if (e.key === 'ArrowUp' && !e.shiftKey) {
+                  e.preventDefault();
+                  setCmdIdx((i) => Math.max(i - 1, 0));
+                  return;
+                }
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  setValue(fillOf(sel));
+                  setDismissed(true);
+                  return;
+                }
+                if (
+                  e.key === 'ArrowRight' &&
+                  (e.currentTarget.selectionStart ?? 0) === value.length &&
+                  (e.currentTarget.selectionEnd ?? 0) === value.length
+                ) {
+                  // İmleç sonda: sağa hareket komut tamamlamaya döner (terminal davranışı).
+                  e.preventDefault();
+                  setValue(fillOf(sel));
+                  setDismissed(true);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setDismissed(true);
+                  return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  pickCommand(sel);
+                  return;
+                }
               }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -207,7 +421,7 @@ export default function InputBar({
             multiple
             hidden
             onChange={(e) => {
-              void onFiles(e.target.files);
+              void attachImages(e.target.files);
               e.target.value = '';
             }}
           />
@@ -231,7 +445,7 @@ export default function InputBar({
             <button
               className="btn btn-primary btn-sm"
               disabled={!canSend}
-              onClick={submit}
+              onClick={() => submit()}
               title={t('input.sendTitle')}
             >
               {t('input.send')}
@@ -257,7 +471,13 @@ export default function InputBar({
                   <kbd>↑↓</kbd> {t('input.hint.history')}
                 </span>
                 <span>
+                  <kbd>/</kbd> {t('input.hint.commands')}
+                </span>
+                <span>
                   <kbd>Ctrl+L</kbd> {t('input.hint.clear')}
+                </span>
+                <span>
+                  <kbd>Ctrl+N</kbd> {t('input.hint.newSession')}
                 </span>
               </>
             )}

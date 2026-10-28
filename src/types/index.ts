@@ -175,6 +175,11 @@ export type ExtraLine = TerminalLine & {
   ts: number;
   /** Varsa satır bir araç çağrısıdır (kart olarak render edilir). */
   tool?: ToolEvent;
+  /**
+   * Faz 4: hata satırında "tekrar dene" — aynı girdiyi yeniden gönderir.
+   * Yalnızca bellek içi (persist edilmez); yalnız `err` satırlarında kullanılır.
+   */
+  retry?: () => void;
 };
 
 /**

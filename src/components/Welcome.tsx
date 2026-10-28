@@ -1,8 +1,20 @@
 /**
  * Karşılama ekranı — boş oturumda gösterilir.
- * Sadece marka: logo + ürün adı.
+ * Marka: logo + ürün adı. Workspace yoksa agent ipucu satırı eklenir
+ * (klasör seçme altyapısının görünür giriş noktası).
  */
-export default function Welcome() {
+import { useT } from '../lib/i18n';
+import { useWorkspaceStore } from '../store/workspace';
+import { Icon } from './icons';
+
+interface Props {
+  /** /root akışına bağla ('' = klasör diyaloğu; App'te kodlanır). */
+  onRootCommand?: (arg: string) => void;
+}
+
+export default function Welcome({ onRootCommand }: Props) {
+  const t = useT();
+  const root = useWorkspaceStore((s) => s.root);
   return (
     <div className="welcome">
       <svg
@@ -37,6 +49,12 @@ export default function Welcome() {
         </g>
       </svg>
       <h1>MacroCode</h1>
+      {onRootCommand && !root ? (
+        <button className="welcome-hint" onClick={() => onRootCommand('')}>
+          <Icon name="folder" size="md" />
+          {t('welcome.agentHint')}
+        </button>
+      ) : null}
     </div>
   );
 }

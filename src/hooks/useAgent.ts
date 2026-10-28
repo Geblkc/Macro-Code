@@ -58,7 +58,7 @@ function previewArgs(args: Record<string, unknown>): string {
 /** Araç çıktısı önizlemesi (tek satır, uzun çıktı kırpılır). */
 function previewOutput(out: string, limit = 220): string {
   const flat = out.replace(/\s+/g, ' ').trim();
-  if (flat.length === 0) return '(boş)';
+  if (flat.length === 0) return t('agent.previewEmpty');
   return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
 }
 
@@ -194,20 +194,24 @@ export function useAgent() {
       const ws = useWorkspaceStore.getState();
 
       if (!ws.root) {
-        return '✗ workspace seçilmedi · /root ile klasör seç';
+        return t('agent.noWorkspace');
       }
       if (settings.activeEndpointId) {
-        return '✗ özel uçlar agent modunu desteklemiyor · ayarlardan yerleşik akışa dön';
+        return t('agent.errCustomEndpoint');
       }
 
       const providerName: Provider = session.provider ?? settings.currentProvider;
       const model = session.model || settings.currentModel;
       if (!supportsTools(providerName, model, settings.customModels)) {
-        return `✗ ${providerName}/${model} agent modunu desteklemiyor · /provider ${PROVIDER_IDS.join('|')} dene veya tools destekli modele geç`;
+        return t('agent.errNoTools', {
+          provider: providerName,
+          model,
+          providers: PROVIDER_IDS.join('|'),
+        });
       }
       const apiKey = apiKeyFor(providerName, settings.apiKeys);
       if (providerNeedsKey(providerName) && !apiKey.trim()) {
-        return '✗ api anahtarı eksik · /key ile ekleyebilirsin';
+        return t('agent.errNoApiKey');
       }
 
       const userId = createId();
@@ -396,7 +400,7 @@ export function useAgent() {
           onPending?.(result.pending);
           emit({
             type: 'sys',
-            content: `⏸ onay bekleniyor: ${result.pending.map((c) => `${c.name}`).join(' · ')} [Enter onayla / Esc reddet]`,
+            content: t('agent.pendingLine', { names: result.pending.map((c) => c.name).join(' · ') }),
           });
           return null;
         }
@@ -408,7 +412,7 @@ export function useAgent() {
         const mine = msgs.find((m) => m.id === assistantId);
         if (mine && mine.content === '') {
           store().removeMessage(sessionId, assistantId);
-          return '✗ agent boş döndü · farklı ifade dene';
+          return t('agent.errEmptyReply');
         }
         return null;
       } catch (err) {
@@ -453,10 +457,10 @@ export function useAgent() {
             onToolLine?.({ type: 'sys', content: t('agent.cannotRestart') });
           } else {
             // O7: reddedilen karar da görünür olmalı — sessiz düşmesin.
-            onToolLine?.({ type: 'sys', content: `[✗] reddedildi: ${d.id.slice(0, 8)}` });
+            onToolLine?.({ type: 'sys', content: t('agent.rejected', { id: d.id.slice(0, 8) }) });
           }
         }
-        return '/// onay bekleyen iş yeniden başlatılamadı · yeniden iste';
+        return t('agent.cannotRestart');
       }
       const store = useSessionStore.getState;
       const callNames = new Map<string, string>();
@@ -464,7 +468,7 @@ export function useAgent() {
       for (const d of decisions) {
         await takeApproval(d.id);
         if (!d.approved) {
-          onToolLine?.({ type: 'sys', content: `[✗] reddedildi: ${d.id.slice(0, 8)}` });
+          onToolLine?.({ type: 'sys', content: t('agent.rejected', { id: d.id.slice(0, 8) }) });
         } else {
           onToolLine?.({ type: 'sys', content: t('agent.approved', { id: d.id.slice(0, 8) }) });
         }
@@ -481,7 +485,7 @@ export function useAgent() {
           onPending?.(result.pending);
           onToolLine?.({
             type: 'sys',
-            content: `⏸ onay bekleniyor: ${result.pending.map((c) => `${c.name}`).join(' · ')} [Enter onayla / Esc reddet]`,
+            content: t('agent.pendingLine', { names: result.pending.map((c) => c.name).join(' · ') }),
           });
           return null;
         }
