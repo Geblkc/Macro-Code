@@ -5,7 +5,7 @@
   "type": "module",
   "productName": "MacroCode",
   "description": "MacroCode — AI terminal desktop app (Tauri v2 + React + TypeScript)",
-  "license": "MIT",
+  "license": "GPL-2.0-only",
   "homepage": "https://github.com/Geblkc/Macro-Code",
   "repository": {
     "type": "git",

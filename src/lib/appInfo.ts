@@ -13,7 +13,7 @@ export const APP_VERSION: string =
 export const REPO_URL: string = typeof __REPO_URL__ === 'string' ? __REPO_URL__ : '';
 
 /** Lisans metni. */
-export const LICENSE = 'MIT';
+export const LICENSE = 'GPL-2.0-only';
 
 /** Desteklenen platformlar (About sekmesi). */
 export const PLATFORMS = 'Windows / macOS / Linux';

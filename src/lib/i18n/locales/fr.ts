@@ -466,7 +466,7 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.appearance.system': 'Langue du système',
   'settings.appearance.numberFormat': 'Format des nombres',
   'settings.appearance.numberFormatNote': 'Le format des nombres suit la langue choisie.',
-  'settings.about.subtitle': 'licence MIT · BYOK · Windows / macOS / Linux',
+  'settings.about.subtitle': 'licence GPL-2.0-only · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Paramètres enregistrés.',
   'settings.save.failed': { one: '{count} paramètre n’a pas pu être enregistré ({label}) : {message}', other: '{count} paramètres n’ont pas pu être enregistrés ({label}) : {message}' },
   'settings.about.version': 'Version',

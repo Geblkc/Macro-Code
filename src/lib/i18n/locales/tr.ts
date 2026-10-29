@@ -460,7 +460,7 @@ export const tr = {
   'settings.appearance.system': 'Sistem dili',
   'settings.appearance.numberFormat': 'Sayı biçimi',
   'settings.appearance.numberFormatNote': 'Sayı biçimi seçilen dile göre belirlenir.',
-  'settings.about.subtitle': 'MIT lisansı · BYOK · Windows / macOS / Linux',
+  'settings.about.subtitle': 'GPL-2.0-only lisansı · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Ayarlar kaydedildi.',
   'settings.save.failed': { one: '{count} ayar kaydedilemedi ({label}): {message}', other: '{count} ayar kaydedilemedi ({label}): {message}' },
   'settings.about.version': 'Sürüm',

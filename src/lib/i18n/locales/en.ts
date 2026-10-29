@@ -458,7 +458,7 @@ export const en: Record<TranslationKey, Message> = {
   'settings.appearance.system': 'System language',
   'settings.appearance.numberFormat': 'Number format',
   'settings.appearance.numberFormatNote': 'The number format follows the selected language.',
-  'settings.about.subtitle': 'MIT license · BYOK · Windows / macOS / Linux',
+  'settings.about.subtitle': 'GPL-2.0-only license · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Settings saved.',
   'settings.save.failed': { one: '{count} setting could not be saved ({label}): {message}', other: '{count} settings could not be saved ({label}): {message}' },
   'settings.about.version': 'Version',

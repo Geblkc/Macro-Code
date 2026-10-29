@@ -463,7 +463,7 @@ export const de: Record<TranslationKey, Message> = {
   'settings.appearance.system': 'Systemsprache',
   'settings.appearance.numberFormat': 'Zahlformat',
   'settings.appearance.numberFormatNote': 'Das Zahlformat richtet sich nach der gewählten Sprache.',
-  'settings.about.subtitle': 'MIT-Lizenz · BYOK · Windows / macOS / Linux',
+  'settings.about.subtitle': 'GPL-2.0-only-Lizenz · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Einstellungen gespeichert.',
   'settings.save.failed': { one: '{count} Einstellung konnte nicht gespeichert werden ({label}): {message}', other: '{count} Einstellungen konnten nicht gespeichert werden ({label}): {message}' },
   'settings.about.version': 'Version',

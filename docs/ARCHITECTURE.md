@@ -64,7 +64,7 @@ açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 | Hedef kullanıcı | Geliştirici (terminal arayüzü seven, gizliliğine değer veren) |
 | Platform | Windows, macOS, Linux (cross-platform) |
 | Dil / UI dili | TypeScript (kod yorumları İngilizce-Türkçe karışık), UI metinleri **5 dilde** (TR/EN/DE/FR/ES — `lib/i18n/`) |
-| Lisans (bundle meta) | MIT |
+| Lisans (bundle meta) | GPL-2.0-only (`LICENSE` — Copyright (C) 2026 Gökhan Efe Balıkçı) |
 
 ### Marka / Logo
 

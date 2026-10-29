@@ -2,10 +2,50 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-10-27
+> Son güncelleme: 2026-10-29
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-10-29 — Lisans geçişi: MIT → GPL-2.0-only + README yenileme
+
+> Kullanıcı talebi: uygulamanın lisansının **GPL-2.0-only** olarak değiştirilmesi,
+> telif satırına "Gökhan Efe Balıkçı" yazılması ve tüm README'lerin yeni yapıyla
+> yeniden yazılması.
+
+### A. Lisans metni ve manifestolar
+
+- `LICENSE`: MIT metni → **GNU GPL-2.0 tam metni**; başına proje notu eklendi
+  (`MacroCode — Copyright (C) 2026 Gökhan Efe Balıkçı`).
+- `package.json` + `package-lock.json` (kök paket): `"license": "GPL-2.0-only"`.
+  Kilit dosyasındaki bağımlılık lisanslarına dokunulmadı.
+- `src-tauri/Cargo.toml`: `license = "GPL-2.0-only"` alanı eklendi (yoktu),
+  `authors` → `Gökhan Efe Balıkçı`.
+- `src-tauri/tauri.conf.json`: `bundle.copyright` →
+  `GPL-2.0-only · Copyright (C) 2026 Gökhan Efe Balıkçı`.
+
+### B. Uygulama içi lisans gösterimi
+
+- `lib/appInfo.ts`: `LICENSE = 'GPL-2.0-only'`.
+- `SettingsModal/AboutTab.tsx`: lisans bağlantısı
+  `opensource.org/licenses/MIT` → `gnu.org/licenses/old-licenses/gpl-2.0.html`.
+- `i18n/locales/{en,tr,de,fr,es}.ts`: `settings.about.subtitle` "MIT …" → "GPL-2.0-only …".
+
+### C. Dokümantasyon
+
+- `README.md` + `README.tr.md` / `.de.md` / `.fr.md` / `.ru.md` yeniden yazıldı:
+  badge'ler (release · platform · Tauri v2 · GPL-2.0-only), ekran görüntüsü,
+  özellik tablosu, kurulum/bundle komutları, "Katkı" bölümü, lisans + telif bilgisi.
+  `README.md`'deki açılışı olmayan bozuk ```` ``` ```` bloğu kaldırıldı.
+- `docs/ARCHITECTURE.md`: ürün tablosunda lisans → GPL-2.0-only.
+- `docs/DEVLOG.md` içindeki tarihsel MIT kayıtları değiştirilmedi (arşiv niteliği).
+
+### D. Doğrulama
+
+- `npm test` → 70 dosya / **559 test geçti** (version.test.ts sözleşme dahil).
+- `npx tsc --noEmit` → temiz.
 
 ---
 

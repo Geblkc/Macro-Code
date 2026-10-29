@@ -83,7 +83,7 @@ export default function AboutTab() {
           ) : null}
           <a
             className="btn btn-sm"
-            href="https://opensource.org/licenses/MIT"
+            href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html"
             target="_blank"
             rel="noreferrer noopener"
           >

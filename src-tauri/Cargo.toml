@@ -2,7 +2,8 @@
 name = "macrocode"
 version = "0.2.0"
 description = "MacroCode — AI terminal desktop app"
-authors = ["MacroCode"]
+authors = ["Gökhan Efe Balıkçı"]
+license = "GPL-2.0-only"
 edition = "2021"
 
 [build-dependencies]

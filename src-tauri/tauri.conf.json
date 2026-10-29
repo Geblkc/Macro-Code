@@ -29,7 +29,7 @@
     "publisher": "MacroCode",
     "homepage": "https://github.com/Geblkc/Macro-Code",
     "category": "DeveloperTool",
-    "copyright": "MIT",
+    "copyright": "GPL-2.0-only · Copyright (C) 2026 Gökhan Efe Balıkçı",
     "shortDescription": "AI terminal desktop app",
     "longDescription": "MacroCode — AI terminal desktop app: local agent with approval-first execution, multi-provider chat, MCP servers and SQLite sessions.",
     "icon": [
