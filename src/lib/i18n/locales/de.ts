@@ -124,7 +124,7 @@ export const de: Record<TranslationKey, Message> = {
   'input.stopTitle': 'stoppen',
   'input.sendTitle': 'senden (Enter)',
   'input.pendingHint':
-    { one: '{count} Genehmigung ausstehend · Enter genehmigt · Esc lehnt ab', other: '{count} Genehmigungen ausstehend · Enter genehmigt · Esc lehnt ab' },
+    { one: '{count} Genehmigung ausstehend · Enter genehmigt · Esc lehnt ab', other: '{count} Genehmigungen ausstehend · Esc lehnt alle ab · einzeln auf jeder Karte genehmigen oder „Alle genehmigen“' },
   'input.hint.send': 'senden',
   'input.hint.newline': 'neue Zeile',
   'input.hint.history': 'Verlauf',
@@ -170,6 +170,17 @@ export const de: Record<TranslationKey, Message> = {
   'approval.alwaysRun': 'Diesen Befehl immer ausführen',
   'approval.warning': 'Dieser Befehl führt Code aus — vorsicht',
   'approval.rejectNote': 'Vom Benutzer abgelehnt',
+  'approval.approveAll': 'Alle genehmigen',
+  'approval.rejectAll': 'Alle ablehnen',
+  'approval.showAll': 'Alle anzeigen',
+  'approval.collapse': 'Einklappen',
+  'approval.charCount': '{count} Zeichen',
+  'approval.largePayload':
+    'Große Nutzlast ({count} Zeichen) — vor dem Genehmigen vollständig prüfen',
+  'approval.bulkHint': {
+    one: '{count} Genehmigung wartet',
+    other: '{count} Genehmigungen warten — einzeln auf jeder Karte oder alle auf einmal',
+  },
 
   /* ── Aufgabenbereich ── */
   'task.title': 'Aufgaben',
@@ -500,7 +511,7 @@ export const de: Record<TranslationKey, Message> = {
   'commands.help.root':
     '  /root [pfad|off]  Arbeitsbereich wählen/entfernen (ohne Argument = Ordner-Dialog)',
   'commands.help.files': '  /files         Dateiübersicht des Arbeitsbereichs',
-  'commands.help.apply': '  /apply <id>    ausstehenden Patch genehmigen und anwenden',
+  'commands.help.apply': '  /apply <id>    ausstehenden Patch genehmigen und anwenden (/apply all = alle)',
   'commands.help.undo': '  /undo [id]     letzten oder angegebenen Patch zurücknehmen',
   'commands.help.skill': '  /skill         registrierte Skills auflisten',
   'commands.help.approval': '  /approval [m]  Genehmigungsmodus (manual|auto-read|auto-edit)',
@@ -637,6 +648,7 @@ export const de: Record<TranslationKey, Message> = {
   'commands.filesFailed': '✗ /files fehlgeschlagen: {message}',
   'commands.applyNotFound': '✗ ausstehende Freigabe nicht gefunden: {id}',
   'commands.applyNone': '/// kein ausstehender Patch',
+  'commands.applyNeedId': '✗ mehrere Freigaben ausstehend — einzeln mit /apply <id> oder alle mit /apply all · {list}',
   'commands.applyPending': '/// ausstehend: {list}',
   'commands.applyFailed': '✗ /apply fehlgeschlagen: {message}',
   'commands.undoFailed': '✗ /undo fehlgeschlagen: {message}',
@@ -764,6 +776,7 @@ export const de: Record<TranslationKey, Message> = {
   'tool.subagentEmpty': '(der Subagent hat nichts zurückgegeben)',
   'tool.forbiddenPath': 'verbotener Pfad',
   'tool.forbiddenCommand': 'verbotener Befehl',
+  'tool.cwdUnsafe': 'unsicheres cwd (absoluter Pfad, ../ oder gesperrtes Verzeichnis): {cwd}',
   'message.copyOk': 'kopiert ✓',
   'message.copyFail': 'Kopieren fehlgeschlagen',
   'message.retry': 'erneut versuchen',
@@ -781,7 +794,10 @@ export const de: Record<TranslationKey, Message> = {
   'agent.errNoTools': '✗ {provider}/{model} unterstützt keinen Agent-Modus · /provider {providers} versuchen oder auf ein Tool-fähiges Modell wechseln',
   'agent.errNoApiKey': '✗ API-Schlüssel fehlt · mit /key hinzufügen',
   'agent.errEmptyReply': '✗ der Agent gab nichts zurück · formuliere es anders',
-  'agent.pendingLine': '⏸ Freigabe ausstehend: {names} [Enter bestätigen / Esc ablehnen]',
+  'agent.pendingLine': {
+    one: '⏸ Freigabe ausstehend: {names} [Enter bestätigen / Esc ablehnen]',
+    other: '⏸ Freigaben ausstehend: {names} [jeweils auf der Karte bestätigen · Esc lehnt alle ab]',
+  },
   'extrasCapped': '/// ältere Zeilen aus der Ansicht entfernt · mit /export sichern',
   'errors.listFailed': 'die {source}-Liste konnte nicht geladen werden (http {status})',
   'errors.catalogFailed': 'der models.dev-Katalog konnte nicht geladen werden (http {status})',

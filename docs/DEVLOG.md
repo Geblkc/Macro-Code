@@ -2,10 +2,60 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-10-29
+> Son güncelleme: 2026-10-30
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-10-30 — v0.2.1: jail sertleştirme + onay görünürlüğü + paket yenileme
+
+> Kullanıcı talebi: biriken değişiklikleri incelemek, sürümü her yerde
+> **v0.2.1** yapmak ve `bundles/` dağıtımlarını yeniden derlemek.
+
+### A. İnceleme özeti (önceki oturumdan gelen, henüz yayınlanmamış iş)
+
+Bu sürümün asıl içeriği güvenlik ve onay UX'i:
+
+- **M5 cwd jail:** `exec_cmd` artık `root`'u zorunlu tutuyor; cwd canonicalize
+  + gerçek dizin + workspace altı + bloklu bileşen (`.git` vb.) denetiminden
+  geçiyor. Symlink ile dışarı kaçış reddedilir.
+- **M6 git yol jail'i:** `git` FILE_ARG dışında kalıyordu; `diff --no-index`,
+  `commit -F`, `show HEAD:.env`, `-C`, `--git-dir` gibi yollar artık
+  `git_path_args` / `git_c_base` ile denetleniyor.
+- **L1:** kullanıcı ek-allowlist'i dosya-argümanı jail'ini atlatamıyor.
+- **L4 onay kartı:** `approvalDetail.ts` — exec tam komut satırı; write/patch
+  tam içerik; kırpma yalnız görsel; "Tümünü göster" gerçek metni açar.
+- **H2:** dosya adı/dizin blokları büyük/küçük harf duyarsız (ham segment +
+  çözülen yol).
+- **MCP stdio:** çocuk süreç ortamı allowlist; satır/yazma boyutu tavanı.
+- **fs / blocks.json / policy:** env-prefix, gizli uzantı ve dizin bileşen
+  jail'i TS/Rust senkron.
+- **UI:** çoklu bekleyen onayda kısayol ipuçları, agent/policy/i18n (5 dil).
+
+Yeni dosyalar: `src/lib/engine/approvalDetail.ts` (+ test), `Security.md`.
+
+### B. Sürüm senkronu
+
+- `package.json` / `package-lock.json` (kök) / `tauri.conf.json` /
+  `Cargo.toml` / `Cargo.lock` (`macrocode` paketi) → `0.2.1`.
+- MCP `clientInfo.version` artık sabit değil; `APP_VERSION` (`appInfo.ts`).
+- `version.test.ts` `Cargo.toml` senkronunu da doğrular.
+- `docs/ARCHITECTURE.md` ürün tablosu + başlık tarihi.
+
+### C. Dağıtım
+
+- Yerel Linux: `npm run tauri build -- --bundles deb,rpm,appimage` →
+  `bundles/` altında `0.2.1` `.deb` / `.rpm` / `.AppImage` + `SHA256SUMS`.
+- Windows NSIS/MSI bu makinede üretilmez (MSVC + WebView2); CI
+  `release.yml` gerekir. Eski `0.1.0` Windows paketleri klasörden kaldırıldı
+  ki sürüm karışmasın.
+
+### D. Doğrulama
+
+- `npm test` + `npx tsc --noEmit` (sürüm sözleşmesi dahil).
+- Linux paket dosya adlarında `0.2.1`.
 
 ---
 

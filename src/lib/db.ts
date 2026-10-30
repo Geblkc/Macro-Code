@@ -1,7 +1,7 @@
 import type { Session } from '../types';
 import { migrateProviderModel, PROVIDER_IDS } from './providers';
 import { isTauri } from './tauri';
-import { logError } from './logger';
+import { logError, redact } from './logger';
 
 export const DB_URL = 'sqlite:sessions.db';
 export const SESSIONS_TABLE_SQL =
@@ -245,9 +245,13 @@ export async function appendAudit(e: AuditEntry, provided?: SqlDatabase): Promis
   try {
     await db.execute(AUDIT_TABLE_SQL);
     const id = `audit-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    // L6/L7: denetim kaydı kalıcı bir log'dur — araç argümanları/sonuçları
+    // API anahtarı veya token içerebilir (ör. MCP env). Yazmadan önce redakte et.
+    const argsPreview = redact(e.argsPreview) as string;
+    const result = redact(e.result) as string;
     await db.execute(
       'INSERT INTO audit_log (id, ts, session_id, tool, args_preview, decision, result) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, Date.now(), e.sessionId, e.tool, e.argsPreview, e.decision, e.result],
+      [id, Date.now(), e.sessionId, e.tool, argsPreview, e.decision, result],
     );
     return true;
   } catch (e) {

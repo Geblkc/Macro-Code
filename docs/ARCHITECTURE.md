@@ -3,7 +3,7 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-28 · Sürüm: `0.2.0` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-10-30 · Sürüm: `0.2.1` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
 > **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 > **Klasör seçme altyapısı** eklendi: `tauri-plugin-dialog` ile yerel klasör diyaloğu
@@ -58,7 +58,7 @@ açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 | Özellik | Değer |
 |---|---|
 | Ürün adı | `MacroCode` |
-| Sürüm | `0.2.0` |
+| Sürüm | `0.2.1` |
 | Kimlik / Bundle ID | `com.macrocode.app` |
 | Model | **BYOK** (Bring Your Own Key) — abonelik yok, kullanıcı kendi anahtarını kullanır |
 | Hedef kullanıcı | Geliştirici (terminal arayüzü seven, gizliliğine değer veren) |
@@ -148,8 +148,7 @@ Build:            Vite + tauri-cli (tauri-bundler)
 
 ### Bağımlılıklar
 
-**dependencies:** `@tauri-apps/api` ^2.12.1, `@tauri-apps/plugin-shell` ^2.4.0
-(frontend'de import YOK — sadece `package-lock.json` senkronu için durur, backend izni kalkmıştır),
+**dependencies:** `@tauri-apps/api` ^2.12.1,
 `@tauri-apps/plugin-sql` ^2.5.0, `@tauri-apps/plugin-store` ^2.5.0,
 `react` ^18.3.1, `react-dom` ^18.3.1, `zustand` ^5.0.2
 
@@ -170,7 +169,8 @@ futures-util = "0.3"          # SSE bytes_stream
 tokio = { version = "1", features = ["process", "time"] }  # exec_cmd timeout + process
 ```
 
-- `tauri-plugin-shell` backend'den kaldırılmıştır (tek shell yolu `exec_cmd`).
+- `tauri-plugin-shell` backend'den kaldırılmıştır; frontend bağımlılığı da
+  (`@tauri-apps/plugin-shell`) L8 kapsamında kaldırıldı (tek shell yolu `exec_cmd`).
 - `build.rs` → `tauri_build::build()`
 - Features: `default = ["custom-protocol"]`
 
@@ -320,7 +320,7 @@ MacroCode/
             ├── stream.rs        # stream_anthropic Rust SSE proxy (Channel<StreamEvent>)
             ├── mcp.rs           # mcp_spawn/write/read/kill (tokio subprocess, kill_on_drop)
             ├── fs.rs            # list_dir/read_file(offset)/grep_files(regex)/glob_files/write_file(O_EXCL)/apply_patch (root jail, backup+atomic) + undo_patch manifest doğrulaması (safe_backup_name, K1) + list_tree (Faz 9 repo haritası) + memory_read/memory_append (Faz 9 kalıcı not)
-            └── exec.rs          # exec_cmd (allowlist.json tek kaynak + kullanıcı extra_allow tablosu [Faz 8 L3], timeout 1-30sn varsayılan 15sn, 8k truncate, workspace jail, rm yalnız -i; FILE_ARG_CMDS dosya argümanı jail'i, O1)
+            └── exec.rs          # exec_cmd (allowlist.json tek kaynak + kullanıcı extra_allow tablosu [Faz 8 L3], timeout 1-30sn varsayılan 15sn, 8k truncate; M5 cwd jail root zorunlu; M6 git yol argümanı jail'i; FILE_ARG_CMDS + L1 extra_allow jail'i atlatamaz)
 ```
 
 ---
@@ -894,8 +894,8 @@ const { sendAgent } = useAgent();
 | `/model` / `/model <id>` | Aktif modeli gösterir / ayarlar (bilinmeyense uyarı + registry/custom capability satırı) |
 | `/provider <p>` | Sağlayıcıyı doğrular + ayarlar (7 provider; yazım hatasında öneri) |
 | `/key` | Ayarlar modalını açar |
-| `/export` / `/export md` | Markdown indirir |
-| `/export json` / `/backup` | JSON yedek indirir |
+| `/export` / `/export md` | Markdown indirir (L6/L7: gizli değer kalıpları redakte edilir) |
+| `/export json` / `/backup` | JSON yedek indirir (L6/L7: aynı redaksiyon, JSON yapısı korunur) |
 | `/tokens` | Gerçek usage varsa gerçek, yoksa karakter/4 approx; fiyat varsa `· maliyet ~$X` (kısmi fiyatta not) |
 | `/system <text>` | System prompt günceller |
 | `/root` `/files` `/apply` `/undo` `/skill` `/compact` `/audit` `/approval` `/note` `/context` | `/root` (argümansız=klasör diyaloğu · `off` · `1..5` · `<yol>` — hepsi `applyRoot` tek yolundan: SAF doğrulama → Rust `list_dir` varlık → `setWorkspace`) `/files`/`/skill`/`/compact`/`/audit [n]`/`/approval [m]` `App.tsx handleSend`'de; `/apply` aktif run varsa `resolve` yolundan devam eder, yoksa doğrudan `applyPendingPatch` (kalıcı `pending_approvals` + bellek `PendingPatch`). **Faz 8 L7:** `/approval manual\|auto-read\|auto-edit` onay modunu değiştirir (`auto-edit` seçilirse uyarı satırı düşer). **Faz 9:** `/note <not>` kalıcı proje notu ekler, `/context` repo bağlamını gösterir. |
@@ -904,6 +904,7 @@ const { sendAgent } = useAgent();
 **Yardımcılar:** `approxTokens` (karakter/4), `realTokens`, `formatTokenCount` (k kısaltması),
 `tokenSummaryLine`, `buildExportMarkdown`, `buildSessionBackup`/`parseSessionBackup`/`normalizeSession`
 (bozuk mesaj varsa dosya reddedilir; bilinmeyen provider → `anthropic` fallback; id çakışırsa yeni id).
+`buildExportMarkdown` ve `buildSessionBackup` çıktıları `logger.redact` ile maskelenir.
 
 **İndirme:** `Blob` → `URL.createObjectURL` → `<a download>` → 5sn sonra revoke.
 Dosya adı `macrocode-session-YYYYMMDD-HHMM.{md,json}`.
@@ -1184,7 +1185,7 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 | `StatusBar.tsx` | sağlayıcı · model · **agent modu rozeti** · context ölçer · token ↑↓ · maliyet · bekleyen onay · **streaming rozeti (nabız)** · onay modu · workspace (tıkla → klasör diyaloğu) · MCP |
 | `Welcome.tsx` | karşılama ekranı (logo + MacroCode) |
 | `ToolCallCard.tsx` | araç kartı (ikon, ad, argüman, süre, durum, genişletilebilir çıktı) |
-| `ApprovalCard.tsx` | onay kartı (tam komut, uyarı, Onayla/Reddet, "her zaman çalıştır") |
+| `ApprovalCard.tsx` | onay kartı (L4: `approvalDetail` özet + tam gövde, Tümünü göster, büyük yük uyarısı, Onayla/Reddet, "her zaman çalıştır") |
 | `TaskPanel.tsx` | görev checklist paneli |
 | `Switch.tsx` | native checkbox yerine özel anahtar |
 | `ModelPicker.tsx` | arama yapılabilir model seçici — tetikleyici form alanı + ortak `ModelDropdown` paneli (Faz 7) |
@@ -1213,8 +1214,9 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
   (`src/vite-env.d.ts` → global bildirimler).
 - `APP_VERSION` · `REPO_URL` · `LICENSE` · `PLATFORMS` · `APP_NAME` —
   uygulama içinde **sabit sürüm yazılmaz**.
-- `src-tauri/tauri.conf.json` → `version` elle tutulur; senkron olduğu
-  `src/lib/version.test.ts` ile doğrulanır (CI'da kırılır).
+- `src-tauri/tauri.conf.json` ve `src-tauri/Cargo.toml` sürümleri elle
+  tutulur; `package.json` ile senkron oldukları `src/lib/version.test.ts`
+  ile doğrulanır (CI'da kırılır). MCP el sıkışması `APP_VERSION` kullanır.
 - `package.json` → `repository.url` / `homepage` boşsa Hakkında sekmesinde
   "Kaynak kod" bağlantısı **gösterilmez** (yayın öncesi doldurulmalı).
 - **Veri konumları:** Rust `get_app_paths` komutu (`commands/paths.rs`) →
@@ -1289,6 +1291,14 @@ Depolama: `app_data_dir/keys.json`. Format: `{ "<provider>": { "key": "<secret-o
 `normalize_provider`: `ollama`/`ollamaurl` → `ollamaUrl`.
 `key_hint` → `••••` + son 4 (tam değer dönmez; boşta boş string).
 Hata mesajları Türkçe ve aksiyon odaklı.
+
+**L6/L7 (A) — sağlayıcı-kapsamlı erişim + redaksiyon:** `get_api_key` yalnızca
+istenen sağlayıcının değerini döndürür (toplu dump yok). Frontend anahtarı istek
+başlığında kullanmak zorunda olduğundan mimari korunur; XSS ile tek tek
+`get_api_key` çağrılabilmesi bilinçli kabul edilen kalan risktir. Bu riski
+azaltmak için `/export`, `/backup` ve `/copy` çıktıları `logger.redact` ile
+anahtar/token/JWT/URL-kimlik kalıplarını maskeler; `/log` kayıtları ve kalıcı
+`audit_log` satırları da aynı redaksiyondan geçer. Güvenlik envanteri: madde 25.
 
 ### 13.3 `commands/stream.rs` — `stream_anthropic` proxy
 
@@ -1430,7 +1440,7 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 22. **Faz 10 O2:** `proxy_fetch` yalnızca http/https + izinli metot/başlık; link-local/metadata IP'leri (169.254/16, fe80::/10, 0.0.0.0/8, 100.64/10) engellenir (alan adı **çözülerek** denetlenir). LAN (`192.168.x`, `10.x`) ve `localhost` serbesttir (Ollama). Timeout 120 sn, yanıt sınırı 32 MB.
 23. **Faz 10 D1:** `keys.json` Unix'te `0600` (yalnızca sahibi okur).
 24. **Faz 10 D2c:** blok listeleri `engine/blocks.json`'dan gelir (TS import, Rust `include_str!`) → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
-25. **Faz 10:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder** (anahtar/token/JWT alan ve değer kalıpları) → API anahtarı loglanmaz.
+25. **Faz 10 + L6/L7:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder** (anahtar/token/JWT/URL-kimlik alan ve değer kalıpları) → API anahtarı loglanmaz. `/export`, `/backup` ve `/copy` çıktıları ile kalıcı `audit_log` kayıtları da aynı `redact` fonksiyonundan geçer; transkripte yapıştırılmış anahtarlar dosya/panoya/DB'ye düz metin taşınmaz.
 26. **Faz 11:** Prompt cache Anthropic'te **eşik kuralına bağlıdır** — önek < 1024 token (Haiku 2048) ise `cache_control` gönderilmez (API 400 döner). Tahmin char/4'tür; güvenlik payı 160 token'dır.
 27. **Görsel yeniden tasarım:** Emoji **kullanılmaz** — tüm ikonlar `components/icons.tsx` SVG setinden gelir
     (16px, 1.5 stroke, `currentColor`). Model yetenek rozetleri de SVG'dir.

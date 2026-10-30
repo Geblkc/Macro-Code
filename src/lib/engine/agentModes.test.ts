@@ -4,6 +4,8 @@ import {
   filterToolsForMode,
   getDisallowedToolsForMode,
   getModePrompt,
+  isToolDisallowed,
+  MCP_TOOL_WILDCARD,
 } from './agentModes';
 
 describe('agentModes', () => {
@@ -42,5 +44,23 @@ describe('agentModes', () => {
     expect(names).not.toContain('todo');
     expect(getDisallowedToolsForMode('ask')).toContain('exec');
     expect(getModePrompt('ask')).toContain('[AGENT MODE: ASK]');
+  });
+
+  it('M2: isToolDisallowed birebir ve `önek:*` joker eşleşmesi yapar', () => {
+    expect(isToolDisallowed('exec', ['exec', 'write_file'])).toBe(true);
+    expect(isToolDisallowed('exec2', ['exec'])).toBe(false);
+    // `mcp:*` → tüm mcp:<sunucu>:<araç> adları.
+    expect(isToolDisallowed('mcp:filesystem:read_file', [MCP_TOOL_WILDCARD])).toBe(true);
+    expect(isToolDisallowed('mcp:', [MCP_TOOL_WILDCARD])).toBe(true);
+    // Önek sınırı: `mcp:` ile başlamayan ad eşleşmez.
+    expect(isToolDisallowed('mcpx:filesystem:read', [MCP_TOOL_WILDCARD])).toBe(false);
+    expect(isToolDisallowed('read_file', [MCP_TOOL_WILDCARD])).toBe(false);
+    expect(isToolDisallowed('anything', [])).toBe(false);
+  });
+
+  it('M2: plan/ask modları MCP araçlarını yasaklar, build yasaklamaz', () => {
+    expect(getDisallowedToolsForMode('plan')).toContain(MCP_TOOL_WILDCARD);
+    expect(getDisallowedToolsForMode('ask')).toContain(MCP_TOOL_WILDCARD);
+    expect(getDisallowedToolsForMode('build')).not.toContain(MCP_TOOL_WILDCARD);
   });
 });

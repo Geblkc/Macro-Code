@@ -111,6 +111,33 @@
 }
 .approval-tool { color: var(--accent); font-weight: 700; }
 
+/* L4: tam argüman gövdesi — uzun içerik kart içinde kaydırılır. */
+.approval-detail { margin-bottom: 10px; }
+.approval-detail-body {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.approval-toggle { margin-top: 6px; }
+.approval-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+}
+.approval-large { color: var(--col-warn); }
+
 .approval-warn {
   display: flex;
   gap: 8px;
@@ -130,6 +157,24 @@
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
+}
+
+/* M1: çoklu bekleyen onaylar için üstteki toplu işlem barı. */
+.approval-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--col-warn);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  padding: var(--sp-3) var(--sp-4);
+}
+.approval-bulk-bar .muted {
+  flex: 1 1 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
 }
 
 .approval-actions .kbd {

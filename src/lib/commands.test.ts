@@ -199,6 +199,30 @@ describe('B — slash komutları', () => {
     expect(out[0].messages).toHaveLength(1);
   });
 
+  it('L6/L7: export JSON ve Markdown bilinen anahtar kalıplarını redakte eder', () => {
+    const s = sampleSession({
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'anahtar sk-abcdefghijklmnop ve normal metin',
+          timestamp: 5,
+        },
+      ],
+    });
+    const json = buildSessionBackup(s);
+    expect(json).not.toContain('sk-abcdefghijklmnop');
+    expect(json).toContain('«redakte»');
+    // Redaksiyon JSON yapısını bozmaz; roundtrip çalışmaya devam eder.
+    const parsed = parseSessionBackup(json);
+    expect(parsed[0].messages[0].content).toContain('normal metin');
+
+    const md = buildExportMarkdown(s);
+    expect(md).not.toContain('sk-abcdefghijklmnop');
+    expect(md).toContain('«redakte»');
+    expect(md).toContain('normal metin');
+  });
+
   it('parse: bozuk JSON ve bozuk mesaj reddedilir', () => {
     expect(() => parseSessionBackup('değil json')).toThrow();
     expect(() =>

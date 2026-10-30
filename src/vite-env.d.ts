@@ -6,7 +6,7 @@
  * Tek kaynak `package.json`'dır — uygulama içinde sürüm sabiti yazılmaz.
  */
 
-/** `package.json` → `version` (ör. "0.1.0"). */
+/** `package.json` → `version` (ör. "0.2.1"). */
 declare const __APP_VERSION__: string;
 
 /** `package.json` → `repository.url` veya `homepage` (yoksa boş string). */

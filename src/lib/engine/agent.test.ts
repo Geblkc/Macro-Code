@@ -1,4 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// L5 — audit asimetrisi: mod yasağının da `appendAudit('denied')` ürettiğini
+// doğrulamak için DB katmanı mock'lanır (gerçek SQLite Tauri'de çalışır).
+const { auditMock } = vi.hoisted(() => ({ auditMock: vi.fn(async (..._args: unknown[]) => true) }));
+vi.mock('../db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../db')>();
+  return { ...actual, appendAudit: (...args: unknown[]) => auditMock(...args) };
+});
+
 import { createAgentRun, toProviderMessages } from './agent';
 import type { AgentDeps, AgentHistoryItem } from './agent';
 import type { AgentEvent } from './types';
@@ -177,6 +186,198 @@ describe('Faz F — agent loop', () => {
     ]);
     expect(ids).toContain('a1');
     expect(ids).toContain('a2');
+  });
+
+  it('M1: tek kart onayı diğer bekleyenleri ÇALIŞTIRMAZ (partial resolve)', async () => {
+    // Aynı turda iki onay çağrısı: `exec` ve `write_file` (manual modda ikisi de bekler).
+    const events: AgentEvent[] = [];
+    const ran: string[] = [];
+    let n = 0;
+    const run = createAgentRun([{ role: 'user', content: 'başla' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      approvalMode: 'manual',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [
+              { id: 'p1', name: 'exec', args: { cmd: 'ls', args: [] } },
+              { id: 'p2', name: 'write_file', args: { path: 'a.txt', content: 'x' } },
+            ],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'bitti', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async (call) => {
+        ran.push(call.id);
+        return `out:${call.id}`;
+      },
+    });
+
+    const p = await run.step();
+    expect(p.kind).toBe('needs-approval');
+    if (p.kind !== 'needs-approval') throw new Error('pending bekleniyordu');
+    expect(p.pending.map((c) => c.id)).toEqual(['p1', 'p2']);
+
+    // Yalnız p1 onaylanır → p2 hâlâ bekler, tur ilerlemez.
+    const r2 = await run.resolve([{ id: 'p1', approved: true }]);
+    expect(r2.kind).toBe('needs-approval');
+    if (r2.kind !== 'needs-approval') throw new Error('pending bekleniyordu');
+    expect(r2.pending.map((c) => c.id)).toEqual(['p2']);
+    expect(ran).toEqual(['p1']);
+    expect(events.some((e) => e.k === 'tool_result' && e.id === 'p2')).toBe(false);
+
+    // Kalan p2 reddedilir → döngü devam eder, done.
+    const done = await run.resolve([{ id: 'p2', approved: false }]);
+    expect(done.kind).toBe('done');
+    if (done.kind !== 'done') throw new Error('done bekleniyordu');
+    expect(done.text).toContain('bitti');
+    expect(ran).toEqual(['p1']);
+    const p2res = events.find((e) => e.k === 'tool_result' && e.id === 'p2');
+    expect(p2res?.k === 'tool_result' && p2res.output).toContain('reddetti');
+  });
+
+  it('M1: eşzamanlı kart onayları çakışmaz (resolve sıraya alınır)', async () => {
+    const events: AgentEvent[] = [];
+    const ran: string[] = [];
+    let n = 0;
+    const run = createAgentRun([{ role: 'user', content: 'başla' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      approvalMode: 'manual',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [
+              { id: 'q1', name: 'exec', args: { cmd: 'ls', args: [] } },
+              { id: 'q2', name: 'write_file', args: { path: 'b.txt', content: 'y' } },
+            ],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'tamam', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async (call) => {
+        ran.push(call.id);
+        return `out:${call.id}`;
+      },
+    });
+
+    const p = await run.step();
+    expect(p.kind).toBe('needs-approval');
+    // İki kart neredeyse aynı anda onaylanır (gerçek kullanıcı davranışı).
+    const [r1, r2] = await Promise.all([
+      run.resolve([{ id: 'q1', approved: true }]),
+      run.resolve([{ id: 'q2', approved: true }]),
+    ]);
+    expect(r1.kind).toBe('needs-approval');
+    expect(r2.kind).toBe('done');
+    // Her araç TAM BİR kez çalıştı (çift çalıştırma yok).
+    expect(ran).toEqual(['q1', 'q2']);
+    expect(events.filter((e) => e.k === 'tool_result' && e.id === 'q1')).toHaveLength(1);
+    expect(events.filter((e) => e.k === 'tool_result' && e.id === 'q2')).toHaveLength(1);
+  });
+
+  it('M2: plan modunda MCP aracı çalışmaz (mcp:* joker, onay kartı yok)', async () => {
+    const events: AgentEvent[] = [];
+    let ran = false;
+    let n = 0;
+    const run = createAgentRun([{ role: 'user', content: 'başla' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      agentMode: 'plan',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'm1', name: 'mcp:filesystem:write_file', args: { path: 'x' } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'plan hazır', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () => {
+        ran = true;
+        return 'çalışmamalıydı';
+      },
+    });
+
+    const r = await run.step();
+    // Onay kartı üretilmedi: tur doğrudan devam etti ve bitti.
+    expect(r.kind).toBe('done');
+    expect(ran).toBe(false);
+    const res = events.find((e) => e.k === 'tool_result' && e.id === 'm1');
+    expect(res?.k === 'tool_result' && res.ok).toBe(false);
+    expect(res?.k === 'tool_result' && res.output).toContain('kullanamaz');
+  });
+
+  it('L5: mod yasağı audit kaydına denied olarak düşer', async () => {
+    auditMock.mockClear();
+    const run = createAgentRun([{ role: 'user', content: 'x' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      agentMode: 'plan',
+      auditSessionId: 's-audit',
+      onEvent: () => {},
+      streamImpl: async ({ onChunk }) => {
+        onChunk({
+          text: '',
+          done: false,
+          toolCalls: [
+            {
+              id: 'z1',
+              name: 'exec',
+              args: { cmd: 'ls', args: [], apiKey: 'sk-abcdefghijkl' },
+            },
+          ],
+        });
+        onChunk({ text: '', done: true });
+      },
+    });
+    await run.step();
+    const entry = auditMock.mock.calls
+      .map(
+        (c) =>
+          c[0] as {
+            tool?: string;
+            decision?: string;
+            result?: string;
+            argsPreview?: string;
+          },
+      )
+      .find((e) => e.tool === 'exec');
+    expect(entry).toBeDefined();
+    expect(entry?.decision).toBe('denied');
+    expect(entry?.result).toContain('kullanamaz');
+    // L6/L7: audit argsPreview alan-adı redaksiyonundan geçer.
+    expect(entry?.argsPreview).not.toContain('sk-abcdefghijkl');
+    expect(entry?.argsPreview).toContain('«redakte»');
   });
 
   it('Faz 1: reddet + devam — isError sonucu ile agent durmaz', async () => {

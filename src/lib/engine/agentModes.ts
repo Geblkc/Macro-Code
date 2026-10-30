@@ -33,14 +33,42 @@ export function filterToolsForMode(tools: ToolDefinition[], mode: AgentMode = 'b
 }
 
 /**
+ * M2 — `mcp:` araçları dinamik olduğu için ada göre listelenemez; yasak
+ * listesinde `mcp:*` önek deseniyle temsil edilir.
+ */
+export const MCP_TOOL_WILDCARD = 'mcp:*';
+
+/**
+ * M2 — bir araç adı yasak listesindeki bir desene uyuyor mu?
+ *
+ * Eski kontrol `disallowed.includes(name)` idi: `mcp:*` gibi bir önek
+ * deseni hiçbir zaman eşleşmediğinden model `mcp:sunucu:araç` çağırdığında
+ * yasak deliniyordu (plan/ask modunda onay kartına düşüp çalışabiliyordu).
+ * Desteklenen sözdizimi: birebir ad veya `önek:*` (sondaki `*` joker).
+ */
+export function isToolDisallowed(name: string, disallowed: readonly string[]): boolean {
+  const toolName = String(name);
+  return disallowed.some((pattern) => {
+    if (pattern === toolName) return true;
+    if (pattern.endsWith(':*')) {
+      return toolName.startsWith(pattern.slice(0, -1));
+    }
+    return false;
+  });
+}
+
+/**
  * Moda göre yasaklı (disallow) araç isimlerini döndürür.
+ *
+ * M2: plan/ask modları salt-okunur kabul edilir — MCP araçları yan etki
+ * yapabildiği için (DB yazma, dış servis çağrısı) bu modlarda kapalıdır.
  */
 export function getDisallowedToolsForMode(mode: AgentMode = 'build'): string[] {
   if (mode === 'plan') {
-    return [...WRITE_AND_EXEC_TOOL_NAMES];
+    return [...WRITE_AND_EXEC_TOOL_NAMES, MCP_TOOL_WILDCARD];
   }
   if (mode === 'ask') {
-    return [...WRITE_AND_EXEC_TOOL_NAMES, 'todo', 'plan', 'subagent'];
+    return [...WRITE_AND_EXEC_TOOL_NAMES, 'todo', 'plan', 'subagent', MCP_TOOL_WILDCARD];
   }
   return [];
 }

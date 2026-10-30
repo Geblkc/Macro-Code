@@ -3,6 +3,9 @@ import {
   allowedCommands,
   decideTool,
   execApprovalWarning,
+  execFileArgViolation,
+  gitPathArgs,
+  isBlockedFile,
   isExecAllowed,
   isPathSafe,
   isRmSafe,
@@ -45,9 +48,88 @@ describe('Faz C — policy', () => {
     expect(decideTool('propose_patch', { path: '.git/config' }, 'auto-edit').allowed).toBe(false);
   });
 
+  it('H2: blok listeleri büyük/küçük harf duyarlı değil (macOS/Windows bypass)', () => {
+    // isPathSafe / isBlockedDir
+    expect(isPathSafe('.GIT/config')).toBe(false);
+    expect(isPathSafe('Node_Modules/x.js')).toBe(false);
+    expect(isPathSafe('alt/.Git/hooks/pre-commit')).toBe(false);
+    // isBlockedFile (dosya adı + .env. öneki)
+    expect(isBlockedFile('KEYS.JSON')).toBe(true);
+    expect(isBlockedFile('.ENV.local')).toBe(true);
+    // decideTool yolu da aynı duyarlılıkta.
+    expect(decideTool('read_file', { path: '.GIT/config' }, 'manual').allowed).toBe(false);
+    expect(decideTool('write_file', { path: '.GIT/hooks/pre-commit' }, 'auto-edit').allowed).toBe(false);
+    // exec dosya argümanı jail'i (Rust `check_file_arg` ile senkron).
+    expect(execFileArgViolation('cat', ['.GIT/config'])).not.toBeNull();
+    expect(execFileArgViolation('cat', ['KEYS.JSON'])).not.toBeNull();
+    expect(execFileArgViolation('cat', ['.ENV.local'])).not.toBeNull();
+    expect(execFileArgViolation('cat', ['src/app.ts'])).toBeNull();
+    // Doğru davranış korunur: gerçekçi olmayan adlar hâlâ geçer.
+    expect(isPathSafe('src/app.ts')).toBe(true);
+  });
+
+  it('M4: genişletilmiş blok listeleri (dosya, dizin, uzantı)', () => {
+    // Dizinler.
+    expect(isPathSafe('.ssh/id_rsa')).toBe(false);
+    expect(isPathSafe('.aws/credentials')).toBe(false);
+    expect(isPathSafe('.gnupg/secring.gpg')).toBe(false);
+    expect(isPathSafe('.kube/config')).toBe(false);
+    expect(isPathSafe('.docker/config.json')).toBe(false);
+    // Dosya adları.
+    expect(isBlockedFile('.netrc')).toBe(true);
+    expect(isBlockedFile('.git-credentials')).toBe(true);
+    expect(isBlockedFile('.pypirc')).toBe(true);
+    expect(isBlockedFile('.htpasswd')).toBe(true);
+    expect(isBlockedFile('.pgpass')).toBe(true);
+    expect(isBlockedFile('service-account.json')).toBe(true);
+    expect(isBlockedFile('.vault-token')).toBe(true);
+    // Uzantılar.
+    expect(isPathSafe('certs/vault.kdbx')).toBe(false);
+    expect(isPathSafe('certs/client.p8')).toBe(false);
+    expect(isPathSafe('certs/keystore.jks')).toBe(false);
+    expect(isPathSafe('certs/server.ppk')).toBe(false);
+    expect(isPathSafe('vpn/profile.ovpn')).toBe(false);
+    // Meşru yollar etkilenmez.
+    expect(isPathSafe('src/app.ts')).toBe(true);
+    expect(isPathSafe('docs/aws-setup.md')).toBe(true);
+  });
+
   it('read/list/grep auto-approved', () => {
     expect(decideTool('read_file', { path: 'src/a.ts' }, 'manual').autoApproved).toBe(true);
     expect(decideTool('read_file', { path: '../x' }, 'manual').allowed).toBe(false);
+  });
+
+  it('M6: git dosya argümanı jail\'i (--, rev:path, -F/--output)', () => {
+    expect(gitPathArgs(['show', 'HEAD:src/app.ts'])).toContain('src/app.ts');
+    expect(gitPathArgs(['log', '--', '.env'])).toContain('.env');
+    expect(gitPathArgs(['commit', '-F', 'mesaj.txt'])).toContain('mesaj.txt');
+    expect(gitPathArgs(['diff', '--output=/tmp/x', 'HEAD'])).toContain('/tmp/x');
+    expect(gitPathArgs(['add', 'src/app.ts'])).toContain('src/app.ts');
+    // Tehlikeli okuma/yazma yolları.
+    expect(execFileArgViolation('git', ['diff', '--no-index', '/etc/passwd', 'x'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['commit', '-F', '/etc/passwd'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['commit', '--file=/etc/passwd'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['show', 'HEAD:.env'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['log', '--', '.env'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['diff', '--output=/tmp/x', 'HEAD'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['add', '.ssh/id_rsa'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['add', '../x'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['-C', '../x', 'status'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['--git-dir=/etc', 'status'])).not.toBeNull();
+    expect(execFileArgViolation('git', ['--exec-path=/tmp', 'status'])).not.toBeNull();
+    // Meşru kullanım etkilenmez.
+    expect(execFileArgViolation('git', ['status'])).toBeNull();
+    expect(execFileArgViolation('git', ['show', 'HEAD:src/app.ts'])).toBeNull();
+    expect(execFileArgViolation('git', ['diff', 'src/a.ts', 'src/b.ts'])).toBeNull();
+    expect(execFileArgViolation('git', ['log', '--', 'src'])).toBeNull();
+    // `-m` değeri mesajdır, yol değil.
+    expect(execFileArgViolation('git', ['commit', '-m', 'fix: ../tmp'])).toBeNull();
+    expect(execFileArgViolation('git', ['add', 'src/app.ts'])).toBeNull();
+    // decideTool üzerinden de kapalı.
+    expect(
+      decideTool('exec', { cmd: 'git', args: ['diff', '--no-index', '/etc/passwd', 'x'] }, 'manual')
+        .allowed,
+    ).toBe(false);
   });
 
   it('exec allowlist dışı yasak', () => {

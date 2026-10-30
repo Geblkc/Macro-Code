@@ -14,6 +14,9 @@ export const SUBAGENT_BLOCKED_TOOLS = [
   'propose_patch',
   // Faz 8 L1: alt-agent alt-agent çağıramaz (özyineleme koruması).
   'subagent',
+  // M2: MCP araçları salt-okunur alt-agent'ta kapalı — dinamik adlar
+  // `mcp:*` joker deseniyle engellenir (yan etki yapabilirler).
+  'mcp:*',
 ];
 
 export interface SubagentResult {

@@ -1,6 +1,6 @@
 {
   "productName": "MacroCode",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.macrocode.app",
   "build": {
     "devUrl": "http://localhost:1420",
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.anthropic.com https://api.openai.com https://api.x.ai https://api.deepseek.com https://openrouter.ai https://generativelanguage.googleapis.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*; object-src 'none'; frame-src 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.anthropic.com https://api.openai.com https://api.x.ai https://api.deepseek.com https://openrouter.ai https://generativelanguage.googleapis.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*; object-src 'none'; frame-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {

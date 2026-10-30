@@ -8,6 +8,7 @@ import {
   suggestProvider,
 } from './providers';
 import { sessionCost, formatCost } from './pricing';
+import { redact } from './logger';
 import { t, type TranslationKey } from './i18n/core';
 import type { CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
 
@@ -281,7 +282,8 @@ export function buildExportMarkdown(session: Session): string {
   }
   parts.push('---');
   parts.push(t('export.footer'));
-  return parts.join('\n');
+  // L6/L7: Markdown dışa aktarımı da gizli değer kalıplarından arındırılır.
+  return redactExport(parts.join('\n'));
 }
 
 export interface SessionBackup {
@@ -289,6 +291,18 @@ export interface SessionBackup {
   version: 1;
   exportedAt: number;
   session: Session;
+}
+
+/**
+ * L6/L7 — dışa aktarılan metinlerde bilinen gizli değer kalıplarını maskele.
+ *
+ * Oturum içeriği kullanıcı mesajları, araç çıktıları veya MCP yanıtlarından
+ * gelebilir; bir API anahtarı transkripte yapıştırıldıysa `/export`, `/backup`
+ * ve `/copy` onu düz metin olarak diske/panoya taşımamalı. `redact` yalnızca
+ * değer kalıplarını değiştirir; JSON/Markdown yapısı bozulmaz.
+ */
+function redactExport(text: string): string {
+  return redact(text) as string;
 }
 
 /** Tek oturumun JSON yedegi (dosya icerigi). */
@@ -299,7 +313,8 @@ export function buildSessionBackup(session: Session): string {
     exportedAt: Date.now(),
     session,
   };
-  return JSON.stringify(backup, null, 2);
+  // L6/L7: yedek dosyası da redaksiyondan geçer (parse edilebilirlik korunur).
+  return redactExport(JSON.stringify(backup, null, 2));
 }
 
 function isValidMessage(m: unknown): m is Message {

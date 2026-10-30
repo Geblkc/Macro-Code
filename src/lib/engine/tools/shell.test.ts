@@ -43,4 +43,26 @@ describe('Y2 (Faz 3) — exec onay bayrağı', () => {
       toolExec('/tmp', call('docker', ['rm']), 'manual', { approved: true, extraAllow: extra }),
     ).rejects.toThrow(/yasaklı/);
   });
+
+  it('M5: güvenli olmayan cwd invoke öncesi reddedilir', async () => {
+    const cwdCall = (cwd: string): ToolCall => ({
+      id: 't2',
+      name: 'exec',
+      args: { cmd: 'npm', args: ['--version'], cwd },
+    });
+    // Mutlak yol, `..` ve bloklu dizin → erken hata.
+    await expect(
+      toolExec('/tmp', cwdCall('/etc'), 'manual', { approved: true }),
+    ).rejects.toThrow(/cwd güvenli değil/);
+    await expect(
+      toolExec('/tmp', cwdCall('../kacis'), 'manual', { approved: true }),
+    ).rejects.toThrow(/cwd güvenli değil/);
+    await expect(
+      toolExec('/tmp', cwdCall('.git'), 'manual', { approved: true }),
+    ).rejects.toThrow(/cwd güvenli değil/);
+    // Güvenli göreli cwd → guard'ı geçer, Tauri ortamı hatasına ulaşır.
+    await expect(
+      toolExec('/tmp', cwdCall('src'), 'manual', { approved: true }),
+    ).rejects.toThrow(/yalnızca Tauri/);
+  });
 });

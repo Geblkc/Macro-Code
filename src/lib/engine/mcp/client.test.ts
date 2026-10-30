@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { APP_VERSION } from '../../appInfo';
 import { McpClient, type McpTransport } from './client';
 
 function scripted(handlers: Record<string, (id: number | string) => string>): McpTransport {
@@ -45,6 +46,8 @@ describe('Faz 5 — MCP istemcisi', () => {
     expect(hello.serverInfo.name).toBe('demo');
     // initialized bildirimi de gönderildi
     expect(seen.some((s) => s.includes('notifications/initialized'))).toBe(true);
+    const init = JSON.parse(seen[0]) as { params: { clientInfo: { version: string } } };
+    expect(init.params.clientInfo.version).toBe(APP_VERSION);
     expect(await c.listTools()).toHaveLength(1);
     const out = await c.callTool('topla', { a: 1 });
     expect(out.text).toBe('42');

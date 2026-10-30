@@ -1,6 +1,7 @@
 /**
  * Faz 5 — Transport bağımsız MCP istemcisi (initialize → tools/list → tools/call).
  */
+import { APP_VERSION } from '../../appInfo';
 import {
   MCP_PROTOCOL_VERSION,
   McpError,
@@ -68,7 +69,7 @@ export class McpClient {
   async initialize(): Promise<{ protocolVersion: string; serverInfo: McpServerInfo }> {
     const result = (await this.roundTrip('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
-      clientInfo: { name: 'macrocode', version: '0.2.0' },
+      clientInfo: { name: 'macrocode', version: APP_VERSION },
       capabilities: {},
     })) as { protocolVersion?: unknown; serverInfo?: unknown };
     // Bildirim için yanıt beklenmez; hata sessizce yoksayılır (bazı sunucular istemez).

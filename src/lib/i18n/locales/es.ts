@@ -124,7 +124,7 @@ export const es: Record<TranslationKey, Message> = {
   'input.stopTitle': 'detener',
   'input.sendTitle': 'enviar (Intro)',
   'input.pendingHint':
-    { one: '{count} aprobación pendiente · Intro para aprobar · Esc para rechazar', other: '{count} aprobaciones pendientes · Intro para aprobar · Esc para rechazar' },
+    { one: '{count} aprobación pendiente · Intro para aprobar · Esc para rechazar', other: '{count} aprobaciones pendientes · Esc rechaza todas · apruebe cada una en su tarjeta o “Aprobar todas”' },
   'input.hint.send': 'enviar',
   'input.hint.newline': 'nueva línea',
   'input.hint.history': 'historial',
@@ -170,6 +170,17 @@ export const es: Record<TranslationKey, Message> = {
   'approval.alwaysRun': 'Ejecutar siempre este comando',
   'approval.warning': 'Este comando ejecuta código: ten cuidado',
   'approval.rejectNote': 'Rechazado por el usuario',
+  'approval.approveAll': 'Aprobar todas',
+  'approval.rejectAll': 'Rechazar todas',
+  'approval.showAll': 'Mostrar todo',
+  'approval.collapse': 'Contraer',
+  'approval.charCount': '{count} caracteres',
+  'approval.largePayload':
+    'Carga grande ({count} caracteres): revísala por completo antes de aprobar',
+  'approval.bulkHint': {
+    one: '{count} aprobación esperando',
+    other: '{count} aprobaciones esperando — apruebe cada una en su tarjeta o todas de una vez',
+  },
 
   /* ── Panel de tareas ── */
   'task.title': 'Tareas',
@@ -501,7 +512,7 @@ export const es: Record<TranslationKey, Message> = {
   'commands.help.root':
     '  /root [ruta|off]  elegir/quitar el espacio de trabajo (sin argumento = diálogo de carpeta)',
   'commands.help.files': '  /files         resumen de archivos del espacio de trabajo',
-  'commands.help.apply': '  /apply <id>    aprobar y aplicar un parche pendiente',
+  'commands.help.apply': '  /apply <id>    aprobar y aplicar un parche pendiente (/apply all = todos)',
   'commands.help.undo': '  /undo [id]     deshacer el último parche o el indicado',
   'commands.help.skill': '  /skill         listar las skills registradas',
   'commands.help.approval': '  /approval [m]  modo de aprobación (manual|auto-read|auto-edit)',
@@ -637,6 +648,7 @@ export const es: Record<TranslationKey, Message> = {
   'commands.filesFailed': '✗ error de /files: {message}',
   'commands.applyNotFound': '✗ no se encontró la aprobación pendiente: {id}',
   'commands.applyNone': '/// no hay parches pendientes',
+  'commands.applyNeedId': '✗ varias aprobaciones pendientes — cada una con /apply <id> o todas con /apply all · {list}',
   'commands.applyPending': '/// pendiente: {list}',
   'commands.applyFailed': '✗ error de /apply: {message}',
   'commands.undoFailed': '✗ error de /undo: {message}',
@@ -765,6 +777,7 @@ export const es: Record<TranslationKey, Message> = {
   'tool.subagentEmpty': '(el subagente no devolvió nada)',
   'tool.forbiddenPath': 'ruta prohibida',
   'tool.forbiddenCommand': 'comando prohibido',
+  'tool.cwdUnsafe': 'cwd inseguro (ruta absoluta, ../ o directorio bloqueado): {cwd}',
   'message.copyOk': 'copiado ✓',
   'message.copyFail': 'no se pudo copiar',
   'message.retry': 'reintentar',
@@ -782,7 +795,10 @@ export const es: Record<TranslationKey, Message> = {
   'agent.errNoTools': '✗ {provider}/{model} no admite el modo agent · prueba /provider {providers} o cambia a un modelo con tools',
   'agent.errNoApiKey': '✗ falta la clave API · añade una con /key',
   'agent.errEmptyReply': '✗ el agent no devolvió nada · reformúlalo',
-  'agent.pendingLine': '⏸ aprobación pendiente: {names} [Enter aprobar / Esc rechazar]',
+  'agent.pendingLine': {
+    one: '⏸ aprobación pendiente: {names} [Enter aprobar / Esc rechazar]',
+    other: '⏸ aprobaciones pendientes: {names} [apruebe cada una en su tarjeta · Esc rechaza todas]',
+  },
   'extrasCapped': '/// líneas antiguas fuera de la vista · respalda con /export',
   'errors.listFailed': 'no se pudo cargar la lista de {source} (http {status})',
   'errors.catalogFailed': 'no se pudo cargar el catálogo models.dev (http {status})',

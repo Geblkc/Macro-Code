@@ -26,6 +26,9 @@ const tauriConf = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) 
   bundle?: { copyright?: string };
 };
 
+const cargoToml = readFileSync('src-tauri/Cargo.toml', 'utf8');
+const cargoVersion = /^\s*version\s*=\s*"([^"]+)"/m.exec(cargoToml)?.[1];
+
 describe('sürüm tek kaynak', () => {
   it('package.json sürümü geçerli semver', () => {
     expect(pkg.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
@@ -33,6 +36,10 @@ describe('sürüm tek kaynak', () => {
 
   it('tauri.conf.json sürümü package.json ile aynı', () => {
     expect(tauriConf.version).toBe(pkg.version);
+  });
+
+  it('Cargo.toml sürümü package.json ile aynı', () => {
+    expect(cargoVersion).toBe(pkg.version);
   });
 
   it('tauri.conf.json ürün adı package.json ile aynı', () => {

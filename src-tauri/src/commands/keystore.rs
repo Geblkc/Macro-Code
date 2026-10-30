@@ -102,6 +102,11 @@ pub async fn set_api_key(provider: String, key: String, app: AppHandle) -> Resul
     Ok(())
 }
 
+/// L6/L7 (A) — **sağlayıcı-kapsamlı erişim:** her çağrı yalnızca `provider`
+/// parametresindeki tek anahtarı döndürür; tüm anahtarları toplu döken bir
+/// komut yoktur. Frontend anahtarı sağlayıcı isteğinde kullanmak zorunda
+/// olduğundan bu mimari korunur; kalan XSS riski export/log/audit
+/// redaksiyonu ve dokümantasyonla azaltılır (bkz. `docs/ARCHITECTURE.md` §13.2).
 #[tauri::command]
 pub async fn get_api_key(provider: String, app: AppHandle) -> Result<String, String> {
     let provider = normalize_provider(&provider)?;

@@ -147,15 +147,34 @@ export default function App() {
     setPendingBySession((prev) => ({ ...prev, [sessionId]: pending }));
   }, []);
 
-  const handleApproveAll = useCallback(
-    async (sessionId: string) => {
+  /** M1: kuyruktan yalnız verilen id'leri düşürür — functional update, yarış
+   *  durumunda stale closure'ın eski kartı geri getirmesini önler. */
+  const dropPending = useCallback((sessionId: string, ids: Set<string>) => {
+    setPendingBySession((prev) => ({
+      ...prev,
+      [sessionId]: (prev[sessionId] ?? []).filter((p) => !ids.has(p.id)),
+    }));
+  }, []);
+
+  /**
+   * M1 — per-kart onay: `id` verilirse **yalnız** o bekleyen çağrı çözülür;
+   * `id` yoksa tümü ("Tümünü onayla" düğmesi ve /apply `all`).
+   *
+   * Eski `handleApproveAll` her kartın düğmesine bağlıydı → tek tıkla bir
+   * turdaki TÜM çağrılar (gizli kalmış bir `git push` dahil) çalışıyordu.
+   */
+  const handleApprove = useCallback(
+    async (sessionId: string, id?: string) => {
       const pend = pendingBySession[sessionId] ?? [];
       if (pend.length === 0) return;
-      const decisions = pend.map((p) => ({ id: p.id, approved: true }));
-      setPending(sessionId, []);
+      const target = id ? pend.filter((p) => p.id === id) : pend;
+      if (target.length === 0) return;
+      const resolvedIds = new Set(target.map((p) => p.id));
+      // Yalnız çözülenler kuyruktan düşer; diğer bekleme kartta KALIR.
+      dropPending(sessionId, resolvedIds);
       const err = await resolvePending(
         sessionId,
-        decisions,
+        target.map((p) => ({ id: p.id, approved: true })),
         (line) => pushExtra(sessionId, line),
         (next: ToolCall[]) =>
           setPending(
@@ -165,18 +184,21 @@ export default function App() {
       );
       if (err) pushExtra(sessionId, { type: 'err', content: err });
     },
-    [pendingBySession, resolvePending, pushExtra, setPending],
+    [pendingBySession, resolvePending, pushExtra, setPending, dropPending],
   );
 
-  const handleRejectAll = useCallback(
-    async (sessionId: string) => {
+  /** M1: `id` yoksa tümü (toplu reddetme — Esc de buradan gelir, güvenli taraf). */
+  const handleReject = useCallback(
+    async (sessionId: string, id?: string) => {
       const pend = pendingBySession[sessionId] ?? [];
       if (pend.length === 0) return;
-      const decisions = pend.map((p) => ({ id: p.id, approved: false }));
-      setPending(sessionId, []);
+      const target = id ? pend.filter((p) => p.id === id) : pend;
+      if (target.length === 0) return;
+      const resolvedIds = new Set(target.map((p) => p.id));
+      dropPending(sessionId, resolvedIds);
       const err = await resolvePending(
         sessionId,
-        decisions,
+        target.map((p) => ({ id: p.id, approved: false })),
         (line) => pushExtra(sessionId, line),
         (next: ToolCall[]) =>
           setPending(
@@ -186,7 +208,7 @@ export default function App() {
       );
       if (err) pushExtra(sessionId, { type: 'err', content: err });
     },
-    [pendingBySession, resolvePending, pushExtra, setPending],
+    [pendingBySession, resolvePending, pushExtra, setPending, dropPending],
   );
 
   /**
@@ -599,15 +621,48 @@ export default function App() {
         const activeRun = getActiveAgentRun(sessionId);
         const queued = pendingBySession[sessionId] ?? [];
         if (activeRun && queued.length > 0) {
-          const decisions = id
-            ? queued
-                .filter((p) => p.id === id || p.id.startsWith(id))
-                .map((p) => ({ id: p.id, approved: true }))
-            : queued.map((p) => ({ id: p.id, approved: true }));
-          if (id && decisions.length === 0) {
-            pushExtra(sessionId, { type: 'err', content: t('commands.applyNotFound', { id }) });
+          // M1: `all` = tümünü onayla; id'siz + TEK bekleyen = o tek onay;
+          // id'siz + ÇOKLU = hata + liste (artık toplu onay sessizce olmaz).
+          if (id && id !== 'all') {
+            const matches = queued.filter((p) => p.id === id || p.id.startsWith(id));
+            if (matches.length === 0) {
+              pushExtra(sessionId, { type: 'err', content: t('commands.applyNotFound', { id }) });
+              return;
+            }
+            if (matches.length > 1) {
+              // M1: kısa/belirsiz önek birden fazla kartı sessizce onaylamasın.
+              const list = matches.map((p) => `${p.id.slice(0, 8)} ${p.call.name}`).join(' · ');
+              pushExtra(sessionId, {
+                type: 'err',
+                content: t('commands.applyNeedId', { list }),
+              });
+              return;
+            }
+            const decisions = matches.map((p) => ({ id: p.id, approved: true }));
+            const resolvedIds = new Set(decisions.map((d) => d.id));
+            dropPending(sessionId, resolvedIds);
+            const err = await resolvePending(
+              sessionId,
+              decisions,
+              (line) => pushExtra(sessionId, line),
+              (next: ToolCall[]) =>
+                setPending(
+                  sessionId,
+                  next.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
+                ),
+            );
+            if (err) pushExtra(sessionId, { type: 'err', content: err });
             return;
           }
+          if (!id && queued.length > 1) {
+            const list = queued.map((p) => `${p.id.slice(0, 8)} ${p.call.name}`).join(' · ');
+            pushExtra(sessionId, {
+              type: 'err',
+              content: t('commands.applyNeedId', { list }),
+            });
+            return;
+          }
+          const decisions = queued.map((p) => ({ id: p.id, approved: true }));
           setPending(sessionId, []);
           const err = await resolvePending(
             sessionId,
@@ -797,7 +852,7 @@ export default function App() {
           retry: () => handleSendRef.current?.(trimmed, images),
         });
     },
-    [send, sendAgent, clearView, pushExtra, setPending, runRootCommand],
+    [send, sendAgent, clearView, pushExtra, setPending, dropPending, runRootCommand],
   );
   handleSendRef.current = handleSend;
 
@@ -1136,11 +1191,17 @@ export default function App() {
             pending={activeId ? (pendingBySession[activeId] ?? []) : []}
             clockFormat={clockFormat}
             showTimestamps={showTimestamps}
-            onApprove={() => {
-              if (activeId) void handleApproveAll(activeId);
+            onApprove={(id) => {
+              if (activeId) void handleApprove(activeId, id);
             }}
-            onReject={() => {
-              if (activeId) void handleRejectAll(activeId);
+            onReject={(id) => {
+              if (activeId) void handleReject(activeId, id);
+            }}
+            onApproveAll={() => {
+              if (activeId) void handleApprove(activeId);
+            }}
+            onRejectAll={() => {
+              if (activeId) void handleReject(activeId);
             }}
             onAlwaysAllow={
               (cmd) => {
@@ -1159,11 +1220,13 @@ export default function App() {
             }}
             streaming={streaming}
             pendingCount={activeId ? (pendingBySession[activeId]?.length ?? 0) : 0}
+            // Enter yalnız TEK bekleyende onaylar (InputBar'da sınırlandırılır);
+            // Esc toplu reddetme — güvenli taraf (id'siz = tümü).
             onApprove={() => {
-              if (activeId) void handleApproveAll(activeId);
+              if (activeId) void handleApprove(activeId);
             }}
             onReject={() => {
-              if (activeId) void handleRejectAll(activeId);
+              if (activeId) void handleReject(activeId);
             }}
             focusRef={inputFocus}
             mode={session?.agentMode ?? 'build'}

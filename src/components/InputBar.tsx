@@ -344,8 +344,10 @@ export default function InputBar({
               // Enter göndermesin, ↑↓ geçmişi çağırmasın (Faz 4).
               if (e.nativeEvent.isComposing) return;
               // K2: boş girişte Enter onayla / Esc reddet (döngü kırılmaz).
+              // M1: Enter yalnız TEK bekleyende onaylar; çoklu bekleyende
+              // toplu onay tuşu yok (kart üzerindeki "Tümünü onayla" kullanılır).
               if (hasPending && value.trim() === '') {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && (pendingCount ?? 0) <= 1) {
                   e.preventDefault();
                   onApprove?.();
                   return;

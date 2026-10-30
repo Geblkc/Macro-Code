@@ -7,6 +7,7 @@ import {
   type AgentRunState,
 } from '../lib/engine/agent';
 import { listApprovals, queueApproval, takeApproval } from '../lib/engine/approvals';
+import { appendAudit } from '../lib/db';
 import { parseCustomAllowList } from '../lib/engine/policy';
 import { supportsTools } from '../lib/engine/providers';
 import { createId, useSessionStore } from '../store/session';
@@ -19,7 +20,7 @@ import { budgetFor } from '../lib/engine/tokens';
 import { compactHistory, shouldCompact } from '../lib/engine/compact';
 import { applyMemo, memoToPersisted, resolveMemo, setMemo } from '../lib/engine/compactionMemo';
 import { buildRepoContext } from '../lib/engine/repoContext';
-import { logError, logInfo } from '../lib/logger';
+import { logError, logInfo, redact } from '../lib/logger';
 import { promptCacheKey } from '../lib/providers/promptCache';
 import { deriveTodoState } from '../lib/engine/tools/todo';
 import { listSkills, skillsPrompt } from '../lib/engine/skills';
@@ -404,7 +405,10 @@ export function useAgent() {
           onPending?.(result.pending);
           emit({
             type: 'sys',
-            content: t('agent.pendingLine', { names: result.pending.map((c) => c.name).join(' · ') }),
+            content: t('agent.pendingLine', {
+              count: result.pending.length,
+              names: result.pending.map((c) => c.name).join(' · '),
+            }),
           });
           return null;
         }
@@ -453,15 +457,26 @@ export function useAgent() {
     ): Promise<string | null> => {
       const run = activeRuns.get(sessionId);
       if (!run) {
+        const settings = useSettingsStore.getState();
         // Bellekte run yok (restart) — patch apply yine çalışır, agent devam etmez.
         for (const d of decisions) {
           const queued = await takeApproval(d.id);
           if (!queued) continue;
-          if (d.approved) {
-            onToolLine?.({ type: 'sys', content: t('agent.cannotRestart') });
-          } else {
-            // O7: reddedilen karar da görünür olmalı — sessiz düşmesin.
-            onToolLine?.({ type: 'sys', content: t('agent.rejected', { id: d.id.slice(0, 8) }) });
+          const line = d.approved
+            ? t('agent.cannotRestart')
+            : t('agent.rejected', { id: d.id.slice(0, 8) });
+          onToolLine?.({ type: 'sys', content: line });
+          // L5: run bellekte yokken verilen karar da audit'e yazılır. Eskiden
+          // yalnız canlı run yolu audit üretiyordu → restart sonrası onay/ret
+          // kararları denetim kaydında görünmüyordu.
+          if (settings.auditEnabled) {
+            void appendAudit({
+              sessionId,
+              tool: String(queued.call.name),
+              argsPreview: JSON.stringify(redact(queued.call.args ?? {})).slice(0, 200),
+              decision: d.approved ? 'approved' : 'rejected',
+              result: line.slice(0, 200),
+            });
           }
         }
         return t('agent.cannotRestart');
@@ -483,13 +498,29 @@ export function useAgent() {
         const result = await run.resolve(decisions);
         void callNames;
         if (result.kind === 'needs-approval') {
+          // M1: kalan kartlar kuyrukta KALIR — yeniden yazarken mevcut
+          // `createdAt` korunur (sıra değişmesin) ve güncel `runState` yazılır
+          // (INSERT OR REPLACE eski satırı siler; runState kaybı restart'ı bozar).
+          const runState = run.serialize();
+          const existing = await listApprovals(sessionId);
+          const prevById = new Map(existing.map((a) => [a.id, a]));
           for (const call of result.pending) {
-            await queueApproval({ id: call.id, sessionId, call, createdAt: Date.now() });
+            const prev = prevById.get(call.id);
+            await queueApproval({
+              id: call.id,
+              sessionId,
+              call,
+              createdAt: prev?.createdAt ?? Date.now(),
+              runState,
+            });
           }
           onPending?.(result.pending);
           onToolLine?.({
             type: 'sys',
-            content: t('agent.pendingLine', { names: result.pending.map((c) => c.name).join(' · ') }),
+            content: t('agent.pendingLine', {
+              count: result.pending.length,
+              names: result.pending.map((c) => c.name).join(' · '),
+            }),
           });
           return null;
         }

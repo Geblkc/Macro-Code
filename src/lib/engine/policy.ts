@@ -70,11 +70,13 @@ export function isBlockedExt(name: string): boolean {
   return BLOCKED_SECRET_EXTS.has(ext) || BLOCKED_DATA_EXTS.has(ext);
 }
 
-/** Yolun HERHANGİ bir bileşeni bloklu dizindeyse true (jail dışı + içi aynı). */
+/** Yolun HERHANGİ bir bileşeni bloklu dizindeyse true (jail dışı + içi aynı).
+ *  H2: büyük/küçük harf duyarsız — macOS/Windows dosya sistemleri `.GIT`'i
+ *  `.git` diye çözer, blok listesi küçük harf. */
 export function isBlockedDir(path: string): boolean {
   return path
     .split('/')
-    .some((seg) => seg && BLOCKED_DIRS.has(seg));
+    .some((seg) => seg && BLOCKED_DIRS.has(seg.toLowerCase()));
 }
 
 /**
@@ -85,16 +87,135 @@ export const FILE_ARG_CMDS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'wc', 'find', 'rg', 'ls', 'touch', 'mkdir', 'prettier',
 ]);
 
-/** Tek dosya argümanı jail'i (Rust `check_file_arg` ile senkron). */
+/** Tek dosya argümanı jail'i (Rust `check_file_arg` ile senkron).
+ *  H2: `.GIT` / `KEYS.JSON` / `.ENV.local` gibi büyük harf varyantları da düşer. */
 export function isFileArgSafe(a: string): boolean {
   const v = a.trim().replace(/\\/g, '/');
   if (!v || v.startsWith('-')) return true; // bayrak
   if (v.startsWith('/')) return false;      // mutlak yol
-  return !v.split('/').some(
-    (seg) => seg === '..' || BLOCKED_DIRS.has(seg) || BLOCKED_FILES.has(seg)
-      || seg.startsWith('.env.')
-      || isBlockedExt(seg),
-  );
+  return !v.split('/').some((seg) => {
+    const s = seg.toLowerCase();
+    return seg === '..' || BLOCKED_DIRS.has(s) || BLOCKED_FILES.has(s)
+      || s.startsWith('.env.')
+      || isBlockedExt(seg);
+  });
+}
+
+/** `--opt=değer` biçiminden değeri çıkarır (`--filefoo` yanlış eşleşmez). */
+function optValue(arg: string, flag: string): string | null {
+  if (!arg.startsWith(`${flag}=`)) return null;
+  return arg.slice(flag.length + 1);
+}
+
+/**
+ * M6 — git argümanlarından **dosya/dizin yolu** taşıyanları çıkarır.
+ * Rust `exec.rs::git_path_args` ile senkron (çift savunma).
+ *
+ * Kapsam: `--` sonrası operandlar, `rev:path` path kısmı, `-F/--file`,
+ * `--output`, `--pathspec-from-file`, `add` pathspec'leri ve global
+ * `-C/--git-dir/--work-tree` değerleri.
+ */
+export function gitPathArgs(args: string[]): string[] {
+  const out: string[] = [];
+  let i = 0;
+  let sub: string | null = null;
+
+  while (i < args.length) {
+    const a = args[i];
+    if (a === '--') {
+      out.push(...args.slice(i + 1));
+      return out;
+    }
+    if (!a.startsWith('-')) {
+      sub = a;
+      i += 1;
+      break;
+    }
+    if (a === '-C') {
+      if (args[i + 1] !== undefined) out.push(args[i + 1]);
+      i += 2;
+      continue;
+    }
+    if (a.startsWith('-C') && a.length > 2) {
+      out.push(a.slice(2));
+      i += 1;
+      continue;
+    }
+    if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
+      out.push(a.slice(a.indexOf('=') + 1));
+      i += 1;
+      continue;
+    }
+    if (a === '--git-dir' || a === '--work-tree') {
+      if (args[i + 1] !== undefined) out.push(args[i + 1]);
+      i += 2;
+      continue;
+    }
+    if (['-c', '--config-env', '--namespace', '--super-prefix', '--attr-source'].includes(a)) {
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+
+  if (!sub) return out;
+  const rest = args.slice(i);
+  const takeNext = (j: number): number => {
+    if (rest[j + 1] !== undefined) out.push(rest[j + 1]);
+    return j + 1;
+  };
+
+  if (sub === 'add') {
+    for (let j = 0; j < rest.length; j++) {
+      const a = rest[j];
+      if (a === '--') {
+        out.push(...rest.slice(j + 1));
+        break;
+      }
+      const v = optValue(a, '--pathspec-from-file');
+      if (v !== null) out.push(v);
+      else if (a === '--pathspec-from-file') j = takeNext(j);
+      else if (!a.startsWith('-')) out.push(a);
+    }
+  } else if (sub === 'diff' || sub === 'log' || sub === 'show') {
+    for (let j = 0; j < rest.length; j++) {
+      const a = rest[j];
+      if (a === '--') {
+        out.push(...rest.slice(j + 1));
+        break;
+      }
+      const v = optValue(a, '--output');
+      if (v !== null) out.push(v);
+      else if (a === '--output') j = takeNext(j);
+      else if (!a.startsWith('-')) {
+        // URL dosya yolu değildir; `rev:path` ise yalnız path kısmı denetlenir.
+        if (a.includes('://')) continue;
+        const c = a.indexOf(':');
+        if (c >= 0) {
+          const p = a.slice(c + 1);
+          if (p) out.push(p);
+        } else {
+          out.push(a);
+        }
+      }
+    }
+  } else if (sub === 'commit') {
+    for (let j = 0; j < rest.length; j++) {
+      const a = rest[j];
+      if (a === '--') {
+        out.push(...rest.slice(j + 1));
+        break;
+      }
+      const v = optValue(a, '--file') ?? optValue(a, '--pathspec-from-file');
+      if (v !== null) out.push(v);
+      else if (a === '--file' || a === '--pathspec-from-file' || a === '-F') j = takeNext(j);
+      else if (a.startsWith('-F') && a.length > 2) out.push(a.slice(2));
+    }
+  } else if (sub === 'stash') {
+    const pos = rest.indexOf('--');
+    if (pos >= 0) out.push(...rest.slice(pos + 1));
+  }
+  return out;
 }
 
 /** `exec` çağrısında dosya argümanı ihlali varsa sebebi, yoksa null. */
@@ -102,6 +223,14 @@ export function execFileArgViolation(cmd: string, args: string[]): string | null
   if (cmd === 'rm') {
     const files = args.filter((a) => !a.startsWith('-'));
     const bad = files.find((a) => !isFileArgSafe(a));
+    return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
+  }
+  if (cmd === 'git') {
+    // M6: `--exec-path` keyfi `git-<altkomut>` programı çalıştırır.
+    if (args.some((a) => a === '--exec-path' || a.startsWith('--exec-path='))) {
+      return t('policy.fileArgViolation', { arg: '--exec-path' });
+    }
+    const bad = gitPathArgs(args).find((a) => !isFileArgSafe(a));
     return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
   }
   if (!FILE_ARG_CMDS.has(cmd)) return null;
@@ -156,14 +285,14 @@ export function allowedCommands(): Record<string, string[][]> {
 }
 
 export function isBlockedFile(path: string): boolean {
-  const base = path.split('/').pop() ?? path;
+  const base = (path.split('/').pop() ?? path).toLowerCase();
   if (BLOCKED_FILES.has(base)) return true;
   if (base.startsWith('.env.')) return true;
   // Uzantılar da tek kaynaktan (Rust `is_blocked_ext` ile aynı — O7 senkronu).
-  return isBlockedExt(base);
+  return isBlockedExt(path.split('/').pop() ?? path);
 }
 
-/** Client-side jail: mutlak yol ve ../ reddedilir. */
+/** Client-side jail: mutlak yol ve ../ reddedilir. H2: bileşenler duyarlı değil. */
 export function isPathSafe(rel: string): boolean {
   const p = rel.trim().replace(/\\/g, '/');
   if (!p || p === '.' || p === '/') return true;
@@ -171,7 +300,7 @@ export function isPathSafe(rel: string): boolean {
   const segs = p.split('/').filter(Boolean);
   for (const s of segs) {
     if (s === '..') return false;
-    if (BLOCKED_DIRS.has(s)) return false;
+    if (BLOCKED_DIRS.has(s.toLowerCase())) return false;
   }
   if (isBlockedFile(p)) return false;
   return true;

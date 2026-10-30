@@ -280,7 +280,13 @@ pub async fn stream_anthropic(
         top_p,
     );
 
-    let client = reqwest::Client::new();
+    // L2: yönlendirme TAMAMEN kapalı — reqwest varsayılan politikası (10 hops)
+    // `Authorization`'ı cross-host'ta düşürür ama `x-api-key` DÜŞÜRMEZ; API
+    // zaten redirect kullanmadığından 3xx yanıtı `http 3xx` hatası olarak döner.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("istemci kurulamadı: {e}"))?;
     let res = client
         .post("https://api.anthropic.com/v1/messages")
         .header("content-type", "application/json")

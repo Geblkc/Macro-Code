@@ -68,6 +68,15 @@ describe('Faz 10 — log kanalı', () => {
     expect(out.monkey).toBe('görünür');
   });
 
+  it('L6/L7: URL userinfo ve sorgu parametresi anahtarları redakte edilir', () => {
+    const out = redact(
+      'GET https://ali:gizli@example.com/x?api_key=abc123&model=m',
+    ) as string;
+    expect(out).not.toContain('gizli');
+    expect(out).not.toContain('abc123');
+    expect(out).toContain('https://«redakte»@example.com/x?api_key=«redakte»&model=m');
+  });
+
   it('log kaydı veriyi redakte edilmiş halde tutar', () => {
     log('info', 'stream.start', { apiKey: 'sk-abcdefghijkl', model: 'm' });
     const entry = recentLogs(1)[0];

@@ -63,6 +63,11 @@ export function redact(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') {
     let out = value;
     for (const re of SECRET_VALUE_PATTERNS) out = out.replace(re, REDACTED);
+    // L6/L7: URL içindeki kullanıcı:parola ve sorgu parametresi anahtarları
+    // da maskelenir (ör. `https://user:pass@host`, `?api_key=…`).
+    out = out
+      .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, '$1«redakte»@')
+      .replace(/([?&](?:api[_-]?key|access[_-]?token|token|key)=)[^&\s"'<>]+/gi, '$1«redakte»');
     return out;
   }
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));

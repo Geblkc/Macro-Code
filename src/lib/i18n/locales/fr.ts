@@ -124,7 +124,7 @@ export const fr: Record<TranslationKey, Message> = {
   'input.stopTitle': 'arrêter',
   'input.sendTitle': 'envoyer (Entrée)',
   'input.pendingHint':
-    { one: '{count} approbation en attente · Entrée pour approuver · Échap pour refuser', other: '{count} approbations en attente · Entrée pour approuver · Échap pour refuser' },
+    { one: '{count} approbation en attente · Entrée pour approuver · Échap pour refuser', other: '{count} approbations en attente · Échap refuse toutes · approuvez chacune sur sa carte ou « Approuver toutes »' },
   'input.hint.send': 'envoyer',
   'input.hint.newline': 'nouvelle ligne',
   'input.hint.history': 'historique',
@@ -170,6 +170,17 @@ export const fr: Record<TranslationKey, Message> = {
   'approval.alwaysRun': 'Toujours exécuter cette commande',
   'approval.warning': 'Cette commande exécute du code — soyez prudent',
   'approval.rejectNote': 'Refusé par l’utilisateur',
+  'approval.approveAll': 'Tout approuver',
+  'approval.rejectAll': 'Tout refuser',
+  'approval.showAll': 'Tout afficher',
+  'approval.collapse': 'Réduire',
+  'approval.charCount': '{count} caractères',
+  'approval.largePayload':
+    'Charge utile volumineuse ({count} caractères) — vérifiez-la entièrement avant d’approuver',
+  'approval.bulkHint': {
+    one: '{count} approbation en attente',
+    other: '{count} approbations en attente — approuvez chacune sur sa carte ou toutes d’un coup',
+  },
 
   /* ── Panneau de tâches ── */
   'task.title': 'Tâches',
@@ -503,7 +514,7 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.help.root':
     '  /root [chemin|off]  choisir/retirer l’espace de travail (sans argument = dialogue de dossier)',
   'commands.help.files': '  /files         résumé des fichiers de l’espace de travail',
-  'commands.help.apply': '  /apply <id>    approuver et appliquer un patch en attente',
+  'commands.help.apply': '  /apply <id>    approuver et appliquer un patch en attente (/apply all = tous)',
   'commands.help.undo': '  /undo [id]     annuler le dernier patch ou celui indiqué',
   'commands.help.skill': '  /skill         lister les skills enregistrées',
   'commands.help.approval': '  /approval [m]  mode d’approbation (manual|auto-read|auto-edit)',
@@ -639,6 +650,7 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.filesFailed': '✗ échec de /files : {message}',
   'commands.applyNotFound': '✗ approbation en attente introuvable : {id}',
   'commands.applyNone': '/// aucun patch en attente',
+  'commands.applyNeedId': '✗ plusieurs approbations en attente — chacune avec /apply <id> ou toutes avec /apply all · {list}',
   'commands.applyPending': '/// en attente : {list}',
   'commands.applyFailed': '✗ échec de /apply : {message}',
   'commands.undoFailed': '✗ échec de /undo : {message}',
@@ -767,6 +779,7 @@ export const fr: Record<TranslationKey, Message> = {
   'tool.subagentEmpty': '(le sous-agent n’a rien renvoyé)',
   'tool.forbiddenPath': 'chemin interdit',
   'tool.forbiddenCommand': 'commande interdite',
+  'tool.cwdUnsafe': 'cwd non sûr (chemin absolu, ../ ou répertoire bloqué) : {cwd}',
   'message.copyOk': 'copié ✓',
   'message.copyFail': 'copie impossible',
   'message.retry': 'réessayer',
@@ -784,7 +797,10 @@ export const fr: Record<TranslationKey, Message> = {
   'agent.errNoTools': '✗ {provider}/{model} ne gère pas le mode agent · essayez /provider {providers} ou passez à un modèle compatible tools',
   'agent.errNoApiKey': '✗ clé API manquante · ajoutez-en une avec /key',
   'agent.errEmptyReply': '✗ l’agent n’a rien renvoyé · reformulez',
-  'agent.pendingLine': '⏸ approbation en attente : {names} [Enter approuver / Esc refuser]',
+  'agent.pendingLine': {
+    one: '⏸ approbation en attente : {names} [Enter approuver / Esc refuser]',
+    other: '⏸ approbations en attente : {names} [approuvez chacune sur sa carte · Échap refuse toutes]',
+  },
   'extrasCapped': '/// anciennes lignes retirées de la vue · sauvegardez avec /export',
   'errors.listFailed': 'impossible de charger la liste {source} (http {status})',
   'errors.catalogFailed': 'impossible de charger le catalogue models.dev (http {status})',

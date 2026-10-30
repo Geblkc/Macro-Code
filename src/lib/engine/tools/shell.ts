@@ -3,7 +3,7 @@
  */
 import { strArg } from '../toolspec';
 import type { ToolCall } from '../types';
-import { decideTool } from '../policy';
+import { decideTool, isPathSafe } from '../policy';
 import type { ApprovalMode } from '../types';
 import { t } from '../../i18n/core';
 
@@ -43,6 +43,10 @@ export async function toolExec(
     ? (call.args.args as unknown[]).filter((a): a is string => typeof a === 'string')
     : [];
   const cwdRel = strArg(call.args, 'cwd', '');
+  // M5: Rust tarafı cwd'yi koşulsuz jail'e sokar; burada erken/net hata ver.
+  if (cwdRel && !isPathSafe(cwdRel)) {
+    throw new Error(t('tool.cwdUnsafe', { cwd: cwdRel }));
+  }
   // cwd jail: root + relative.
   const cwd = cwdRel ? `${root}/${cwdRel}` : root;
   // Faz 8 L3: kullanıcı allowlist uzantısı Rust tarafına da gönderilir

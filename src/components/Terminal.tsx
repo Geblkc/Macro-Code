@@ -6,6 +6,7 @@ import TaskPanel from './TaskPanel';
 import Welcome from './Welcome';
 import type { ExtraLine, Message, Session, TerminalLine, ToolEvent } from '../types';
 import type { PendingApproval } from '../lib/engine/approvals';
+import { formatApprovalDetail } from '../lib/engine/approvalDetail';
 import { execApprovalWarning } from '../lib/engine/policy';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
@@ -20,8 +21,14 @@ interface Props {
   extras: ExtraLine[];
   clearedBefore: number | null;
   pending?: PendingApproval[];
-  onApprove?: () => void;
-  onReject?: () => void;
+  /** M1: belirli bir bekleyen çağrıyı onaylar (id'siz = tümü). */
+  onApprove?: (id?: string) => void;
+  /** M1: belirli bir bekleyen çağrıyı reddeder (id'siz = tümü). */
+  onReject?: (id?: string) => void;
+  /** Kart üstündeki toplu bar: "Tümünü onayla". */
+  onApproveAll?: () => void;
+  /** Kart üstündeki toplu bar: "Tümünü reddet". */
+  onRejectAll?: () => void;
   /** "Her zaman çalıştır" kutusu (komut metni ile çağrılır). */
   onAlwaysAllow?: (command: string) => void;
   /** /root akışı → Welcome ipucu butonuna aktarılır. */
@@ -115,6 +122,8 @@ export default function Terminal({
   pending,
   onApprove,
   onReject,
+  onApproveAll,
+  onRejectAll,
   onAlwaysAllow,
   onRootCommand,
   clockFormat,
@@ -388,6 +397,25 @@ export default function Terminal({
               </div>
             )}
 
+            {(pending ?? []).length > 1 && (
+              <div className="msg msg-warn" key="pending-bulk-bar">
+                <div className="gutter" aria-hidden="true">
+                  ⚠
+                </div>
+                <div className="body-col approval-bulk-bar">
+                  <span className="muted">
+                    {t('approval.bulkHint', { count: (pending ?? []).length })}
+                  </span>
+                  <button className="btn btn-sm" onClick={onRejectAll}>
+                    {t('approval.rejectAll')}
+                  </button>
+                  <button className="btn btn-primary btn-sm" onClick={onApproveAll}>
+                    {t('approval.approveAll')}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {(pending ?? []).map((p) => {
               // O1 (Faz 4): exec'te komut kırpmadan, cmd + args ayrı gösterilir;
               // yapı gereği kod çalıştıran komutlarda açık uyarı satırı var.
@@ -398,11 +426,10 @@ export default function Terminal({
                 ? (eArgs.args as unknown[]).filter((a): a is string => typeof a === 'string')
                 : [];
               const warning = isExec ? execApprovalWarning(execCmd, execArgList) : null;
-              // Onay kartı araç adını kendi başlığında gösterir; burada
-              // yalnız komut/argüman yer alır (çift yazım olmaz).
-              const shown = isExec
-                ? `${execCmd} ${execArgList.join(' ')}`.trim()
-                : (JSON.stringify(p.call.args) ?? '').slice(0, 240);
+              // L4: tam argüman görünürlüğü — 240 karakter kırpması kaldırıldı.
+              // Helper özet + tam gövdeyi üretir; kart uzun gövdeyi kullanıcı
+              // isterse genişletir (exec her zaman tam satır).
+              const detail = formatApprovalDetail(p.call);
               return (
                 <div className="msg msg-warn" key={`pending-${p.id}`}>
                   <div className="gutter" aria-hidden="true">
@@ -411,17 +438,20 @@ export default function Terminal({
                   <div className="body-col">
                     <ApprovalCard
                       callName={String(p.call.name)}
-                      detail={shown}
+                      detail={detail}
                       warning={warning}
-                      onApprove={onApprove}
-                      onReject={onReject}
+                      // M1: kısayol ipucu yalnız tek bekleyende görünür
+                      // (Enter/Esc artık toplu işlem yapmıyor).
+                      showKeys={(pending ?? []).length === 1}
+                      onApprove={() => onApprove?.(p.id)}
+                      onReject={() => onReject?.(p.id)}
                       onAlways={
                         isExec && onAlwaysAllow
                           ? // O7 düzeltmesi: yalnız komut adı DEĞİL, tam satır
                             // (`git commit -m x`) allowlist'e yazılır. Eskiden
                             // `execCmd` (örn. "git") yazılıyordu → tüm argümanlar
                             // kalıcı olarak onaysız geçer oluyordu.
-                            () => onAlwaysAllow(shown)
+                            () => onAlwaysAllow(detail.summary)
                           : undefined
                       }
                     />

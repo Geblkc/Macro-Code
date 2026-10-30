@@ -87,6 +87,56 @@ pub struct McpSpawned {
     pub id: String,
 }
 
+/// M3 — çocuk sürece zararlı ortam değişkenleri geçirilemez.
+///
+/// `env_clear` ebeveyni temizliyor ama çağıran (`env` parametresi) kendi
+/// değerini ekliyor: `LD_PRELOAD` ile kütüphane, `PYTHONPATH`/`NODE_OPTIONS`
+/// ile yorumlayıcı kod enjeksiyonu yapılabilir (çocuk sürecin kod yüklemesi için
+/// gereken tek şey budur). `PATH`/`HOME` zaten `ENV_PASSLIST` ile veriliyor;
+/// override'ın meşru gerekçesi yok.
+/// Karşılaştırma ASCII-bağımsız; `LD_*` / `DYLD_*` ön ekleri de engellenir.
+const BLOCKED_ENV_KEYS: [&str; 22] = [
+    "PATH",
+    "HOME",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "PYTHONEXECPREFIX",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "BASH_ENV",
+    "ENV",
+    "PERL5OPT",
+    "PERLLIB",
+    "PERL5LIB",
+    "RUBYOPT",
+    "RUBYLIB",
+    "GCONV_PATH",
+    "IFS",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "SSLKEYLOGFILE",
+];
+
+/// M3 — zararlı env anahtarı varsa süreç BAŞLATILMAZ (değerler hata mesajına
+/// yazılmaz; yalnızca anahtar adı).
+fn check_env_keys(env: &std::collections::HashMap<String, String>) -> Result<(), String> {
+    for key in env.keys() {
+        let upper = key.to_ascii_uppercase();
+        if BLOCKED_ENV_KEYS.iter().any(|b| *b == upper)
+            || upper.starts_with("LD_")
+            || upper.starts_with("DYLD_")
+        {
+            return Err(err(format!(
+                "mcp: izin verilmeyen ortam değişkeni: {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn spawn_inner(
     state: &McpState,
     command: String,
@@ -105,6 +155,10 @@ async fn spawn_inner(
         if a.contains('\n') || a.contains('\0') {
             return Err(err("mcp: geçersiz argüman"));
         }
+    }
+    // M3: zararlı env anahtarları süreç başlatmadan reddedilir.
+    if let Some(vars) = env.as_ref() {
+        check_env_keys(vars)?;
     }
     // O7 — süreç sayısı üst sınırı: sızan/askıda kalan sunucular uygulamanın
     // süreç tabanını şişiremez.
@@ -284,5 +338,40 @@ mod tests {
         assert!(spawn_inner(&state, "   ".to_string(), vec![], None, None)
             .await
             .is_err());
+    }
+
+    /// M3 — zararlı env anahtarları süreç başlatmadan reddedilir (değer
+    /// hata mesajına sızmaz, yalnız anahtar adı döner).
+    #[tokio::test]
+    async fn m3_zararli_env_anahtarlari_reddedilir() {
+        let state = McpState::default();
+        for key in ["LD_PRELOAD", "ld_preload", "PYTHONPATH", "NODE_OPTIONS", "PATH", "DYLD_INSERT_LIBRARIES"] {
+            let mut env = std::collections::HashMap::new();
+            env.insert(key.to_string(), "/tmp/something".to_string());
+            let r = spawn_inner(&state, "cat".to_string(), vec![], Some(env), None).await;
+            assert!(r.is_err(), "{key} reddedilmeli");
+            assert!(
+                !r.unwrap_err().contains("/tmp/something"),
+                "hata mesajı DEĞER içermemeli"
+            );
+        }
+    }
+
+    /// M3 — meşru env anahtarları ve mevcut davranış bozulmaz.
+    #[tokio::test]
+    async fn m3_mesru_env_gecer() {
+        let state = McpState::default();
+        let mut env = std::collections::HashMap::new();
+        env.insert("MCP_LOG_LEVEL".to_string(), "debug".to_string());
+        let spawned = spawn_inner(
+            &state,
+            "cat".to_string(),
+            vec![],
+            Some(env),
+            Some(std::env::temp_dir().to_string_lossy().to_string()),
+        )
+        .await
+        .unwrap();
+        kill_inner(&state, &spawned.id).await.unwrap();
     }
 }

@@ -36,13 +36,25 @@ pub(crate) fn blocks() -> &'static Blocks {
 }
 
 /// Y1 (Faz 2) `exec.rs` ile paylaşılır (dosya argümanı jail'i).
+///
+/// **H2 düzeltmesi:** karşılaştırma ASCII-bağımsız (büyük/küçük harf duyarsız).
+/// macOS/Windows dosya sistemleri `.GIT` → `.git` diye çözümler; blok listesi
+/// küçük harf olduğu için eski birebir (`==`) karşılaştırma `KEYS.JSON` /
+/// `.GIT/config` / `.ENV.local` ile geçiliyordu (uzantılar H2'den önce
+/// duyarsız yapılmıştı, adlar unutulmuştu).
 pub(crate) fn is_blocked_dir(name: &str) -> bool {
-    blocks().dirs.iter().any(|d| d == name)
+    blocks().dirs.iter().any(|d| d.eq_ignore_ascii_case(name))
 }
 
 /// Y1 (Faz 2) `exec.rs` ile paylaşılır (dosya argümanı jail'i).
 pub(crate) fn is_blocked_file_name(name: &str) -> bool {
-    blocks().files.iter().any(|f| f == name)
+    blocks().files.iter().any(|f| f.eq_ignore_ascii_case(name))
+}
+
+/// D2b/H2 — `.env.` öneki de büyük/küçük harf duyarsız (`.ENV.local`).
+pub(crate) fn is_env_prefixed(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with(".env.")
 }
 
 /// Faz 10 (D2b): gizli/veri uzantıları (`.pem`, `.key`, `.db` …) **her** fs
@@ -128,12 +140,17 @@ pub fn resolve_rooted(root: &str, rel: &str) -> Result<PathBuf, String> {
             )
         }
     };
+    // H2: canonical çözüm sonrası GÖRELİ bileşenler yeniden denetlenir.
+    // Sebebi: case-insensitive FS'te canonicalize gerçek adı döndürür
+    // (`/ws/.GIT/config` → `/ws/.git/config`) ve bu adlar blok listesinden
+    // geçmeli — `exec.rs::guard_file_args` deseninin fs araçlarına taşınması.
+    check_rel_components(&base, &full)?;
     let file_name = full
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_owned();
-    if is_blocked_file_name(&file_name) || file_name.starts_with(".env.") {
+    if is_blocked_file_name(&file_name) || is_env_prefixed(&file_name) {
         return Err(err(format!("yasaklı dosya: {file_name}")));
     }
     // Faz 10 (D2b): gizli/veri uzantıları da her yolda kapalı.
@@ -141,6 +158,34 @@ pub fn resolve_rooted(root: &str, rel: &str) -> Result<PathBuf, String> {
         return Err(err(format!("yasaklı dosya uzantısı: {file_name}")));
     }
     Ok(full)
+}
+
+/// H2 — `base` altındaki göreli yolun HER bileşeni blok listelerinden geçer
+/// (dizin adı, dosya adı, `.env.` öneki, gizli/veri uzantısı — hepsi
+/// büyük/küçük harf duyarsız). `resolve_rooted` canonical çözüm sonrası çağırır.
+/// M5: `exec.rs` cwd jail'i de aynı denetimi kullanır.
+pub(crate) fn check_rel_components(base: &Path, full: &Path) -> Result<(), String> {
+    let rel = full
+        .strip_prefix(base)
+        .map_err(|_| err("root dışına çıkılamaz"))?;
+    // `components()` platform ayracını (`/` ve Windows `\`) doğru böler;
+    // `to_string_lossy().split('/')` Windows'ta tek parça verirdi.
+    for comp in rel.components() {
+        let seg = comp.as_os_str().to_string_lossy();
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if is_blocked_dir(&seg) {
+            return Err(err(format!("yasaklı dizin: {seg}")));
+        }
+        if is_blocked_file_name(&seg) || is_env_prefixed(&seg) {
+            return Err(err(format!("yasaklı dosya: {seg}")));
+        }
+        if is_blocked_name_ext(&seg) {
+            return Err(err(format!("yasaklı dosya uzantısı: {seg}")));
+        }
+    }
+    Ok(())
 }
 
 fn canonical_root(root: &str) -> Result<PathBuf, String> {
@@ -151,6 +196,33 @@ fn canonical_root(root: &str) -> Result<PathBuf, String> {
     PathBuf::from(r)
         .canonicalize()
         .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))
+}
+
+/// H1 devamı — `.macrocode` dizinini jail içinde çözer. Dizin henüz yoksa
+/// aday yol döner (çağıran `create_dir_all` ile base altında kurar); var olan
+/// ama dışarıyı gösteren symlink `Err` olur.
+fn jailed_macrocode_dir(base: &Path) -> Result<PathBuf, String> {
+    let dir = base.join(MEMORY_DIR);
+    match dir.canonicalize() {
+        Ok(d) if d.starts_with(base) => Ok(d),
+        Ok(_) => Err(err(".macrocode dizini workspace dışında (symlink?)")),
+        Err(_) => Ok(dir),
+    }
+}
+
+/// H1 devamı — `.macrocode/<sub>` dizinini de jail içinde çözer. `apply_patch`
+/// yedeği `backups` altına yazmadan önce bu kapıdan geçer; alt dizin symlink
+/// ile dışarıyı gösteriyorsa yedek/manifest workspace dışına yazılamaz.
+fn jailed_macrocode_subdir(base: &Path, sub: &str) -> Result<PathBuf, String> {
+    let macro_dir = jailed_macrocode_dir(base)?;
+    let dir = macro_dir.join(sub);
+    match dir.canonicalize() {
+        Ok(d) if d.starts_with(base) => Ok(d),
+        Ok(_) => Err(err(format!(
+            ".macrocode/{sub} dizini workspace dışında (symlink?)"
+        ))),
+        Err(_) => Ok(dir),
+    }
 }
 
 /// K1 (Faz 1) — manifest alanı `backup_file` **güvenilmez girdidir**: manifest
@@ -330,7 +402,10 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
     }
     // Backup: .macrocode/backups altına zaman damgalı kopyala ve manifest güncelle.
     if full.exists() {
-        let backup_dir = base.join(".macrocode").join("backups");
+        // H1 devamı: `.macrocode` veya `backups` dışarıyı gösteren bir symlink
+        // ise yedek ve manifest workspace dışına yazılırdı — create_dir_all'dan
+        // ÖNCE canonical jail.
+        let backup_dir = jailed_macrocode_subdir(&base, "backups")?;
         std::fs::create_dir_all(&backup_dir)
             .map_err(|e| err(format!("yedek dizini oluşturulamadı: {e}")))?;
         let ts = std::time::SystemTime::now()
@@ -340,10 +415,12 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
         let id = ts.to_string();
         let safe_name = full.file_name().and_then(|s| s.to_str()).unwrap_or("file");
         let backup_file = format!("{id}_{safe_name}");
-        let backup_path = backup_dir.join(&backup_file);
+        // Yedek dosyası ve manifest de symlink olabilir (önceden oluşturulmuş
+        // hedef) — ikisi de yazımdan ÖNCE jail'den geçirilir ki kısmi durum
+        // oluşmasın.
+        let backup_path = resolve_backup_inside(&base, &backup_dir, &backup_file)?;
+        let manifest_path = resolve_backup_inside(&base, &backup_dir, "manifest.json")?;
         std::fs::copy(&full, &backup_path).map_err(|e| err(format!("yedek alınamadı: {e}")))?;
-
-        let manifest_path = backup_dir.join("manifest.json");
         let mut entries: Vec<BackupEntry> = if manifest_path.exists() {
             std::fs::read_to_string(&manifest_path)
                 .ok()
@@ -373,8 +450,12 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
 #[tauri::command]
 pub async fn undo_patch(root: String, backup_id: Option<String>) -> Result<String, String> {
     let base = canonical_root(&root)?;
-    let backup_dir = base.join(".macrocode").join("backups");
-    let manifest_path = backup_dir.join("manifest.json");
+    // H1 devamı: yedek dizini veya manifest symlink ile dışarıyı gösteremez.
+    let backup_dir = jailed_macrocode_subdir(&base, "backups")?;
+    if !backup_dir.exists() {
+        return Err(err("geri alınacak yama bulunamadı"));
+    }
+    let manifest_path = resolve_backup_inside(&base, &backup_dir, "manifest.json")?;
     if !manifest_path.exists() {
         return Err(err("geri alınacak yama bulunamadı"));
     }
@@ -448,7 +529,7 @@ fn walk(dir: &PathBuf, out_files: &mut Vec<PathBuf>) {
             // Symlink döngüsüne karşı derinlik: içe doğru ilerle.
             walk(&p, out_files);
         } else if ft.is_file() {
-            if is_blocked_file_name(&name) || name.starts_with(".env.") {
+            if is_blocked_file_name(&name) || is_env_prefixed(&name) {
                 continue;
             }
             if is_blocked_ext(&p) {
@@ -591,7 +672,7 @@ pub async fn glob_files(
                 continue;
             }
         } else {
-            if is_blocked_file_name(&name) || name.starts_with(".env.") {
+            if is_blocked_file_name(&name) || is_env_prefixed(&name) {
                 continue;
             }
             if is_blocked_ext(&p) {
@@ -654,23 +735,42 @@ pub async fn list_tree(root: String, max_entries: Option<usize>) -> Result<Vec<T
 /// Faz 9 (P9.3) — kalıcı proje hafızası: `.macrocode/context.md`.
 ///
 /// Notlar kullanıcı tarafından `/note` komutuyla yazılır ve sonraki oturumlarda
-/// agent'ın system prompt'una eklenir. Yol **sabit** (göreli `context.md`), bu
-/// yüzden traversal riski yoktur; yine de workspace içinde kaldığı doğrulanır.
-const MEMORY_REL: &str = ".macrocode/context.md";
+/// agent'ın system prompt'una eklenir (→ sağlayıcıya gider).
+///
+/// **H1 düzeltmesi:** sabit göreli yol *traversal*'ı engellemez ama **symlink**'i
+/// engellemez — zararlı bir repo `.macrocode/context.md`'yi `../../.ssh/id_ed25519`'a
+/// bağlayabilir (`read_to_string`/`append` takip eder, içerik sistem prompt'una
+/// sızar). Bu yüzden hem dizin hem dosya canonicalize edilip jail içinde kalıyor
+/// (K1 `resolve_backup_inside` ile aynı desen). Eski `file.starts_with(&base)`
+/// kontrolü leksikal olarak **her zaman** doğruydu (boş check).
+const MEMORY_DIR: &str = ".macrocode";
+const MEMORY_FILE: &str = "context.md";
 const MEMORY_MAX_BYTES: u64 = 64 * 1024;
 
-fn memory_path(root: &str) -> Result<(PathBuf, PathBuf), String> {
+/// Hafıza dosyasını jail içinde çözer. Dizin/dosya henüz yoksa aday yol döner
+/// (yazma tarafı `create_dir_all` ile base altında kurar); var olan ama jail
+/// dışını gösteren bir symlink kesinlikle `Err` olur.
+fn memory_path(root: &str) -> Result<PathBuf, String> {
     let base = canonical_root(root)?;
-    let file = base.join(MEMORY_REL);
-    Ok((base, file))
+    // 1) `.macrocode` dizini: varsa canonical + jail; yoksa aday yol.
+    let canon_dir = jailed_macrocode_dir(&base)?;
+    // 2) `context.md`: varsa canonical + jail (dosyanın kendisi symlink olabilir).
+    let file = canon_dir.join(MEMORY_FILE);
+    match file.canonicalize() {
+        Ok(f) if f.starts_with(&canon_dir) && f.starts_with(&base) => Ok(f),
+        Ok(_) => Err(err("hafıza dosyası workspace dışında (symlink?)")),
+        Err(_) => Ok(file),
+    }
 }
 
 #[tauri::command]
 pub async fn memory_read(root: String) -> Result<String, String> {
-    let (_base, file) = memory_path(&root)?;
+    let file = memory_path(&root)?;
     match std::fs::read_to_string(&file) {
         Ok(txt) => Ok(txt),
-        Err(_) => Ok(String::new()),
+        // Henüz yazılmamış not → boş (boot akışı hata görmemeli).
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(err(format!("hafıza okunamadı: {e}"))),
     }
 }
 
@@ -683,11 +783,9 @@ pub async fn memory_append(root: String, text: String) -> Result<String, String>
     if clean.len() as u64 > 8192 {
         return Err(err("not çok uzun (8KB sınır)"));
     }
-    let (base, file) = memory_path(&root)?;
-    // Dosya workspace içinde kalmalı (sabit yol + canonical kontrol).
-    if !file.starts_with(&base) {
-        return Err(err("hafıza dosyası workspace dışında"));
-    }
+    let file = memory_path(&root)?;
+    // H1: jail denetimi `memory_path` içinde canonical olarak yapıldı (eski
+    // `file.starts_with(&base)` leksikal ve her zaman doğruydu).
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| err(format!("hafıza dizini oluşturulamadı: {e}")))?;
@@ -896,6 +994,133 @@ mod tests {
         let _ = std::fs::remove_dir_all(&kok);
     }
 
+    /// H1 — `.macrocode/context.md` bir symlink ise (zararlı repo) içerik ne
+    /// okunur ne yazılır: `repoContext.readMemory` bunu sistem prompt'una
+    /// gömüp sağlayıcıya gönderirdi (`memory_append` ise keyfi dosyaya yazardı).
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn h1_memory_symlink_kacisi_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let dis = benzersiz_tmp("mem-dis");
+        let kok = benzersiz_tmp("mem-kok");
+        std::fs::write(dis.join("gizli.txt"), "anahtar=SECRET").unwrap();
+        std::fs::create_dir_all(kok.join(".macrocode")).unwrap();
+        symlink(dis.join("gizli.txt"), kok.join(".macrocode/context.md")).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let r = memory_read(root.clone()).await;
+        assert!(r.is_err(), "symlink okuması reddedilmeli: {r:?}");
+
+        let w = memory_append(root.clone(), "not".to_string()).await;
+        assert!(w.is_err(), "symlink yazması reddedilmeli: {w:?}");
+        assert_eq!(
+            std::fs::read_to_string(dis.join("gizli.txt")).unwrap(),
+            "anahtar=SECRET",
+            "hedef dosyaya yazılmamalı"
+        );
+        let _ = std::fs::remove_dir_all(&dis);
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H1 — `.macrocode` DİZİNİNİN kendisi dışarıyı gösteren symlink olabilir.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn h1_memory_dizin_symlinki_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let dis = benzersiz_tmp("mem-dir-dis");
+        let kok = benzersiz_tmp("mem-dir-kok");
+        std::fs::write(dis.join("context.md"), "sızmış").unwrap();
+        symlink(&dis, kok.join(".macrocode")).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        assert!(memory_read(root.clone()).await.is_err());
+        assert!(memory_append(root, "not".to_string()).await.is_err());
+        let _ = std::fs::remove_dir_all(&dis);
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H1 — normal akış bozulmaz: ilk yokluğunda yazma dizini kurar, okuma döner.
+    #[tokio::test]
+    async fn h1_memory_normal_akis_calisir() {
+        let kok = benzersiz_tmp("mem-ok");
+        let root = kok.to_str().unwrap().to_string();
+        assert_eq!(memory_read(root.clone()).await.unwrap(), "");
+        let line = memory_append(root.clone(), "selam".to_string()).await.unwrap();
+        assert!(line.contains("selam"));
+        assert!(memory_read(root).await.unwrap().contains("selam"));
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// M4 — genişletilmiş blok listeleri (tek kaynak `blocks.json`).
+    #[test]
+    fn m4_genisletilmis_blok_listeleri() {
+        assert!(is_blocked_dir(".ssh"));
+        assert!(is_blocked_dir(".aws"));
+        assert!(is_blocked_dir(".gnupg"));
+        assert!(is_blocked_dir(".kube"));
+        assert!(is_blocked_dir(".docker"));
+        assert!(is_blocked_file_name(".netrc"));
+        assert!(is_blocked_file_name(".git-credentials"));
+        assert!(is_blocked_file_name(".pypirc"));
+        assert!(is_blocked_file_name(".htpasswd"));
+        assert!(is_blocked_file_name(".pgpass"));
+        assert!(is_blocked_file_name("credentials.json"));
+        assert!(is_blocked_file_name("secrets.json"));
+        assert!(is_blocked_file_name("service-account.json"));
+        assert!(is_blocked_file_name(".vault-token"));
+        assert!(is_blocked_name_ext("vault.kdbx"));
+        assert!(is_blocked_name_ext("client.p8"));
+        assert!(is_blocked_name_ext("id.jks"));
+        assert!(is_blocked_name_ext("server.ppk"));
+        assert!(is_blocked_name_ext("vpn.ovpn"));
+        // Negatifler: gerçekçi adlar hâlâ geçer.
+        assert!(!is_blocked_dir("src"));
+        assert!(!is_blocked_file_name("app.ts"));
+        assert!(!is_blocked_name_ext("main.rs"));
+    }
+
+    /// H2 — blok listeleri büyük/küçük harf duyarsız (macOS/Windows FS bypass).
+    #[test]
+    fn h2_blok_listeleri_buyuk_kucuk_harf_duyarsiz() {
+        assert!(is_blocked_dir(".GIT"));
+        assert!(is_blocked_dir("Node_Modules"));
+        assert!(is_blocked_file_name("KEYS.JSON"));
+        assert!(is_blocked_file_name(".ENV"));
+        assert!(is_env_prefixed(".ENV.local"));
+        assert!(is_env_prefixed(".env.PROD"));
+        // Negatifler: gerçekçi olmayan adlar hâlâ geçer.
+        assert!(!is_blocked_dir("src"));
+        assert!(!is_blocked_file_name("a.ts"));
+        assert!(!is_env_prefixed(".envrc"));
+    }
+
+    /// H2 — yol düzeyinde: bileşen denetimi canonical çözüm ÖNCESI de,
+    /// SONRASI da duyarlı (`.Git/config` → "dizin yok" hatası yerine
+    /// "yasaklı dizin" hatası; canonical bileşenler ayrıca taranır).
+    #[tokio::test]
+    async fn h2_yol_bilesenleri_buyuk_harfle_reddedilir() {
+        let kok = benzersiz_tmp("case");
+        std::fs::write(kok.join("keys.json"), "SECRET").unwrap();
+        let r = kok.to_str().unwrap().to_string();
+        assert!(resolve_rooted(&r, ".Git/config").is_err());
+        assert!(resolve_rooted(&r, "KEYS.JSON").is_err());
+        assert!(resolve_rooted(&r, ".ENV.local").is_err());
+        assert!(resolve_rooted(&r, "keys.json").is_err());
+        assert!(resolve_rooted(&r, "a.ts").is_ok());
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H2 — `check_rel_components` bağımsız testi (canonical sonrası tarama).
+    #[test]
+    fn h2_canonical_yolun_bilesenleri_de_denetlenir() {
+        let kok = benzersiz_tmp("rel");
+        assert!(check_rel_components(&kok, &kok.join(".git").join("config")).is_err());
+        assert!(check_rel_components(&kok, &kok.join("KEYS.JSON")).is_err());
+        assert!(check_rel_components(&kok, &kok.join("sub").join(".ENV.x")).is_err());
+        assert!(check_rel_components(&kok, &kok.join("src").join("a.ts")).is_ok());
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
     #[test]
     fn var_olmayan_dosya_parent_kontrolunden_gecer() {
         let kok = benzersiz_tmp("kok3");
@@ -985,6 +1210,76 @@ mod tests {
         assert!(res.contains("ornek.txt"));
         assert_eq!(std::fs::read_to_string(&dosya).unwrap(), "versiyon 1");
 
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H1 devamı — `.macrocode` dışarıyı gösteren symlink ise `apply_patch`
+    /// yedek/manifest yazmadan reddeder; hedef dosya da değişmez.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn h1_apply_patch_macrocode_symlink_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("patch-macro-kok");
+        let dis = benzersiz_tmp("patch-macro-dis");
+        std::fs::write(kok.join("a.txt"), "v1").unwrap();
+        symlink(&dis, kok.join(".macrocode")).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let r = apply_patch(root, "a.txt".to_string(), "v2".to_string()).await;
+        assert!(r.is_err(), "symlink yedek dizini reddedilmeli: {r:?}");
+        assert!(!dis.join("backups").exists(), "dışarı yedek yazılmamalı");
+        assert_eq!(std::fs::read_to_string(kok.join("a.txt")).unwrap(), "v1");
+        let _ = std::fs::remove_dir_all(&dis);
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H1 devamı — `.macrocode/backups` symlink'i de dışarı yazamaz.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn h1_apply_patch_backups_symlink_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("patch-backup-kok");
+        let dis = benzersiz_tmp("patch-backup-dis");
+        std::fs::write(kok.join("a.txt"), "v1").unwrap();
+        std::fs::create_dir_all(kok.join(".macrocode")).unwrap();
+        symlink(&dis, kok.join(".macrocode/backups")).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let r = apply_patch(root, "a.txt".to_string(), "v2".to_string()).await;
+        assert!(r.is_err(), "symlink backups reddedilmeli: {r:?}");
+        assert!(!dis.join("manifest.json").exists());
+        assert_eq!(std::fs::read_to_string(kok.join("a.txt")).unwrap(), "v1");
+        let _ = std::fs::remove_dir_all(&dis);
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// H1 devamı — `manifest.json` symlink'i dışarıdaki dosyayı hedef alırsa
+    /// yedekleme reddedilir; dışarıdaki dosya değişmez.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn h1_apply_patch_manifest_symlink_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("patch-manifest-kok");
+        let dis = benzersiz_tmp("patch-manifest-dis");
+        std::fs::write(kok.join("a.txt"), "v1").unwrap();
+        std::fs::create_dir_all(kok.join(".macrocode/backups")).unwrap();
+        std::fs::write(dis.join("hedef.json"), "[]").unwrap();
+        symlink(
+            dis.join("hedef.json"),
+            kok.join(".macrocode/backups/manifest.json"),
+        )
+        .unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let r = apply_patch(root, "a.txt".to_string(), "v2".to_string()).await;
+        assert!(r.is_err(), "symlink manifest reddedilmeli: {r:?}");
+        assert_eq!(
+            std::fs::read_to_string(dis.join("hedef.json")).unwrap(),
+            "[]",
+            "dışarıdaki manifest değişmemeli"
+        );
+        assert_eq!(std::fs::read_to_string(kok.join("a.txt")).unwrap(), "v1");
+        let _ = std::fs::remove_dir_all(&dis);
         let _ = std::fs::remove_dir_all(&kok);
     }
 

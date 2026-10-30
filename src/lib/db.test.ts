@@ -43,6 +43,26 @@ describe('Faz 6 — audit_log', () => {
     expect(rows[0]).toMatchObject({ sessionId: 's1', tool: 'exec', decision: 'approved' });
   });
 
+  it('L6/L7: audit argsPreview/result yazılmadan önce redakte edilir', async () => {
+    const db = fakeDb();
+    await appendAudit(
+      {
+        sessionId: 's2',
+        tool: 'mcp:server:call',
+        argsPreview: '{"apiKey":"sk-abcdefghijklmnop","q":"normal"}',
+        decision: 'approved',
+        result: 'ok Bearer abcdefghijklmnopqrst',
+      },
+      db,
+    );
+    const rows = await readAuditLog('s2', 20, db);
+    expect(rows[0].argsPreview).not.toContain('sk-abcdefghijklmnop');
+    expect(rows[0].argsPreview).toContain('«redakte»');
+    expect(rows[0].argsPreview).toContain('normal');
+    expect(rows[0].result).not.toContain('abcdefghijklmnopqrst');
+    expect(rows[0].result).toContain('«redakte»');
+  });
+
   it('DB yoksa sessizce boş döner', async () => {
     await expect(readAuditLog('s1', 20, undefined)).resolves.toEqual([]);
   });

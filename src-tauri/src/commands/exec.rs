@@ -38,7 +38,7 @@ fn check_file_arg(a: &str) -> Result<(), String> {
         if crate::commands::fs::is_blocked_dir(seg) {
             return Err(err(format!("yasaklı dizin argümanda: {a}")));
         }
-        if crate::commands::fs::is_blocked_file_name(seg) || seg.starts_with(".env.") {
+        if crate::commands::fs::is_blocked_file_name(seg) || crate::commands::fs::is_env_prefixed(seg) {
             return Err(err(format!("yasaklı dosya argümanda: {a}")));
         }
         // O7 (D2b senkronu): gizli/veri uzantıları — ad-bazlı (`.pem` dotfile
@@ -49,6 +49,219 @@ fn check_file_arg(a: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// M6 — `--opt=değer` biçiminden değeri çıkarır (`--filefoo` gibi adları
+/// yanlışlıkla eşleştirmez).
+fn opt_value<'a>(arg: &'a str, flag: &str) -> Option<&'a str> {
+    arg.strip_prefix(flag)?.strip_prefix('=')
+}
+
+/// M6 — git argümanlarından **dosya/dizin yolu** taşıyanları çıkarır.
+///
+/// Eski durum: `git` `FILE_ARG_CMDS` dışındaydı; `git diff --no-index
+/// /etc/passwd x` keyfi dosya okuyor, `git commit -F /etc/passwd` dosyayı
+/// mesaj olarak okuyor, `git show HEAD:.env` bloklu dosyayı döküyordu.
+/// Kapsam: `--` sonrası operandlar, `rev:path` path kısmı, `-F/--file`,
+/// `--output`, `--pathspec-from-file`, `add` pathspec'leri ve global
+/// `-C/--git-dir/--work-tree` değerleri.
+fn git_path_args(args: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    let mut sub: Option<&str> = None;
+
+    // Global seçenekler alt komuttan ÖNCE gelir (`git -C dir status`).
+    while i < args.len() {
+        let a = args[i].as_str();
+        if a == "--" {
+            out.extend(args[i + 1..].iter().cloned());
+            return out;
+        }
+        if !a.starts_with('-') {
+            sub = Some(a);
+            i += 1;
+            break;
+        }
+        // `-C <dir>` ve bitişik `-C<dir>`.
+        if a == "-C" {
+            if let Some(v) = args.get(i + 1) {
+                out.push(v.clone());
+            }
+            i += 2;
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("-C") {
+            if !v.is_empty() {
+                out.push(v.to_string());
+            }
+            i += 1;
+            continue;
+        }
+        // `--git-dir=...` / `--work-tree=...`.
+        if let Some((name, value)) = a.split_once('=') {
+            if name == "--git-dir" || name == "--work-tree" {
+                out.push(value.to_string());
+            }
+            i += 1;
+            continue;
+        }
+        if a == "--git-dir" || a == "--work-tree" {
+            if let Some(v) = args.get(i + 1) {
+                out.push(v.clone());
+            }
+            i += 2;
+            continue;
+        }
+        // Değer alan ama yol olmayan global seçenekler: değeri atla ki alt
+        // komut sanılmasın.
+        if matches!(
+            a,
+            "-c" | "--config-env" | "--namespace" | "--super-prefix" | "--attr-source"
+        ) {
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+
+    let Some(sub) = sub else {
+        return out;
+    };
+    let rest = &args[i..];
+    match sub {
+        "add" => {
+            let mut j = 0;
+            while j < rest.len() {
+                let a = rest[j].as_str();
+                if a == "--" {
+                    out.extend(rest[j + 1..].iter().cloned());
+                    break;
+                }
+                if let Some(v) = opt_value(a, "--pathspec-from-file") {
+                    out.push(v.to_string());
+                } else if a == "--pathspec-from-file" {
+                    if let Some(v) = rest.get(j + 1) {
+                        out.push(v.clone());
+                        j += 1;
+                    }
+                } else if !a.starts_with('-') {
+                    out.push(a.to_string());
+                }
+                j += 1;
+            }
+        }
+        "diff" | "log" | "show" => {
+            let mut j = 0;
+            while j < rest.len() {
+                let a = rest[j].as_str();
+                if a == "--" {
+                    out.extend(rest[j + 1..].iter().cloned());
+                    break;
+                }
+                if let Some(v) = opt_value(a, "--output") {
+                    out.push(v.to_string());
+                } else if a == "--output" {
+                    if let Some(v) = rest.get(j + 1) {
+                        out.push(v.clone());
+                        j += 1;
+                    }
+                } else if !a.starts_with('-') {
+                    // URL (`https://…`) dosya yolu değildir; `rev:path` ise
+                    // yalnız path kısmı denetlenir.
+                    if a.contains("://") {
+                        // atla
+                    } else if let Some((_, p)) = a.split_once(':') {
+                        if !p.is_empty() {
+                            out.push(p.to_string());
+                        }
+                    } else {
+                        out.push(a.to_string());
+                    }
+                }
+                j += 1;
+            }
+        }
+        "commit" => {
+            let mut j = 0;
+            while j < rest.len() {
+                let a = rest[j].as_str();
+                if a == "--" {
+                    out.extend(rest[j + 1..].iter().cloned());
+                    break;
+                }
+                if let Some(v) = opt_value(a, "--file")
+                    .or_else(|| opt_value(a, "--pathspec-from-file"))
+                {
+                    out.push(v.to_string());
+                } else if a == "--file" || a == "--pathspec-from-file" {
+                    if let Some(v) = rest.get(j + 1) {
+                        out.push(v.clone());
+                        j += 1;
+                    }
+                } else if a == "-F" {
+                    if let Some(v) = rest.get(j + 1) {
+                        out.push(v.clone());
+                        j += 1;
+                    }
+                } else if a.starts_with("-F") && a.len() > 2 {
+                    out.push(a[2..].to_string());
+                }
+                j += 1;
+            }
+        }
+        "stash" => {
+            // `git stash push -- <pathspec>`; `-m` değeri mesajdır, yol değil.
+            if let Some(pos) = rest.iter().position(|a| a == "--") {
+                out.extend(rest[pos + 1..].iter().cloned());
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// M6 — `git -C <dir>` operand çözümlemesini değiştirir. Symlink/canonical
+/// jail'in doğru tabanı kullanması için birikimli `-C` değerini döndürür.
+fn git_c_base(args: &[String]) -> Option<PathBuf> {
+    let mut base = PathBuf::new();
+    let mut seen = false;
+    let mut i = 0usize;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if a == "--" || !a.starts_with('-') {
+            break;
+        }
+        if a == "-C" {
+            if let Some(v) = args.get(i + 1) {
+                base = base.join(v);
+                seen = true;
+            }
+            i += 2;
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("-C") {
+            if !v.is_empty() {
+                base = base.join(v);
+                seen = true;
+            }
+            i += 1;
+            continue;
+        }
+        if matches!(
+            a,
+            "-c" | "--git-dir" | "--work-tree" | "--config-env" | "--namespace"
+                | "--super-prefix" | "--attr-source"
+        ) {
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    if seen {
+        Some(base)
+    } else {
+        None
+    }
 }
 
 fn err(msg: impl Into<String>) -> String {
@@ -169,15 +382,40 @@ fn guard_file_args(
     cmd: &str,
     args: &[String],
 ) -> Result<(), String> {
-    if !FILE_ARG_CMDS.contains(&cmd) && cmd != "rm" {
+    // M6: git için yol listesi `git_path_args`'tan gelir; `-C` operand
+    // tabanını değiştirdiğinden canonical çözümleme o tabana göre yapılır.
+    let (resolve_dir, paths): (PathBuf, Vec<String>) = if cmd == "git" {
+        let resolve_dir = match git_c_base(args) {
+            Some(rel) => {
+                let canon = dir
+                    .join(rel)
+                    .canonicalize()
+                    .map_err(|e| err(format!("git -C dizini geçersiz: {e}")))?;
+                if !canon.starts_with(jail_base) {
+                    return Err(err("git -C workspace dışına çıkıyor"));
+                }
+                canon
+            }
+            None => dir.to_path_buf(),
+        };
+        (resolve_dir, git_path_args(args))
+    } else if FILE_ARG_CMDS.contains(&cmd) || cmd == "rm" {
+        (
+            dir.to_path_buf(),
+            args.iter()
+                .filter(|a| !a.starts_with('-'))
+                .cloned()
+                .collect(),
+        )
+    } else {
         return Ok(());
-    }
-    for a in args.iter().filter(|a| !a.starts_with('-')) {
+    };
+    for a in &paths {
         let v = a.trim().replace('\\', "/");
         if v.is_empty() {
             continue;
         }
-        let joined = dir.join(&v);
+        let joined = resolve_dir.join(&v);
         let Ok(canon) = joined.canonicalize() else {
             continue; // yok — string jail zaten desen/missing yoluna izin verir
         };
@@ -187,20 +425,21 @@ fn guard_file_args(
             )));
         }
         // Çözülen gerçek yoldaki dosya/dizin adları da blok listesinden geçmeli.
-        let rel = canon
-            .strip_prefix(jail_base)
-            .unwrap_or(&canon)
-            .to_string_lossy()
-            .to_string();
-        for comp in rel.split('/').filter(|c| !c.is_empty()) {
-            let cl = comp.to_ascii_lowercase();
-            if crate::commands::fs::is_blocked_dir(&cl) {
+        let rel = canon.strip_prefix(jail_base).unwrap_or(&canon);
+        for comp in rel.components() {
+            let name = comp.as_os_str().to_string_lossy();
+            if name.is_empty() {
+                continue;
+            }
+            if crate::commands::fs::is_blocked_dir(&name) {
                 return Err(err(format!("yasaklı dizin argümanda: {a}")));
             }
-            if crate::commands::fs::is_blocked_file_name(&cl) || cl.starts_with(".env.") {
+            if crate::commands::fs::is_blocked_file_name(&name)
+                || crate::commands::fs::is_env_prefixed(&name)
+            {
                 return Err(err(format!("yasaklı dosya argümanda: {a}")));
             }
-            if crate::commands::fs::is_blocked_name_ext(&cl) {
+            if crate::commands::fs::is_blocked_name_ext(&name) {
                 return Err(err(format!("yasaklı dosya argümanda: {a}")));
             }
         }
@@ -233,6 +472,30 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
     // O7: komut-çalıştıran flagler (`find -exec`, `rg --pre` …) — kullanıcı
     // ek allowlist'i de dahil HER yol geçemez (rm kuralıyla aynı sertlik).
     check_predicates(c, args)?;
+    // L1 düzeltmesi: dosya argümanı jail'i `extra_allows` erken dönüşünden ÖNCE
+    // çalışır. Eski sırayla kullanıcı `touch` gibi bir komutu serbest tanımlarsa
+    // jail hiç çalışmıyor; mutlak yol / `../` / bloklu dosya doğrudan invoke
+    // ile hedeflenebiliyordu (yerleşik tabloyla aynı sertlikte olmalı).
+    if FILE_ARG_CMDS.contains(&c) {
+        for a in args.iter().filter(|a| !a.starts_with('-')) {
+            check_file_arg(a)?;
+        }
+    }
+    // M6 — git dosya argümanı jail'i. `git` eskiden `FILE_ARG_CMDS` dışındaydı:
+    // `git diff --no-index /etc/passwd x` keyfi dosya okuyor, `git commit -F
+    // /etc/passwd` dosyayı mesaj olarak okuyordu. `--exec-path` ise keyfi
+    // `git-<altkomut>` programı çalıştırır → doğrudan reddedilir.
+    if c == "git" {
+        if args
+            .iter()
+            .any(|a| a == "--exec-path" || a.starts_with("--exec-path="))
+        {
+            return Err(err("yasaklı argüman: git --exec-path · keyfi program çalıştırabilir"));
+        }
+        for p in git_path_args(args) {
+            check_file_arg(&p)?;
+        }
+    }
     let table = allow_table()?;
     // Faz 8 L3: kullanıcının ek allowlist'i de geçerli (yerleşik tablo ile birleşik).
     if extra_allows(extra, c, args) {
@@ -254,13 +517,8 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
         }
         Some(v) => {
             let prefixes = v.as_array().ok_or_else(|| err("allowlist biçimi bozuk"))?;
-            // Dosya argümanı jail'i prefix'ten BAĞIMSIZ: boş listede (cat/find/…)
-            // args serbest olsa da mutlak yol / ../ / bloklu dosya reddedilir.
-            if FILE_ARG_CMDS.contains(&c) {
-                for a in args.iter().filter(|a| !a.starts_with('-')) {
-                    check_file_arg(a)?;
-                }
-            }
+            // Dosya argümanı jail'i (FILE_ARG_CMDS) yukarıda, prefix'ten bağımsız
+            // uygulandı; burada yalnızca allowlist prefix eşleşmesi kalır.
             // Boş liste: args serbest (ls/pwd/echo/eslint/pytest/…).
             if prefixes.is_empty() {
                 return Ok(());
@@ -282,18 +540,19 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
     }
 }
 
-#[tauri::command]
-pub async fn exec_cmd(
-    cmd: String,
-    args: Vec<String>,
-    cwd: String,
-    timeout_ms: Option<u64>,
-    root: Option<String>,
-    // Faz 8 L3: kullanıcı allowlist uzantısı (TS `parseCustomAllowList` çıktısı).
-    extra_allow: Option<ExtraAllow>,
-) -> Result<ExecOut, String> {
-    let extra = extra_allow.unwrap_or_default();
-    check_cmd(&cmd, &args, &extra)?;
+/// M5 — cwd jail'i (test edilebilir, `exec_cmd`'den ayrı).
+///
+/// Sıra önemli: root canonical → cwd canonical → `is_dir` → `starts_with`
+/// → bloklu bileşen denetimi. Eski kod root `Option` iken root verilmezse
+/// tüm denetimi atlıyordu; artık her çağrı bu kapıdan geçer.
+fn resolve_jailed_cwd(root: &str, cwd: &str) -> Result<(PathBuf, PathBuf), String> {
+    let root_trimmed = root.trim();
+    if root_trimmed.is_empty() {
+        return Err(err("workspace root boş olamaz"));
+    }
+    let base = PathBuf::from(root_trimmed)
+        .canonicalize()
+        .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))?;
     let cwd_trimmed = cwd.trim();
     if cwd_trimmed.is_empty() {
         return Err(err("cwd boş olamaz"));
@@ -302,28 +561,42 @@ pub async fn exec_cmd(
         .canonicalize()
         .map_err(|e| err(format!("cwd geçersiz: {e}")))?;
 
-    // Workspace jail: root verildiyse cwd onun altında olmalı.
-    // Frontend her zaman root gönderir; doğrudan invoke edenlere karşı backend sınırı.
-    let base_canon = match root.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(r) => {
-            let base = PathBuf::from(r)
-                .canonicalize()
-                .map_err(|e| err(format!("workspace kökü geçersiz: {e}")))?;
-            if !dir.starts_with(&base) {
-                return Err(err("cwd workspace dışına çıkamaz"));
-            }
-            Some(base)
-        }
-        None => None,
-    };
+    // M5 — cwd jail'i artık koşulsuz: canonical cwd workspace altında,
+    // gerçekten bir dizin ve bloklu bileşen içermiyor olmalı. `.git` /
+    // `.macrocode` gibi dizinlerde komut çalıştırmak (ör. `.git/hooks`)
+    // argüman jail'ini atlatmanın dolaylı yoluydu.
+    if !dir.is_dir() {
+        return Err(err("cwd bir dizin değil"));
+    }
+    if !dir.starts_with(&base) {
+        return Err(err("cwd workspace dışına çıkamaz"));
+    }
+    crate::commands::fs::check_rel_components(&base, &dir)?;
+    Ok((base, dir))
+}
+
+#[tauri::command]
+pub async fn exec_cmd(
+    cmd: String,
+    args: Vec<String>,
+    cwd: String,
+    timeout_ms: Option<u64>,
+    // M5: root artık ZORUNLU. Eskiden `Option` idi ve root verilmezse cwd
+    // jail'i tamamen atlanıyordu (doğrudan invoke ile her dizinde komut).
+    root: String,
+    // Faz 8 L3: kullanıcı allowlist uzantısı (TS `parseCustomAllowList` çıktısı).
+    extra_allow: Option<ExtraAllow>,
+) -> Result<ExecOut, String> {
+    let extra = extra_allow.unwrap_or_default();
+    check_cmd(&cmd, &args, &extra)?;
+    let (base, dir) = resolve_jailed_cwd(&root, &cwd)?;
 
     // O7 (Y2) — exec dosya argümanlarında **symlink çözümü**:
     // `check_file_arg` string düzeyinde çalışır; "creds -> ~/.ssh/id_ed25519"
     // gibi workspace içi symlink'i göremez (fs araçları bu kontrolü
     // `resolve_rooted` içinde yapar, exec deliyordu). Var olan hedef burada
-    // canonicalize edilip workspace (root yoksa cwd) altında kalmak zorundadır.
-    let jail_base = base_canon.as_deref().unwrap_or(dir.as_path());
-    guard_file_args(&dir, jail_base, cmd.trim(), &args)?;
+    // canonicalize edilip workspace altında kalmak zorundadır.
+    guard_file_args(&dir, &base, cmd.trim(), &args)?;
 
     let timeout =
         Duration::from_millis(timeout_ms.unwrap_or(TIMEOUT_SECS * 1000).clamp(1000, 30000));
@@ -420,6 +693,125 @@ mod tests {
         assert!(check_cmd2("rm", &args(&["-i", "../disari.txt"])).is_err());
         assert!(check_cmd2("rm", &args(&["-i", ".env"])).is_err());
         assert!(check_cmd2("rm", &args(&["-i", "build/turetilmis.js"])).is_ok());
+    }
+
+    /// M6 — git dosya argümanı jail'i (string düzeyi; symlink/canonical
+    /// denetimi `guard_file_args` içinde ayrıca yapılır).
+    #[test]
+    fn m6_git_dosya_argumani_jail() {
+        // Workspace dışı / bloklu dosya okuma.
+        assert!(check_cmd2("git", &args(&["diff", "--no-index", "/etc/passwd", "x"])).is_err());
+        assert!(check_cmd2("git", &args(&["commit", "-F", "/etc/passwd"])).is_err());
+        assert!(check_cmd2("git", &args(&["commit", "--file=/etc/passwd"])).is_err());
+        assert!(check_cmd2("git", &args(&["show", "HEAD:.env"])).is_err());
+        assert!(check_cmd2("git", &args(&["log", "--", ".env"])).is_err());
+        assert!(check_cmd2("git", &args(&["diff", "--output=/tmp/x", "HEAD"])).is_err());
+        assert!(check_cmd2("git", &args(&["add", ".ssh/id_rsa"])).is_err());
+        assert!(check_cmd2("git", &args(&["add", "../disari.txt"])).is_err());
+        assert!(check_cmd2("git", &args(&["-C", "../disari", "status"])).is_err());
+        assert!(check_cmd2("git", &args(&["--git-dir=/etc", "status"])).is_err());
+        assert!(check_cmd2("git", &args(&["--exec-path=/tmp", "status"])).is_err());
+        // Meşru kullanım etkilenmez.
+        assert!(check_cmd2("git", &args(&["status"])).is_ok());
+        assert!(check_cmd2("git", &args(&["show", "HEAD:src/app.ts"])).is_ok());
+        assert!(check_cmd2("git", &args(&["diff", "src/a.ts", "src/b.ts"])).is_ok());
+        assert!(check_cmd2("git", &args(&["log", "--", "src"])).is_ok());
+        // `-m` değeri mesajdır, yol değil — `..` içermesi reddedilmemeli.
+        assert!(check_cmd2("git", &args(&["commit", "-m", "fix: ../tmp yolunu düzelt"])).is_ok());
+        assert!(check_cmd2("git", &args(&["add", "src/app.ts"])).is_ok());
+    }
+
+    /// M6 — symlink ve `git -C` tabanı canonical jail'den geçer.
+    #[cfg(unix)]
+    #[test]
+    fn m6_git_symlink_ve_c_jail() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("macrocode-m6-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("macrocode-m6-out-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(base.join("alt")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("gizli.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(outside.join("gizli.txt"), base.join("creds")).unwrap();
+        std::os::unix::fs::symlink(&outside, base.join("alt").join("kacis")).unwrap();
+
+        // `creds` symlink'i dışarıyı gösterir → reddedilir.
+        assert!(guard_file_args(
+            &base,
+            &base,
+            "git",
+            &args(&["diff", "--no-index", "creds", "x"])
+        )
+        .is_err());
+        // `-C alt` tabanı doğru çözülür: alt/kacis dışarıyı gösterir.
+        assert!(guard_file_args(
+            &base,
+            &base,
+            "git",
+            &args(&["-C", "alt", "diff", "--no-index", "kacis", "x"])
+        )
+        .is_err());
+        // Workspace içi normal yol geçer.
+        assert!(guard_file_args(
+            &base,
+            &base,
+            "git",
+            &args(&["diff", "--no-index", "alt", "alt"])
+        )
+        .is_ok());
+        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    /// M5 — cwd jail: root zorunlu, cwd canonical + `is_dir` + bloklu bileşen.
+    #[test]
+    fn m5_cwd_jail() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("macrocode-m5-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("alt")).unwrap();
+        fs::create_dir_all(base.join(".git")).unwrap();
+        fs::write(base.join("dosya.txt"), "x").unwrap();
+        let root = base.to_string_lossy().to_string();
+        let sub = base.join("alt").to_string_lossy().to_string();
+        let git = base.join(".git").to_string_lossy().to_string();
+        let file = base.join("dosya.txt").to_string_lossy().to_string();
+
+        // Normal kullanım: kök ve alt dizin.
+        assert!(resolve_jailed_cwd(&root, &root).is_ok());
+        assert!(resolve_jailed_cwd(&root, &sub).is_ok());
+        // Bloklu dizin cwd olamaz (.git).
+        assert!(resolve_jailed_cwd(&root, &git).is_err());
+        // Workspace dışı (mutlak) cwd.
+        assert!(resolve_jailed_cwd(&root, "/").is_err());
+        // `..` ile kaçış canonicalize sonrası dışarıda kalır.
+        assert!(resolve_jailed_cwd(&root, &format!("{sub}/../..")).is_err());
+        // root/cwd boş olamaz.
+        assert!(resolve_jailed_cwd("", &root).is_err());
+        assert!(resolve_jailed_cwd(&root, "").is_err());
+        // Dosya cwd olamaz.
+        assert!(resolve_jailed_cwd(&root, &file).is_err());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// M5 — workspace içindeki symlink dışarıyı gösteriyorsa cwd reddedilir.
+    #[cfg(unix)]
+    #[test]
+    fn m5_cwd_symlink_escape_reddedilir() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("macrocode-m5-link-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("macrocode-m5-out-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(&base).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, base.join("kacis")).unwrap();
+        let root = base.to_string_lossy().to_string();
+        let link = base.join("kacis").to_string_lossy().to_string();
+        assert!(resolve_jailed_cwd(&root, &link).is_err());
+        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&outside);
     }
 
     /// O7 — komut-çalıştıran flagler (`find -exec`, `rg --pre`) reddedilir;
@@ -530,6 +922,31 @@ mod tests {
         assert!(check_cmd("npm", &args(&["run", "build"]), &ex).is_ok()); // yerleşik
         assert!(check_cmd("npm", &args(&["run", "build:ozel"]), &ex).is_ok()); // ek
         assert!(check_cmd("npm", &args(&["install"]), &ex).is_err());
+    }
+
+    /// L1 — kullanıcı ek-allowlist'i dosya argümanı jail'ini GEÇEMEZ
+    /// (jail artık `extra_allows` erken dönüşünden önce çalışır).
+    #[test]
+    fn l1_ek_allowlist_dosya_argumani_jailini_asamaz() {
+        let ex = extra(&[("touch", &[]), ("cat", &[])]);
+        assert!(check_cmd("touch", &args(&["/etc/pwned"]), &ex).is_err());
+        assert!(check_cmd("touch", &args(&["../kacis.txt"]), &ex).is_err());
+        assert!(check_cmd("touch", &args(&[".env"]), &ex).is_err());
+        assert!(check_cmd("cat", &args(&["../../.ssh/id_rsa"]), &ex).is_err());
+        // Meşru kullanım etkilenmez.
+        assert!(check_cmd("touch", &args(&["yeni.txt"]), &ex).is_ok());
+        assert!(check_cmd("cat", &args(&["src/app.ts"]), &ex).is_ok());
+    }
+
+    /// H2 — dosya argümanı jail'i de büyük/küçük harf duyarlı (exec.rs daha
+    /// önce yalnız çözülen yolu küçük harfe indiriyordu; ham seg'ler kaçıyordu).
+    #[test]
+    fn h2_dosya_argumani_jaili_buyuk_kucuk_harf_duyarsiz() {
+        assert!(check_cmd2("cat", &args(&[".GIT/config"])).is_err());
+        assert!(check_cmd2("cat", &args(&["KEYS.JSON"])).is_err());
+        assert!(check_cmd2("cat", &args(&[".ENV.local"])).is_err());
+        assert!(check_cmd2("ls", &args(&["Node_Modules"])).is_err());
+        assert!(check_cmd2("cat", &args(&["src/app.ts"])).is_ok());
     }
 
     #[test]

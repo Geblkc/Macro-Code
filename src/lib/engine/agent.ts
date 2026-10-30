@@ -9,10 +9,11 @@ import { mergeUsage, sumUsage, withRetry } from '../providers/common';
 import type { TokenUsage } from '../providers/common';
 import type { AgentMode, Message, Model, ModelParams, Provider } from '../../types';
 import { CORE_TOOLS, strArg } from './toolspec';
-import { filterToolsForMode, getDisallowedToolsForMode } from './agentModes';
+import { filterToolsForMode, getDisallowedToolsForMode, isToolDisallowed } from './agentModes';
 import type { AgentEvent, ApprovalMode, ToolCall, ToolDefinition, UsageLike } from './types';
 import { decideTool } from './policy';
 import { t } from '../i18n/core';
+import { redact } from '../logger';
 import { runFsTool } from './tools/fs';
 import { applyPendingPatch, listPending, toolEditFile, toolProposePatch, undoLastPatch } from './tools/patch';
 import { toolWriteFile } from './tools/write';
@@ -388,7 +389,9 @@ function audit(
   void appendAudit({
     sessionId,
     tool: String(call.name),
-    argsPreview: JSON.stringify(call.args ?? {}).slice(0, 200),
+    // L6/L7: alan-adı redaksiyonu (apiKey/token/secret…) yapısal olarak
+    // uygulanır; appendAudit ayrıca değer kalıplarını maskeler.
+    argsPreview: JSON.stringify(redact(call.args ?? {})).slice(0, 200),
     decision,
     result: result.slice(0, 200),
   }).catch(() => {});
@@ -463,12 +466,17 @@ export function createAgentRun(
         if (aborted || deps.signal?.aborted) break;
         deps.onEvent({ k: 'tool_call', call });
         const decision = decideTool(call.name, call.args, mode, deps.extraAllow ?? {});
-        if (effectiveDisallow.includes(String(call.name))) {
+        // M2: `mcp:*` gibi önek desenleri `includes` ile eşleşmez — helper
+        // joker desteğiyle kontrol eder (plan/ask'ta MCP çağrısı çalışamaz).
+        if (isToolDisallowed(String(call.name), effectiveDisallow)) {
           const out = `hata: ${deps.agentMode ?? 'bu'} mod bu aracı kullanamaz: ${String(call.name)}`;
           deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
           msgs.push({
             role: 'tool', toolCallId: call.id, toolName: call.name, content: out, isError: true,
           });
+          // L5: mod/alt-agent yasağı da denetim kaydına düşer — `decideTool`
+          // reddiyle simetrik (eskiden yalnız tool_result üretiliyordu).
+          audit(deps, call, 'denied', out);
           continue;
         }
         if (!decision.allowed) {
@@ -546,98 +554,95 @@ export function createAgentRun(
     return { kind: 'done', text: finalText, steps, usage };
   }
 
-  return {
-    async step(): Promise<AgentStepResult> {
-      if (pending.length > 0) {
-        return { kind: 'needs-approval', pending: pending.map((p) => p.call) };
+  // M1 — per-kart onay: iki kart hızlı tıklanırsa `resolve` çağrıları
+  // çakışabilir (ikisi de aynı `pending` dizisini görüp aynı çağrıyı iki kez
+  // çalıştırabilir). Çağrılar sıraya alınır; ikinci karar birincisi
+  // bitmeden işlenmez. Kuyruk hata durumunda da canlı kalır.
+  let resolveQueue: Promise<unknown> = Promise.resolve();
+
+  async function resolveInner(
+    decisions: Array<{ id: string; approved: boolean }>,
+  ): Promise<AgentStepResult> {
+    const byId = new Map(decisions.map((d) => [d.id, d.approved]));
+    // M1 (per-kart onay): karar VERİLMEYEN bekleyenler düşürülmez, kuyrukta
+    // kalır. Eski davranış her çağrıya karar gelmiş gibi varsayıldığı için
+    // tek kartın "Onayla" düğmesi (App tümünü gönderiyordu) tümünü
+    // çalıştırıyordu. Protokol bozulmaz: `runLoop` yalnız TÜM bekleyenler
+    // cevaplandıktan sonra çağrılır → tool_use/tool_result eşleşmesi tam.
+    const stillPending: PendingEntry[] = [];
+    let matched = 0;
+    for (const entry of pending) {
+      const approved = byId.get(entry.call.id);
+      if (approved === undefined) {
+        stillPending.push(entry);
+        continue;
       }
-      return runLoop();
-    },
-    async resolve(decisions: Array<{ id: string; approved: boolean }>): Promise<AgentStepResult> {
-      const byId = new Map(decisions.map((d) => [d.id, d.approved]));
-      for (const entry of pending) {
-        const approved = byId.get(entry.call.id);
-        if (approved === undefined) continue;
-        if (approved) {
-          try {
-            // Patch + preview varsa apply et, yoksa (mock/exec) tool'u çalıştır.
-            if ((entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') && entry.patchId) {
-              const msg = await applyPendingPatch(deps.workspaceRoot, entry.patchId);
-              deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: msg });
-              msgs.push({
-                role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-                content: msg,
-              });
-              audit(deps, entry.call, 'approved', msg);
-            } else if (entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') {
-              // O7: patchId YOK — preview üretilememişti (catch) ya da restart
-              // sonrası patch belleği boştu. Tool'u sessizce yeniden koşturup
-              // "pre-view + /apply" önizleme metnini başarı gibi vermek
-              // YALANCI başarıydı (dosya yazılmamıştı). Bu turda üretilen yeni
-              // bekleyen yama hemen uygulanır (onay zaten alındı).
-              const before = new Set(listPending().map((p) => p.id));
-              const out0 = await (deps.runToolImpl
-                ? deps.runToolImpl(entry.call)
-                : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
-                    approved: true,
-                    extraAllow: deps.extraAllow,
-                  }));
-              const created = listPending().find((p) => !before.has(p.id));
-              let result = out0;
-              if (created) {
-                result = `${out0}\n${await applyPendingPatch(deps.workspaceRoot, created.id)}`;
-              }
-              const clipped0 = clipOutput(result);
-              deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped0 });
-              msgs.push({
-                role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-                content: clipped0,
-              });
-              audit(deps, entry.call, 'approved', clipped0);
-            } else {
-              // Y2 (Faz 3): exec yalnızca buradan (resolve) çalışır — `approved: true`
-              // başka hiçbir çağrı noktasına geçmez.
-              const out = await (deps.runToolImpl
-                ? deps.runToolImpl(entry.call)
-                : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
-                    approved: true,
-                    extraAllow: deps.extraAllow,
-                  }));
-              const clipped = clipOutput(out);
-              deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped });
-              msgs.push({
-                role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-                content: clipped,
-              });
-              audit(deps, entry.call, 'approved', clipped);
-            }
-          } catch (e) {
-            const out = e instanceof Error ? e.message : String(e);
-            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
+      matched += 1;
+      if (approved) {
+        try {
+          // Patch + preview varsa apply et, yoksa (mock/exec) tool'u çalıştır.
+          if ((entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') && entry.patchId) {
+            const msg = await applyPendingPatch(deps.workspaceRoot, entry.patchId);
+            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: msg });
             msgs.push({
               role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-              content: out, isError: true,
+              content: msg,
             });
-            audit(deps, entry.call, 'approved', out);
+            audit(deps, entry.call, 'approved', msg);
+          } else if (entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') {
+            // O7: patchId YOK — preview üretilememişti (catch) ya da restart
+            // sonrası patch belleği boştu. Tool'u sessizce yeniden koşturup
+            // "pre-view + /apply" önizleme metnini başarı gibi vermek
+            // YALANCI başarıydı (dosya yazılmamıştı). Bu turda üretilen yeni
+            // bekleyen yama hemen uygulanır (onay zaten alındı).
+            const before = new Set(listPending().map((p) => p.id));
+            const out0 = await (deps.runToolImpl
+              ? deps.runToolImpl(entry.call)
+              : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
+                  approved: true,
+                  extraAllow: deps.extraAllow,
+                }));
+            const created = listPending().find((p) => !before.has(p.id));
+            let result = out0;
+            if (created) {
+              result = `${out0}\n${await applyPendingPatch(deps.workspaceRoot, created.id)}`;
+            }
+            const clipped0 = clipOutput(result);
+            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped0 });
+            msgs.push({
+              role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
+              content: clipped0,
+            });
+            audit(deps, entry.call, 'approved', clipped0);
+          } else {
+            // Y2 (Faz 3): exec yalnızca buradan (resolve) çalışır — `approved: true`
+            // başka hiçbir çağrı noktasına geçmez.
+            const out = await (deps.runToolImpl
+              ? deps.runToolImpl(entry.call)
+              : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
+                  approved: true,
+                  extraAllow: deps.extraAllow,
+                }));
+            const clipped = clipOutput(out);
+            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped });
+            msgs.push({
+              role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
+              content: clipped,
+            });
+            audit(deps, entry.call, 'approved', clipped);
           }
-        } else {
-          // K2: reddet + devam et — döngü kırılmaz.
-          const out = 'kullanıcı reddetti — alternatif bir yol öner';
+        } catch (e) {
+          const out = e instanceof Error ? e.message : String(e);
           deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
           msgs.push({
             role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
             content: out, isError: true,
           });
-          audit(deps, entry.call, 'rejected', out);
+          audit(deps, entry.call, 'approved', out);
         }
-      }
-      // O7: karar gelmeyen bekleyenler sessizce DÜŞÜRÜLÜR ama sağlıklı
-      // protokol için tool_result yazılmalı — aksi halde assistant'ın
-      // tool_use'u sonuca bağlanmadan API'ye gider (Anthropic 400 verir,
-      // tur kalıcı olarak kilitlenirdi).
-      for (const entry of pending) {
-        if (byId.has(entry.call.id)) continue;
-        const out = 'onay cevabı gelmedi — çağrı iptal edildi · gerekirse yeniden iste';
+      } else {
+        // K2: reddet + devam et — döngü kırılmaz.
+        const out = 'kullanıcı reddetti — alternatif bir yol öner';
         deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
         msgs.push({
           role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
@@ -645,8 +650,34 @@ export function createAgentRun(
         });
         audit(deps, entry.call, 'rejected', out);
       }
-      pending = [];
+    }
+    // M1: kararı gelmeyen bekleyenler kuyrukta kaldı → tur runLoop'e
+    // gitmez (protokol/tool_result eşleşmesi tam kalır). Tüm bekleyenler
+    // cevaplandığında aşağıda normal akışla döngü devam eder.
+    pending = stillPending;
+    if (pending.length > 0) {
+      return { kind: 'needs-approval', pending: pending.map((p) => p.call) };
+    }
+    // Gecikmiş/tekrarlanmış karar (hiçbir bekleyene denk gelmedi): döngüyü
+    // yeniden başlatma — aksi halde fazladan bir model turu atılırdı.
+    if (matched === 0) {
+      return { kind: 'done', text: finalText, steps, usage };
+    }
+    return runLoop();
+  }
+
+  return {
+    async step(): Promise<AgentStepResult> {
+      if (pending.length > 0) {
+        return { kind: 'needs-approval', pending: pending.map((p) => p.call) };
+      }
       return runLoop();
+    },
+    resolve(decisions: Array<{ id: string; approved: boolean }>): Promise<AgentStepResult> {
+      const next = resolveQueue.then(() => resolveInner(decisions));
+      // Kuyruk hata yüzünden kilitlenmesin (hata çağırana iletilir).
+      resolveQueue = next.catch(() => undefined);
+      return next;
     },
     serialize(): string {
       const state: AgentRunState = {
