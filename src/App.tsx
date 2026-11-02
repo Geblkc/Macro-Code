@@ -31,6 +31,20 @@ import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsT
 import type { ExtraLine, Provider } from './types';
 import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
+import { APP_VERSION } from './lib/appInfo';
+import {
+  checkForUpdate,
+  compactNotes,
+  downloadAndInstallUpdate,
+  downloadPercent,
+  formatBytes,
+  openReleasePage,
+  releasePageUrl,
+  shouldCheckNow,
+  shouldNotify,
+  updateSupport,
+  type UpdateInfo,
+} from './lib/update';
 import { ALL_MODELS, getCapabilitiesForModel, hasProviderKey } from './lib/providers';
 import { isStale } from './lib/providers/modelsDev';
 import { useT } from './lib/i18n';
@@ -77,6 +91,10 @@ export default function App() {
   const [clearedBefore, setClearedBefore] = useState<Record<string, number>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, PendingApproval[]>>({});
   const bootedRef = useRef(false);
+  /** Aynı anda birden fazla güncelleme kontrolü/indirmesi çalışmasın. */
+  const updateInFlightRef = useRef(false);
+  /** Son bulunan güncelleme (`/update ignore` ve `/update open` için). */
+  const lastUpdateRef = useRef<UpdateInfo | null>(null);
   // Faz 7: önceki oturum id'leri (silinen oturumların compaction hafızası için).
   const prevSessionIdsRef = useRef<Set<string>>(new Set());
   const { send, abort: abortStream } = useStream();
@@ -299,6 +317,133 @@ export default function App() {
     [t, applyRoot, pushExtra],
   );
 
+  /** Güncelleme kontrolü — `/update` ve açılış kontrolü ortak yol. */
+  const performUpdateCheck = useCallback(
+    async (sessionId: string, opts: { silent?: boolean } = {}): Promise<UpdateInfo | null> => {
+      if (updateInFlightRef.current) {
+        if (!opts.silent) {
+          pushExtra(sessionId, { type: 'sys', content: t('update.checkingShort') });
+        }
+        return null;
+      }
+      updateInFlightRef.current = true;
+      if (!opts.silent) {
+        pushExtra(sessionId, { type: 'sys', content: t('update.checking') });
+      }
+      try {
+        const info = await checkForUpdate();
+        useSettingsStore.getState().setLastUpdateCheck(Date.now());
+        if (!info) {
+          if (!opts.silent) {
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.upToDate', { current: APP_VERSION }),
+            });
+          }
+          return null;
+        }
+        lastUpdateRef.current = info;
+        if (!opts.silent) {
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('update.available', {
+              version: info.version,
+              current: info.currentVersion,
+            }),
+          });
+          if (info.date) {
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.releasedAt', { date: info.date }),
+            });
+          }
+          const notes = compactNotes(info.notes);
+          if (notes) {
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.releaseNotes', { notes }),
+            });
+          }
+        }
+        return info;
+      } catch (e) {
+        if (!opts.silent) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('update.checkFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }),
+          });
+        }
+        return null;
+      } finally {
+        updateInFlightRef.current = false;
+      }
+    },
+    [pushExtra, t],
+  );
+
+  /** Güncellemeyi indirir + kurar (onay `/update` akışında alınır). */
+  const runUpdateInstall = useCallback(
+    async (sessionId: string, info: UpdateInfo) => {
+      pushExtra(sessionId, {
+        type: 'sys',
+        content: t('update.installing', { version: info.version }),
+      });
+      let lastPercent = -10;
+      let lastAt = 0;
+      try {
+        await downloadAndInstallUpdate((p) => {
+          if (p.phase === 'finished') {
+            pushExtra(sessionId, { type: 'sys', content: t('update.installed') });
+            return;
+          }
+          const now = Date.now();
+          const percent = downloadPercent(p);
+          if (percent < 0) {
+            if (now - lastAt < 1000) return;
+            lastAt = now;
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.downloadProgressUnknown', {
+                downloaded: formatBytes(p.downloaded),
+              }),
+            });
+            return;
+          }
+          // Her %10'da bir veya en fazla saniyede bir satır (terminal spam'i yok).
+          if (percent < lastPercent + 10 && now - lastAt < 1000) return;
+          lastPercent = percent;
+          lastAt = now;
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('update.downloadProgress', {
+              percent,
+              downloaded: formatBytes(p.downloaded),
+              total: formatBytes(p.total),
+            }),
+          });
+        });
+        pushExtra(sessionId, { type: 'sys', content: t('update.relaunching') });
+      } catch (e) {
+        pushExtra(sessionId, {
+          type: 'err',
+          content: t('update.installFailed', {
+            message: e instanceof Error ? e.message : String(e),
+          }),
+        });
+        const url = lastUpdateRef.current?.url;
+        if (url) {
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('update.manualHint', { url }),
+          });
+        }
+      }
+    },
+    [pushExtra, t],
+  );
+
   /** Faz 4: hata satırındaki "tekrar dene" aynı girdiyi yeniden gönderir. */
   const handleSendRef = useRef<((text: string, images?: string[]) => void) | null>(null);
 
@@ -312,7 +457,7 @@ export default function App() {
 
       // --- Motor komutları (Faz C-G): eski handleSlashCommand'dan önce ---
       const low = trimmed.toLowerCase();
-      if (low === '/audit' || low.startsWith('/audit')) {
+      if (low === '/audit' || low.startsWith('/audit ')) {
         const nRaw = trimmed.slice(6).trim();
         const n = nRaw ? Math.min(Math.max(parseInt(nRaw, 10) || 20, 1), 100) : 20;
         try {
@@ -406,7 +551,7 @@ export default function App() {
         });
         return;
       }
-      if (low === '/log' || low.startsWith('/log')) {
+      if (low === '/log' || low.startsWith('/log ')) {
         // Faz 10: gözlemlenebilirlik — son kayıtlar (gizli değerler redakte).
         const nRaw = trimmed.slice(4).trim();
         const n = nRaw ? Math.min(Math.max(parseInt(nRaw, 10) || 30, 1), 100) : 30;
@@ -424,6 +569,83 @@ export default function App() {
             content: `[${hh}] ${e.level} ${e.event}${data}`,
           });
         }
+        return;
+      }
+      if (low === '/update' || low.startsWith('/update ')) {
+        const action = trimmed.slice(7).trim().toLowerCase();
+        if (!action || action === 'check') {
+          const info = await performUpdateCheck(sessionId);
+          if (!info) return;
+          const support = await updateSupport();
+          if (!support.supported) {
+            pushExtra(sessionId, {
+              type: 'warn',
+              content: t('update.unsupported', { kind: support.kind }),
+            });
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.manualHint', { url: info.url }),
+            });
+            return;
+          }
+          // Tam otomatik kurulum: kullanıcı onayı ile indir + kur + yeniden başlat.
+          setConfirmReq({
+            title: t('update.installTitle'),
+            message: t('update.installMessage', { version: info.version }),
+            confirmLabel: t('update.installConfirm'),
+            cancelLabel: t('common.cancel'),
+            initialFocus: 'cancel',
+            onConfirm: () => {
+              void runUpdateInstall(sessionId, info);
+            },
+          });
+          return;
+        }
+        if (action === 'install') {
+          const info = await performUpdateCheck(sessionId);
+          if (!info) return;
+          const support = await updateSupport();
+          if (!support.supported) {
+            pushExtra(sessionId, {
+              type: 'warn',
+              content: t('update.unsupported', { kind: support.kind }),
+            });
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('update.manualHint', { url: info.url }),
+            });
+            return;
+          }
+          await runUpdateInstall(sessionId, info);
+          return;
+        }
+        if (action === 'open') {
+          const url = lastUpdateRef.current?.url ?? releasePageUrl();
+          try {
+            await openReleasePage(url);
+            pushExtra(sessionId, { type: 'sys', content: t('update.open') });
+          } catch {
+            pushExtra(sessionId, {
+              type: 'err',
+              content: t('update.openFailed', { url }),
+            });
+          }
+          return;
+        }
+        if (action === 'ignore') {
+          const info = lastUpdateRef.current;
+          if (!info) {
+            pushExtra(sessionId, { type: 'sys', content: t('update.ignoreNone') });
+            return;
+          }
+          useSettingsStore.getState().setIgnoredUpdateVersion(info.version);
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('update.ignored', { version: info.version }),
+          });
+          return;
+        }
+        pushExtra(sessionId, { type: 'sys', content: t('update.usage') });
         return;
       }
       if (low === '/note' || low.startsWith('/note ')) {
@@ -453,7 +675,7 @@ export default function App() {
         }
         return;
       }
-      if (low === '/context' || low.startsWith('/context')) {
+      if (low === '/context' || low.startsWith('/context ')) {
         // Faz 9 (P9.4): "agent ne biliyor?" — şeffaflık.
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
@@ -585,7 +807,7 @@ export default function App() {
         await runRootCommand(trimmed.slice(5).trim(), sessionId);
         return;
       }
-      if (low === '/files' || low.startsWith('/files')) {
+      if (low === '/files' || low.startsWith('/files ')) {
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
           pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissing') });
@@ -614,7 +836,7 @@ export default function App() {
         }
         return;
       }
-      if (low === '/apply' || low.startsWith('/apply')) {
+      if (low === '/apply' || low.startsWith('/apply ')) {
         const ws = useWorkspaceStore.getState();
         const id = trimmed.slice(6).trim();
         // Faz 1 G5: aktif run varsa aynı resolve yolundan devam et (tur kırılmaz).
@@ -705,7 +927,7 @@ export default function App() {
         }
         return;
       }
-      if (low === '/undo' || low.startsWith('/undo')) {
+      if (low === '/undo' || low.startsWith('/undo ')) {
         const ws = useWorkspaceStore.getState();
         if (!ws.root) {
           pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
@@ -723,7 +945,7 @@ export default function App() {
         }
         return;
       }
-      if (low === '/skill' || low.startsWith('/skill')) {
+      if (low === '/skill' || low.startsWith('/skill ')) {
         const skills = listSkills();
         pushExtra(sessionId, {
           type: 'sys',
@@ -852,7 +1074,18 @@ export default function App() {
           retry: () => handleSendRef.current?.(trimmed, images),
         });
     },
-    [send, sendAgent, clearView, pushExtra, setPending, dropPending, runRootCommand],
+    [
+      send,
+      sendAgent,
+      clearView,
+      pushExtra,
+      setPending,
+      dropPending,
+      runRootCommand,
+      performUpdateCheck,
+      runUpdateInstall,
+      t,
+    ],
   );
   handleSendRef.current = handleSend;
 
@@ -931,6 +1164,33 @@ export default function App() {
       const st = useSessionStore.getState();
       let sess = st.getActiveSession();
       if (!sess) sess = st.createSession();
+      // Güncelleme: açılışta günde en fazla bir kez, arka planda (boot'u durdurmaz).
+      if (isTauri()) {
+        const updState = useSettingsStore.getState();
+        if (updState.autoUpdateCheck && shouldCheckNow(updState.lastUpdateCheck)) {
+          void (async () => {
+            try {
+              const info = await checkForUpdate();
+              // Yalnızca başarılı kontrolde damga yazılır; ağ hatasında
+              // sonraki açılışta yeniden denenir.
+              useSettingsStore.getState().setLastUpdateCheck(Date.now());
+              if (!info) return;
+              const freshState = useSettingsStore.getState();
+              if (!shouldNotify(info.version, freshState.ignoredUpdateVersion)) return;
+              lastUpdateRef.current = info;
+              const active = useSessionStore.getState().getActiveSession();
+              if (active) {
+                pushExtra(active.id, {
+                  type: 'warn',
+                  content: t('update.availableShort', { version: info.version }),
+                });
+              }
+            } catch {
+              // Ağ hatası boot'u etkilemez.
+            }
+          })();
+        }
+      }
       // Klasör seçme altyapısı (boot): persist edilmiş kök artık yoksa uyar —
       // otomatik silme yok (kullanıcı /root veya rozet ile karar verir).
       try {
@@ -1246,6 +1506,7 @@ export default function App() {
           el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }}
         onWorkspaceClick={() => void runRootCommand('')}
+        onCompact={streaming ? undefined : () => handleSendRef.current?.('/compact')}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ConfirmDialog

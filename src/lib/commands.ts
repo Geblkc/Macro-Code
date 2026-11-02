@@ -10,7 +10,7 @@ import {
 import { sessionCost, formatCost } from './pricing';
 import { redact } from './logger';
 import { t, type TranslationKey } from './i18n/core';
-import type { CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
+import type { AgentMode, CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
 
 export interface CommandLine {
   type: LineType;
@@ -54,9 +54,23 @@ const VALID_PROVIDERS: Provider[] = [...PROVIDER_IDS];
  * Slash komut tanımları — öneri popup'ı ve /help için TEK KAYNAK.
  * Sıra /help çıktısının sırasıdır; yeni komut buraya eklenir.
  */
+export type CommandGroup = 'chat' | 'workspace' | 'agent' | 'diag';
+
+/** /help çıktısındaki grup sırası. */
+export const COMMAND_GROUPS: CommandGroup[] = ['chat', 'workspace', 'agent', 'diag'];
+
+const GROUP_LABEL_KEY: Record<CommandGroup, TranslationKey> = {
+  chat: 'commands.help.group.chat',
+  workspace: 'commands.help.group.workspace',
+  agent: 'commands.help.group.agent',
+  diag: 'commands.help.group.diag',
+};
+
 export interface CommandSpec {
   /** Komut adı ('/' olmadan, küçük harf). */
   name: string;
+  /** /help çıktısındaki grup (başlık satırı). */
+  group: CommandGroup;
   /** Argüman ipucu (terminal söz dizimi: <...> zorunlu, [...] opsiyonel). */
   args?: string;
   /** Popup'taki kısa açıklama: i18n anahtarı (commands.desc.*). */
@@ -71,39 +85,47 @@ export interface CommandSpec {
 }
 
 export const COMMAND_SPECS: CommandSpec[] = [
-  { name: 'help', descKey: 'commands.desc.help' },
-  { name: 'clear', descKey: 'commands.desc.clear' },
-  { name: 'reset', descKey: 'commands.desc.reset' },
-  { name: 'session', descKey: 'commands.desc.session' },
-  { name: 'model', args: '[id]', descKey: 'commands.desc.model' },
+  { name: 'help', group: 'chat', descKey: 'commands.desc.help' },
+  { name: 'clear', group: 'chat', descKey: 'commands.desc.clear' },
+  { name: 'reset', group: 'chat', descKey: 'commands.desc.reset' },
+  { name: 'session', group: 'chat', descKey: 'commands.desc.session' },
+  { name: 'model', group: 'chat', args: '[id]', descKey: 'commands.desc.model' },
   {
     name: 'provider',
+    group: 'chat',
     args: '<p>',
     descKey: 'commands.desc.provider',
     descParams: { providers: PROVIDER_IDS.join('/') },
     requiresArg: true,
   },
-  { name: 'key', descKey: 'commands.desc.key' },
-  { name: 'export', args: '[md|json]', descKey: 'commands.desc.export' },
-  { name: 'backup', descKey: 'commands.desc.backup' },
-  { name: 'copy', args: '[md|json]', descKey: 'commands.desc.copy' },
-  { name: 'tokens', descKey: 'commands.desc.tokens' },
-  { name: 'compact', descKey: 'commands.desc.compact' },
-  { name: 'system', args: '[text]', descKey: 'commands.desc.system' },
-  { name: 'root', args: '[yol|off]', descKey: 'commands.desc.root' },
-  { name: 'files', descKey: 'commands.desc.files' },
-  { name: 'apply', args: '[id]', descKey: 'commands.desc.apply' },
-  { name: 'undo', args: '[id]', descKey: 'commands.desc.undo' },
-  { name: 'skill', descKey: 'commands.desc.skill' },
-  { name: 'approval', args: '[m]', descKey: 'commands.desc.approval' },
-  { name: 'mode', args: '[m]', descKey: 'commands.desc.mode' },
-  { name: 'build', descKey: 'commands.desc.build' },
-  { name: 'plan', descKey: 'commands.desc.plan' },
-  { name: 'ask', descKey: 'commands.desc.ask' },
-  { name: 'context', descKey: 'commands.desc.context' },
-  { name: 'note', args: '<note>', descKey: 'commands.desc.note', requiresArg: true },
-  { name: 'log', args: '[n]', descKey: 'commands.desc.log' },
-  { name: 'audit', args: '[n]', descKey: 'commands.desc.audit' },
+  { name: 'key', group: 'chat', descKey: 'commands.desc.key' },
+  { name: 'export', group: 'chat', args: '[md|json]', descKey: 'commands.desc.export' },
+  { name: 'backup', group: 'chat', descKey: 'commands.desc.backup' },
+  { name: 'copy', group: 'chat', args: '[md|json]', descKey: 'commands.desc.copy' },
+  { name: 'tokens', group: 'chat', descKey: 'commands.desc.tokens' },
+  { name: 'compact', group: 'chat', descKey: 'commands.desc.compact' },
+  { name: 'system', group: 'chat', args: '[text]', descKey: 'commands.desc.system' },
+  { name: 'note', group: 'chat', args: '<note>', descKey: 'commands.desc.note', requiresArg: true },
+  { name: 'root', group: 'workspace', args: '[yol|off]', descKey: 'commands.desc.root' },
+  { name: 'files', group: 'workspace', descKey: 'commands.desc.files' },
+  { name: 'apply', group: 'workspace', args: '[id]', descKey: 'commands.desc.apply' },
+  { name: 'undo', group: 'workspace', args: '[id]', descKey: 'commands.desc.undo' },
+  { name: 'context', group: 'workspace', descKey: 'commands.desc.context' },
+  { name: 'skill', group: 'agent', descKey: 'commands.desc.skill' },
+  { name: 'approval', group: 'agent', args: '[m]', descKey: 'commands.desc.approval' },
+  { name: 'mode', group: 'agent', args: '[m]', descKey: 'commands.desc.mode' },
+  { name: 'effort', group: 'agent', descKey: 'commands.desc.effort' },
+  { name: 'build', group: 'agent', descKey: 'commands.desc.build' },
+  { name: 'plan', group: 'agent', descKey: 'commands.desc.plan' },
+  { name: 'ask', group: 'agent', descKey: 'commands.desc.ask' },
+  { name: 'log', group: 'diag', args: '[n]', descKey: 'commands.desc.log' },
+  { name: 'audit', group: 'diag', args: '[n]', descKey: 'commands.desc.audit' },
+  {
+    name: 'update',
+    group: 'diag',
+    args: '[check|install|open|ignore]',
+    descKey: 'commands.desc.update',
+  },
 ];
 
 /**
@@ -124,11 +146,16 @@ export function filterCommands(query: string): CommandSpec[] {
  */
 function helpLines(): CommandLine[] {
   const lines: CommandLine[] = [{ type: 'sys', content: t('commands.help.header') }];
-  for (const c of COMMAND_SPECS) {
-    const helpKey = `commands.help.${c.name}` as TranslationKey;
-    lines.push({ type: 'sys', content: t(helpKey, c.descParams) });
-    if (c.name === 'approval') {
-      lines.push({ type: 'sys', content: t('commands.help.approvalModes') });
+  for (const group of COMMAND_GROUPS) {
+    const cmds = COMMAND_SPECS.filter((c) => c.group === group);
+    if (cmds.length === 0) continue;
+    lines.push({ type: 'sys', content: `— ${t(GROUP_LABEL_KEY[group])} —` });
+    for (const c of cmds) {
+      const helpKey = `commands.help.${c.name}` as TranslationKey;
+      lines.push({ type: 'sys', content: t(helpKey, c.descParams) });
+      if (c.name === 'approval') {
+        lines.push({ type: 'sys', content: t('commands.help.approvalModes') });
+      }
     }
   }
   return lines;
@@ -350,6 +377,12 @@ function normalizeSession(raw: unknown): Session {
     v.compaction && typeof v.compaction === 'object'
       ? (v.compaction as Session['compaction'])
       : undefined;
+  // Ajan modu yedekle birlikte taşınır: plan/ask oturumu içe aktarınca
+  // build'e düşmemeli (build modu yazma araçlarına izin verir).
+  const agentMode: AgentMode | undefined =
+    v.agentMode === 'build' || v.agentMode === 'plan' || v.agentMode === 'ask'
+      ? v.agentMode
+      : undefined;
   return {
     id: v.id,
     name: typeof v.name === 'string' && v.name ? v.name : t('errors.importSessionName'),
@@ -359,6 +392,7 @@ function normalizeSession(raw: unknown): Session {
     provider: migrated.provider,
     model: migrated.model,
     systemPrompt: typeof v.systemPrompt === 'string' ? v.systemPrompt : '',
+    ...(agentMode ? { agentMode } : {}),
     ...(compaction ? { compaction } : {}),
   };
 }

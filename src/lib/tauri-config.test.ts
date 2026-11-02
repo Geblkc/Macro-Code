@@ -135,3 +135,65 @@ describe('Rust migration sözleşmesi (Faz 7 A1)', () => {
     expect(libRs).toContain('stream_anthropic');
   });
 });
+
+describe('Tauri updater sözleşmesi', () => {
+  const CONF_PATH = resolve(ROOT, 'src-tauri/tauri.conf.json');
+  const WORKFLOW_PATH = resolve(ROOT, '.github/workflows/release.yml');
+  const UPDATER_RS = resolve(ROOT, 'src-tauri/src/commands/updater.rs');
+  const conf = JSON.parse(readFileSync(CONF_PATH, 'utf8')) as {
+    bundle?: { createUpdaterArtifacts?: boolean };
+    plugins?: {
+      updater?: {
+        pubkey?: string;
+        endpoints?: string[];
+        windows?: { installMode?: string };
+      };
+    };
+  };
+  const libRs = readFileSync(LIB_RS_PATH, 'utf8');
+
+  it('imzalı güncelleme artifact’ları açık', () => {
+    expect(conf.bundle?.createUpdaterArtifacts).toBe(true);
+  });
+
+  it('updater public key ve latest.json endpoint tanımlı', () => {
+    expect(conf.plugins?.updater?.pubkey?.trim().length ?? 0).toBeGreaterThan(20);
+    expect(conf.plugins?.updater?.endpoints?.some((u) => u.endsWith('/latest.json'))).toBe(
+      true,
+    );
+    expect(conf.plugins?.updater?.windows?.installMode).toBe('passive');
+  });
+
+  it('capability dosyası updater/process/opener izinlerini içerir', () => {
+    const cap = JSON.parse(readFileSync(CAP_PATH, 'utf8')) as Capability;
+    for (const p of ['updater:default', 'process:default', 'opener:default']) {
+      expect(cap.permissions, `eksik izin: ${p}`).toContain(p);
+    }
+  });
+
+  it('Rust tarafında plugin’ler ve update_support komutu kayıtlı', () => {
+    expect(libRs).toContain('tauri_plugin_updater');
+    expect(libRs).toContain('tauri_plugin_process');
+    expect(libRs).toContain('tauri_plugin_opener');
+    expect(libRs).toContain('update_support');
+  });
+
+  it('update_support Linux’ta yalnızca AppImage’a izin verir', () => {
+    const rs = readFileSync(UPDATER_RS, 'utf8');
+    expect(rs).toContain('APPIMAGE');
+    expect(rs).toContain('"package"');
+    expect(rs).toContain('std::env::consts::OS');
+  });
+
+  it('release workflow imzalama + latest.json üretir', () => {
+    const wf = readFileSync(WORKFLOW_PATH, 'utf8');
+    expect(wf).toContain('TAURI_SIGNING_PRIVATE_KEY');
+    expect(wf).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
+    // AppImage/NSIS .sig dosyaları artifact’lara dahil edilmeli.
+    expect(wf).toMatch(/appimage\/\*/);
+    expect(wf).toContain('nsis/*');
+    expect(wf).toContain('latest.json');
+    expect(wf).toContain('linux-x86_64');
+    expect(wf).toContain('windows-x86_64');
+  });
+});

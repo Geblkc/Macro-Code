@@ -6,7 +6,7 @@ use commands::{
     apply_patch, delete_api_key, exec_cmd, get_api_key, get_app_paths, glob_files, grep_files,
     has_any_key, key_hint, key_status, list_dir, list_tree, mcp_kill, mcp_read, mcp_spawn,
     mcp_write, memory_append, memory_read, proxy_abort, proxy_fetch, read_file, set_api_key,
-    stream_anthropic, undo_patch, write_file, McpState, ProxyState,
+    stream_anthropic, undo_patch, update_support, write_file, McpState, ProxyState,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +16,9 @@ pub fn run() {
         .manage(ProxyState::default())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
@@ -68,7 +71,8 @@ pub fn run() {
             mcp_kill,
             exec_cmd,
             proxy_fetch,
-            proxy_abort
+            proxy_abort,
+            update_support
         ])
         .on_window_event(|window, event| {
             // Faz 5: asılı MCP sunucusu kalmasın — pencere kapanışında child'ları öldür.

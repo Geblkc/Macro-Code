@@ -5,6 +5,7 @@ pub mod mcp;
 pub mod paths;
 pub mod proxy;
 pub mod stream;
+pub mod updater;
 
 pub use exec::exec_cmd;
 pub use fs::{
@@ -16,3 +17,4 @@ pub use mcp::{mcp_kill, mcp_read, mcp_spawn, mcp_write, McpState};
 pub use paths::get_app_paths;
 pub use proxy::{proxy_abort, proxy_fetch, ProxyState};
 pub use stream::stream_anthropic;
+pub use updater::update_support;

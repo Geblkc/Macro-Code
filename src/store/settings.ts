@@ -105,6 +105,12 @@ interface SettingsStore {
   sidebarCollapsed: boolean;
   /** Arayüz dili: 'auto' = sistem diline göre çözülür. */
   language: LanguageSetting;
+  /** Açılışta günde en fazla bir kez güncelleme kontrolü yapılsın mı. */
+  autoUpdateCheck: boolean;
+  /** Son güncelleme kontrolü zamanı (ms). */
+  lastUpdateCheck: number;
+  /** Açılış bildirimi susturulan sürüm (boş = yok). */
+  ignoredUpdateVersion: string;
 
   setApiKey: (provider: Provider, key: string) => void;
   setProvider: (provider: Provider) => void;
@@ -147,6 +153,9 @@ interface SettingsStore {
   setSidebarWidth: (px: number) => void;
   setSidebarCollapsed: (v: boolean) => void;
   setLanguage: (v: LanguageSetting) => void;
+  setAutoUpdateCheck: (v: boolean) => void;
+  setLastUpdateCheck: (ts: number) => void;
+  setIgnoredUpdateVersion: (version: string) => void;
   loadFromStore: () => Promise<void>;
   saveToStore: () => Promise<void>;
 }
@@ -213,6 +222,9 @@ export const useSettingsStore = create<SettingsStore>()(
       sidebarWidth: SIDEBAR_DEFAULT,
       sidebarCollapsed: false,
       language: 'auto',
+      autoUpdateCheck: true,
+      lastUpdateCheck: 0,
+      ignoredUpdateVersion: '',
 
       setApiKey: (provider, key) => {
         const field = fieldOf(provider);
@@ -381,6 +393,9 @@ export const useSettingsStore = create<SettingsStore>()(
       setSidebarWidth: (px) => set({ sidebarWidth: clampSidebarWidth(px) }),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
       setLanguage: (v) => set({ language: v }),
+      setAutoUpdateCheck: (v) => set({ autoUpdateCheck: v }),
+      setLastUpdateCheck: (ts) => set({ lastUpdateCheck: ts }),
+      setIgnoredUpdateVersion: (version) => set({ ignoredUpdateVersion: version }),
 
       loadFromStore: async () => {
         if (!isTauri()) return;
@@ -531,6 +546,9 @@ export const useSettingsStore = create<SettingsStore>()(
               sidebarWidth: s.sidebarWidth,
               sidebarCollapsed: s.sidebarCollapsed,
               language: s.language,
+              autoUpdateCheck: s.autoUpdateCheck,
+              lastUpdateCheck: s.lastUpdateCheck,
+              ignoredUpdateVersion: s.ignoredUpdateVersion,
             }
           : { ...s, modelsDevCatalog: null },
     },
