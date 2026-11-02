@@ -275,12 +275,14 @@ export function toGeminiTools(tools: ToolDefinition[]): GeminiToolPayload {
 }
 
 export function geminiFunctionCallToToolCall(
-  fc: { name?: string; args?: Record<string, unknown> },
+  fc: { id?: string; name?: string; args?: Record<string, unknown> },
   fallbackId?: string,
 ): ToolCall | null {
   if (!fc.name) return null;
   return {
-    id: fallbackId || createToolCallId(),
+    // Sunucunun verdiği id varsa korunur: functionResponse `id` alanı aynı
+    // değeri taşımalı (Gemini 3 paralel çağrı eşleştirmesi).
+    id: (typeof fc.id === 'string' && fc.id) || fallbackId || createToolCallId(),
     name: fc.name,
     args: (fc.args ?? {}) as Record<string, unknown>,
   };

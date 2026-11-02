@@ -3,7 +3,8 @@ import { useSessionStore } from '../store/session';
 import { useSettingsStore, clampSidebarWidth } from '../store/settings';
 import { useT } from '../lib/i18n';
 import type { TFn } from '../lib/i18n';
-import { Icon } from './icons';
+import type { AgentMode } from '../types';
+import { Icon, type IconName } from './icons';
 
 interface Props {
   onOpenSettings: () => void;
@@ -16,12 +17,26 @@ interface Props {
 
 interface Group {
   labelKey: 'sidebar.group.today' | 'sidebar.group.yesterday' | 'sidebar.group.thisWeek' | 'sidebar.group.older';
-  items: { id: string; name: string; count: number; updatedAt: number }[];
+  items: {
+    id: string;
+    name: string;
+    count: number;
+    updatedAt: number;
+    model: string;
+    agentMode?: AgentMode;
+  }[];
 }
 
 /** Oturumları yakınlığa göre gruplandırır. */
 function groupSessions(
-  sessions: { id: string; name: string; messages: unknown[]; updatedAt: number }[],
+  sessions: {
+    id: string;
+    name: string;
+    messages: unknown[];
+    updatedAt: number;
+    model?: string;
+    agentMode?: AgentMode;
+  }[],
 ): Group[] {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -37,15 +52,29 @@ function groupSessions(
   };
   for (const s of sessions) {
     const t = s.updatedAt || today;
-    if (t >= today) buckets['sidebar.group.today'].push({ id: s.id, name: s.name, count: s.messages.length, updatedAt: t });
-    else if (t >= yesterday) buckets['sidebar.group.yesterday'].push({ id: s.id, name: s.name, count: s.messages.length, updatedAt: t });
-    else if (t >= week) buckets['sidebar.group.thisWeek'].push({ id: s.id, name: s.name, count: s.messages.length, updatedAt: t });
-    else buckets['sidebar.group.older'].push({ id: s.id, name: s.name, count: s.messages.length, updatedAt: t });
+    const item = {
+      id: s.id,
+      name: s.name,
+      count: s.messages.length,
+      updatedAt: t,
+      model: s.model || '',
+      ...(s.agentMode ? { agentMode: s.agentMode } : {}),
+    };
+    if (t >= today) buckets['sidebar.group.today'].push(item);
+    else if (t >= yesterday) buckets['sidebar.group.yesterday'].push(item);
+    else if (t >= week) buckets['sidebar.group.thisWeek'].push(item);
+    else buckets['sidebar.group.older'].push(item);
   }
   return Object.entries(buckets)
     .filter(([, items]) => items.length > 0)
     .map(([labelKey, items]) => ({ labelKey: labelKey as Group['labelKey'], items }));
 }
+
+/** plan/ask oturum rozeti ikonları (build varsayılan → rozet gösterilmez). */
+const MODE_ICON: Record<'plan' | 'ask', IconName> = {
+  plan: 'list-checks',
+  ask: 'message',
+};
 
 /** Göreli zaman: 14:32 / dün / 3 gün önce */
 function relativeTime(ts: number, t: TFn): string {
@@ -95,6 +124,8 @@ export default function Sidebar({
   const skipBlurRef = useRef(false);
 
   const startRename = useCallback((id: string, name: string) => {
+    // Önceki iptalden kalan bayrak sızmasın: bir sonraki blur yutulmamalı.
+    skipBlurRef.current = false;
     setEditingId(id);
     setRenameValue(name);
   }, []);
@@ -206,6 +237,11 @@ export default function Sidebar({
                   }}
                   onKeyDown={(e) => {
                     if (editing) return;
+                    if (e.key === 'F2') {
+                      e.preventDefault();
+                      startRename(s.id, s.name);
+                      return;
+                    }
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       store().setActiveSession(s.id);
@@ -214,7 +250,7 @@ export default function Sidebar({
                   onDoubleClick={() => {
                     if (!editing) startRename(s.id, s.name);
                   }}
-                  title={t('sidebar.messageCount', { name: s.name, count: s.count })}
+                  title={`${t('sidebar.messageCount', { name: s.name, count: s.count })} · ${t('sidebar.renameSession')}`}
                 >
                   <span className={`session-dot${active ? ' on' : ''}`} aria-hidden="true" />
                   {editing ? (
@@ -250,7 +286,15 @@ export default function Sidebar({
                     <span className="session-body">
                       <span className="session-name">{s.name}</span>
                       <span className="session-meta">
-                        <span className="smodel">{currentModel}</span>
+                        {s.agentMode === 'plan' || s.agentMode === 'ask' ? (
+                          <span
+                            className="smode"
+                            title={t(s.agentMode === 'plan' ? 'mode.plan' : 'mode.ask')}
+                          >
+                            <Icon name={MODE_ICON[s.agentMode]} size="sm" />
+                          </span>
+                        ) : null}
+                        <span className="smodel">{s.model || currentModel}</span>
                         <span aria-hidden="true">·</span>
                         <span>{relativeTime(s.updatedAt, t)}</span>
                         <span aria-hidden="true">·</span>

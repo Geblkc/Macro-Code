@@ -87,6 +87,14 @@ describe('Faz A — kanonik tools', () => {
     expect(c).toMatchObject({ id: 'g1', name: 'exec' });
   });
 
+  it('Gemini sunucu id’si korunur (functionResponse eşleşmesi)', () => {
+    const c = geminiFunctionCallToToolCall(
+      { id: 'server-id-1', name: 'exec', args: { cmd: 'npm' } },
+      'fallback',
+    );
+    expect(c).toMatchObject({ id: 'server-id-1', name: 'exec' });
+  });
+
   it('bozuk args güvenli parse edilir', () => {
     expect(safeParseArgs('{{{')).toHaveProperty('_raw');
     expect(safeParseArgs('')).toEqual({});

@@ -584,6 +584,12 @@
   overflow: hidden;
 }
 .session-meta .smodel { overflow: hidden; text-overflow: ellipsis; max-width: 13ch; }
+.session-meta .smode {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
 
 .session-actions {
   opacity: 0;
@@ -1106,6 +1112,138 @@
 .mode-option-check {
   color: var(--accent);
   margin-left: auto;
+}
+
+/* ── Model eforu (effort) — mod rozetinin solunda ── */
+.effort-selector-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.effort-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  transition: all var(--t-fast);
+  user-select: none;
+}
+
+.effort-badge:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.effort-badge.effort-set {
+  color: #f472b6;
+  background: rgba(244, 114, 182, 0.08);
+  border-color: rgba(244, 114, 182, 0.25);
+}
+.effort-badge.effort-set:hover {
+  background: rgba(244, 114, 182, 0.16);
+  border-color: #f472b6;
+}
+
+.effort-badge.effort-unsupported-badge {
+  opacity: 0.6;
+}
+
+.effort-badge-label {
+  letter-spacing: 0.3px;
+}
+
+.effort-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 200px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  backdrop-filter: blur(12px);
+}
+
+.effort-dropdown-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 3px;
+}
+
+.effort-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.effort-option:hover,
+.effort-option:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.effort-option.active {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.effort-option-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+  color: #f472b6;
+  background: rgba(244, 114, 182, 0.12);
+}
+
+.effort-option-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  flex: 1;
+}
+
+.effort-option-check {
+  color: var(--accent);
+  margin-left: auto;
+}
+
+.effort-unsupported {
+  padding: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .sb-mode-tag {

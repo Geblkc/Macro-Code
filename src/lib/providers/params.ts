@@ -1,10 +1,13 @@
 import type { ModelParams } from '../../types';
+import { normalizeEffort } from './effort';
 
 export interface EffectiveParams {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
   thinkingBudget?: number;
+  reasoningEffort?: string;
+  reasoningEnabled?: boolean;
 }
 
 function finiteInt(v: unknown): v is number {
@@ -29,5 +32,8 @@ export function sanitizeParams(raw: ModelParams | undefined): EffectiveParams {
   } else if (finiteInt(raw.topP)) {
     out.topP = raw.topP as number;
   }
+  const effort = normalizeEffort(raw.reasoningEffort);
+  if (effort) out.reasoningEffort = effort;
+  if (typeof raw.reasoningEnabled === 'boolean') out.reasoningEnabled = raw.reasoningEnabled;
   return out;
 }

@@ -484,7 +484,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         const st = useSettingsStore.getState();
         let models: DiscoveredModel[];
         if (source === 'modelsDev') {
-          // models.dev kataloğu: 6 sağlayıcıya kırpılmış ~500 model.
+          // models.dev kataloğu: 9 sağlayıcıya kırpılmış ~500 model.
           const catalog = await st.refreshModelsDevCatalog();
           const fetchedAt = catalog.fetchedAt;
           models = Object.entries(catalog.providers).flatMap(([, entries]) =>

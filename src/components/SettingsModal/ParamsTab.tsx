@@ -37,10 +37,10 @@ export default function ParamsTab({
     view.all.find((m) => m.id === draft.currentModel)?.capabilities ??
     getCapabilitiesForModel(draft.currentModel);
 
-  const setParam = (k: keyof ModelParams, raw: string) => {
+  const setParam = (k: 'temperature' | 'maxTokens' | 'topP' | 'thinkingBudget', raw: string) => {
     const trimmed = raw.trim();
     const num = trimmed === '' ? undefined : Number(trimmed);
-    const next = { ...params };
+    const next: ModelParams = { ...params };
     if (num === undefined || !Number.isFinite(num)) delete next[k];
     else next[k] = num;
     const allParams = { ...draft.modelParams };

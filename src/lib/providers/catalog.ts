@@ -119,7 +119,7 @@ export function toModel(entry: CatalogEntry): Model {
 
 /**
  * Katalogdaki TÜM modelleri registry `Model` listesine çevirir.
- * models.dev 6 sağlayıcıda ~480 model sunar — elle yazılmış registry'nin
+ * models.dev 9 sağlayıcıda ~480 model sunar — elle yazılmış registry'nin
  * otomatik genişletilmiş hali.
  */
 export function catalogModels(catalog: ModelsDevCatalog | null): Model[] {
@@ -231,4 +231,7 @@ export const CATALOG_PROVIDER_LABEL: Record<Provider, string> = {
   openrouter: 'OpenRouter',
   deepseek: 'DeepSeek',
   xai: 'xAI',
+  minimax: 'MiniMax',
+  moonshotai: 'Kimi (Moonshot AI)',
+  zhipuai: 'GLM (Zhipu AI)',
 };

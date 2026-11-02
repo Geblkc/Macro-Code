@@ -16,6 +16,9 @@ const OPENAI_COMPATIBLE_BASE: Partial<Record<Provider, string>> = {
   openrouter: 'https://openrouter.ai/api/v1',
   deepseek: 'https://api.deepseek.com/v1',
   xai: 'https://api.x.ai/v1',
+  minimax: 'https://api.minimax.io/v1',
+  moonshotai: 'https://api.moonshot.ai/v1',
+  zhipuai: 'https://api.z.ai/api/paas/v4',
 };
 
 /**

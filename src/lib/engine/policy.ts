@@ -87,6 +87,43 @@ export const FILE_ARG_CMDS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'wc', 'find', 'rg', 'ls', 'touch', 'mkdir', 'prettier',
 ]);
 
+/**
+ * Değeri **glob deseni** olan bayraklar (Rust `exec.rs` `PATTERN_FLAGS` ile
+ * senkron). Bu bayrakların değeri jail kontrolünden muaftır: `.git` veya
+ * `node_modules` içeren arama desenleri ile `find . -name '*.pem'` gibi
+ * salt-okunur sorgular yanlışlıkla reddedilmez.
+ *
+ * Yalnızca bu bayrakların değerleri atlanır — glob içeren her argümanı
+ * muaf tutmak `cat *.pem` gibi bir operand üzerinden blok listesini
+ * atlatabilirdi (exec her zaman manuel onaylı olsa da savunma korunur).
+ */
+const PATTERN_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  find: ['-name', '-iname', '-path', '-ipath', '-regex', '-iregex'],
+  rg: ['-g', '--glob', '--iglob'],
+};
+
+/** Dosya operandsı olarak denetlenecek argümanlar (desen bayraklarının
+ *  değerleri hariç). Rust `file_path_args` ile aynı kural. */
+export function filePathArgs(cmd: string, args: string[]): string[] {
+  const flags = PATTERN_FLAGS[cmd.trim()] ?? [];
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('-')) {
+      out.push(a);
+      continue;
+    }
+    // `-name desen` / `--glob desen`: değeri atla.
+    if (flags.includes(a)) {
+      i += 1;
+      continue;
+    }
+    // `--glob=desen`: argümanın tamamı desendir.
+    if (flags.some((f) => a.startsWith(`${f}=`))) continue;
+  }
+  return out;
+}
+
 /** Tek dosya argümanı jail'i (Rust `check_file_arg` ile senkron).
  *  H2: `.GIT` / `KEYS.JSON` / `.ENV.local` gibi büyük harf varyantları da düşer. */
 export function isFileArgSafe(a: string): boolean {
@@ -234,7 +271,7 @@ export function execFileArgViolation(cmd: string, args: string[]): string | null
     return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
   }
   if (!FILE_ARG_CMDS.has(cmd)) return null;
-  const bad = args.filter((a) => !a.startsWith('-')).find((a) => !isFileArgSafe(a));
+  const bad = filePathArgs(cmd, args).find((a) => !isFileArgSafe(a));
   return bad ? t('policy.fileArgViolation', { arg: bad }) : null;
 }
 

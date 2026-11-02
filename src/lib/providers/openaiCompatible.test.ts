@@ -296,9 +296,9 @@ describe('openaiCompatible fabrikası', () => {
   });
 });
 
-describe('registry bütünlüğü (7 provider)', () => {
+describe('registry bütünlüğü (10 provider)', () => {
   it('her provider kayıtlı, modelli, default model geçerli', () => {
-    expect(PROVIDER_IDS).toHaveLength(7);
+    expect(PROVIDER_IDS).toHaveLength(10);
     for (const id of PROVIDER_IDS) {
       expect(PROVIDERS[id], id).toBeDefined();
       expect(PROVIDERS[id].models.length, id).toBeGreaterThan(0);

@@ -16,6 +16,8 @@ interface Props {
   onPendingClick?: () => void;
   /** Klasör rozetine tıkla → /root diyalog yolunu aç (App'te kodlanır). */
   onWorkspaceClick?: () => void;
+  /** Bağlam rozetine tıkla → bağlamı şimdi özetle (/compact). */
+  onCompact?: () => void;
 }
 
 function fmtCount(n: number): string {
@@ -24,7 +26,13 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
-export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClick, onWorkspaceClick }: Props) {
+export default function StatusBar({
+  pendingCount = 0,
+  isStreaming,
+  onPendingClick,
+  onWorkspaceClick,
+  onCompact,
+}: Props) {
   const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeSessionId);
@@ -42,20 +50,44 @@ export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClic
   const model = session?.model || currentModel;
   const provider = session?.provider ?? currentProvider;
 
-  // Token toplamı (giriş + çıkış) ve bağlam kullanımı.
+  // Token toplamı (giriş + çıkış) ve bağlam kullanımı. Bağlam = **son
+  // isteğin** token boyutu; tüm mesajların toplamı değil. Eski hesap uzun
+  // sohbetlerde pencereyi aşarak göstergeyi yanlışlıkla %100'e sabitliyordu.
   const { inTok, outTok, ctxUsed, ctxWindow } = useMemo(() => {
     let i = 0;
     let o = 0;
+    let last: { input: number; output: number } | null = null;
     for (const m of session?.messages ?? []) {
-      i += m.tokens?.input ?? 0;
-      o += m.tokens?.output ?? 0;
+      const tok = m.tokens;
+      if (!tok) continue;
+      i += tok.input ?? 0;
+      o += tok.output ?? 0;
+      last = { input: tok.input ?? 0, output: tok.output ?? 0 };
     }
     const win = windowFor(model, customModels);
-    return { inTok: i, outTok: o, ctxUsed: i + o, ctxWindow: win };
+    return {
+      inTok: i,
+      outTok: o,
+      ctxUsed: last ? last.input + last.output : 0,
+      ctxWindow: win,
+    };
   }, [session?.messages, model, customModels]);
 
   const ctxPct = ctxWindow > 0 ? Math.min(100, Math.round((ctxUsed / ctxWindow) * 100)) : 0;
   const ctxClass = ctxPct >= 90 ? 'err' : ctxPct >= 75 ? 'warn' : '';
+  const ctxTitle = t('status.contextUsage', {
+    used: fmtCount(ctxUsed),
+    total: fmtCount(ctxWindow),
+    percent: ctxPct,
+  });
+  const ctxMeter = (
+    <>
+      <span className="ctx-meter" aria-hidden="true">
+        <span className={`ctx-fill ${ctxClass}`} style={{ width: `${ctxPct}%` }} />
+      </span>
+      {fmtCount(ctxUsed)} / {fmtCount(ctxWindow)}
+    </>
+  );
 
   // Maliyet (fiyat tablosu varsa).
   const cost = useMemo(() => {
@@ -107,19 +139,20 @@ export default function StatusBar({ pendingCount = 0, isStreaming, onPendingClic
       {ctxWindow > 0 ? (
         <>
           <span className="sb-sep" aria-hidden="true" />
-          <span
-            className="sb-item"
-            title={t('status.contextUsage', {
-              used: fmtCount(ctxUsed),
-              total: fmtCount(ctxWindow),
-              percent: ctxPct,
-            })}
-          >
-            <span className="ctx-meter" aria-hidden="true">
-              <span className={`ctx-fill ${ctxClass}`} style={{ width: `${ctxPct}%` }} />
+          {onCompact ? (
+            <button
+              type="button"
+              className="sb-item btn-reset clickable"
+              title={`${ctxTitle} · ${t('status.contextCompact')}`}
+              onClick={onCompact}
+            >
+              {ctxMeter}
+            </button>
+          ) : (
+            <span className="sb-item" title={ctxTitle}>
+              {ctxMeter}
             </span>
-            {fmtCount(ctxUsed)} / {fmtCount(ctxWindow)}
-          </span>
+          )}
         </>
       ) : null}
 

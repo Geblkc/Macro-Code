@@ -29,7 +29,7 @@ kimlik doğrulama başlıkları olarak çıkar.
 
 | | |
 |---|---|
-| 🧠 **7 sağlayıcı** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek ve xAI. Her sağlayıcı, anahtarı (Ollama için yerel URL) girilene kadar listelerde görünmez. |
+| 🧠 **10 sağlayıcı** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) ve GLM (Zhipu AI). Her sağlayıcı, anahtarı (Ollama için yerel URL) girilene kadar listelerde görünmez. |
 | 🔮 **Yüzlerce model** | Elle hazırlanmış küçük katalog, [models.dev](https://models.dev) metadata'sıyla zenginleşir: bağlam limitleri, görsel/düşünme yetenekleri ve fiyatlandırma. |
 | ⌨️ **Terminal deneyimi** | Slash komutları (`/model`, `/tokens`, `/compact`, `/help`…), `↑ ↓` ile mesaj geçmişi, her turda anlık token ölçümü. |
 | 🤖 **Ajan modu** | `/root` ile bir proje klasörünü gösterin; dosya okuyabilir, kodda arama yapabilir, dosya düzenleyebilir ve shell komutu çalıştırabilir. Her yazma/çalıştırma, kabul edebileceğin veya reddedebileceğin bir onay kartından geçer; `rm` kısıtlıdır ve sistem klasörleri engellidir. Ek araçlar için stdio veya HTTP MCP sunucularına da bağlanır. |

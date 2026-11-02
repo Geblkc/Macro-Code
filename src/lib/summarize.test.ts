@@ -10,6 +10,9 @@ const KEYS: ApiKeys = {
   openrouter: '',
   deepseek: '',
   xai: '',
+  minimax: '',
+  moonshotai: '',
+  zhipuai: '',
 };
 
 describe('Faz 2 D.3 — özetleyici yapılandırma', () => {

@@ -7,6 +7,9 @@ import { openaiProvider } from './openai';
 import { openrouterProvider } from './openrouter';
 import { deepseekProvider } from './deepseek';
 import { xaiProvider } from './xai';
+import { minimaxProvider } from './minimax';
+import { moonshotaiProvider } from './moonshotai';
+import { zhipuaiProvider } from './zhipuai';
 import type { AIProvider } from './common';
 import { enrichModels, getActiveCatalog, getActiveCatalogIndex, catalogModels } from './catalog';
 
@@ -99,6 +102,42 @@ export const PROVIDER_DEFS: Record<Provider, ProviderDefinition> = {
     keyUrl: 'https://console.x.ai',
     keyUrlLabel: 'console.x.ai',
   },
+  minimax: {
+    id: 'minimax',
+    label: 'MiniMax',
+    auth: 'api-key',
+    placeholder: 'sk-…',
+    defaultModel: 'MiniMax-M3.1-Flash',
+    defaultBaseUrl: 'https://api.minimax.io/v1',
+    needsKey: true,
+    openAICompatible: true,
+    keyUrl: 'https://platform.minimax.io/console/access',
+    keyUrlLabel: 'platform.minimax.io',
+  },
+  moonshotai: {
+    id: 'moonshotai',
+    label: 'Kimi (Moonshot AI)',
+    auth: 'api-key',
+    placeholder: 'sk-…',
+    defaultModel: 'kimi-k3.1-pro',
+    defaultBaseUrl: 'https://api.moonshot.ai/v1',
+    needsKey: true,
+    openAICompatible: true,
+    keyUrl: 'https://platform.kimi.ai/console/api-keys',
+    keyUrlLabel: 'platform.kimi.ai',
+  },
+  zhipuai: {
+    id: 'zhipuai',
+    label: 'GLM (Zhipu AI)',
+    auth: 'api-key',
+    placeholder: '…',
+    defaultModel: 'glm-5.3',
+    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
+    needsKey: true,
+    openAICompatible: true,
+    keyUrl: 'https://z.ai/manage-apikey/apikey-list',
+    keyUrlLabel: 'z.ai',
+  },
 };
 
 export const PROVIDER_IDS: Provider[] = Object.keys(PROVIDER_DEFS) as Provider[];
@@ -111,6 +150,9 @@ export const PROVIDERS: Record<Provider, AIProvider> = {
   openrouter: openrouterProvider,
   deepseek: deepseekProvider,
   xai: xaiProvider,
+  minimax: minimaxProvider,
+  moonshotai: moonshotaiProvider,
+  zhipuai: zhipuaiProvider,
 };
 
 export function getProvider(name: Provider): AIProvider {
@@ -176,7 +218,7 @@ export function toRegistryModel(c: CustomModel): Model {
  *
  * models.dev kataloğu yüklüyse:
  *   1. elle yazılmış **çekirdek** modeller katalog metadata'sıyla zenginleşir,
- *   2. katalogdaki **diğer** modeller (6 sağlayıcı, ~480) otomatik listeye girer,
+ *   2. katalogdaki **diğer** modeller (9 sağlayıcı) otomatik listeye girer,
  *   3. elle eklenen (custom) modeller en son eklenir.
  *
  * Katalog yoksa/bozuksa yalnızca çekirdek + custom görünür (offline çalışır).

@@ -29,7 +29,7 @@ d'authentification envoyés directement au fournisseur que vous avez configuré.
 
 | | |
 |---|---|
-| 🧠 **7 fournisseurs** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek et xAI. Un fournisseur n'apparaît dans les listes qu'une fois sa clé saisie (ou, pour Ollama, une URL locale). |
+| 🧠 **10 fournisseurs** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) et GLM (Zhipu AI). Un fournisseur n'apparaît dans les listes qu'une fois sa clé saisie (ou, pour Ollama, une URL locale). |
 | 🔮 **Des centaines de modèles** | Un petit catalogue éditorial enrichi avec les métadonnées de [models.dev](https://models.dev) : limites de contexte, capacités vision/raisonnement et tarifs. |
 | ⌨️ **Expérience terminal** | Commandes slash (`/model`, `/tokens`, `/compact`, `/help`…), historique des messages avec `↑ ↓`, comptage instantané des tokens à chaque tour. |
 | 🤖 **Mode agent** | Désignez un dossier de projet avec `/root` : il peut lire des fichiers, fouiller le code, éditer des fichiers et exécuter des commandes shell. Chaque écriture/exécution passe par une carte d'approbation que vous acceptez ou refusez ; `rm` est restreint et les dossiers système sont bloqués. Il se connecte également aux serveurs MCP (stdio ou HTTP) pour des outils supplémentaires. |

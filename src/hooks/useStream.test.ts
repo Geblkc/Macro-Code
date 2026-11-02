@@ -10,6 +10,9 @@ const KEYS: ApiKeys = {
   openrouter: '',
   deepseek: '',
   xai: '',
+  minimax: '',
+  moonshotai: '',
+  zhipuai: '',
 };
 
 const base = {

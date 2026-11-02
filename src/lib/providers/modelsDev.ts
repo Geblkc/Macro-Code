@@ -36,6 +36,9 @@ export const MODELS_DEV_PROVIDERS: Record<string, string> = {
   openrouter: 'openrouter',
   deepseek: 'deepseek',
   xai: 'xai',
+  minimax: 'minimax',
+  moonshotai: 'moonshotai',
+  zhipuai: 'zai',
 };
 
 /** Katalogun bayat sayılma süresi (24 saat). */

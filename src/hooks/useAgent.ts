@@ -459,13 +459,20 @@ export function useAgent() {
       if (!run) {
         const settings = useSettingsStore.getState();
         // Bellekte run yok (restart) — patch apply yine çalışır, agent devam etmez.
+        // Yalnızca ONAYLANAN karar devam gerektirir; tamamı reddedildiyse işlem
+        // başarıyla tamamlanmıştır (eskiden ret de "yeniden başlatılamıyor"
+        // hatası üretiyordu).
+        let needsRun = false;
         for (const d of decisions) {
           const queued = await takeApproval(d.id);
           if (!queued) continue;
-          const line = d.approved
-            ? t('agent.cannotRestart')
-            : t('agent.rejected', { id: d.id.slice(0, 8) });
-          onToolLine?.({ type: 'sys', content: line });
+          let line: string | null = null;
+          if (d.approved) {
+            needsRun = true;
+          } else {
+            line = t('agent.rejected', { id: d.id.slice(0, 8) });
+            onToolLine?.({ type: 'sys', content: line });
+          }
           // L5: run bellekte yokken verilen karar da audit'e yazılır. Eskiden
           // yalnız canlı run yolu audit üretiyordu → restart sonrası onay/ret
           // kararları denetim kaydında görünmüyordu.
@@ -475,11 +482,11 @@ export function useAgent() {
               tool: String(queued.call.name),
               argsPreview: JSON.stringify(redact(queued.call.args ?? {})).slice(0, 200),
               decision: d.approved ? 'approved' : 'rejected',
-              result: line.slice(0, 200),
+              result: (line ?? t('agent.cannotRestart')).slice(0, 200),
             });
           }
         }
-        return t('agent.cannotRestart');
+        return needsRun ? t('agent.cannotRestart') : null;
       }
       const store = useSessionStore.getState;
       const callNames = new Map<string, string>();

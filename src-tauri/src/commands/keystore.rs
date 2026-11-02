@@ -10,7 +10,7 @@ use tauri_plugin_store::{Store, StoreExt};
 
 const STORE_PATH: &str = "keys.json";
 
-const VALID_PROVIDERS: [&str; 7] = [
+const VALID_PROVIDERS: [&str; 10] = [
     "anthropic",
     "openai",
     "gemini",
@@ -18,6 +18,9 @@ const VALID_PROVIDERS: [&str; 7] = [
     "openrouter",
     "deepseek",
     "xai",
+    "minimax",
+    "moonshotai",
+    "zhipuai",
 ];
 
 /// "Ollama" / "ollamaurl" gibi varyantlari kanonik forma cevirir.
@@ -43,7 +46,7 @@ fn normalize_provider(raw: &str) -> Result<String, String> {
         }
     }
     Err(format!(
-        "bilinmeyen saglayici: {raw} · anthropic/openai/gemini/ollama/openrouter/deepseek/xai kullan"
+        "bilinmeyen saglayici: {raw} · anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai kullan"
     ))
 }
 
@@ -138,6 +141,9 @@ pub struct KeyStatus {
     pub openrouter: bool,
     pub deepseek: bool,
     pub xai: bool,
+    pub minimax: bool,
+    pub moonshotai: bool,
+    pub zhipuai: bool,
 }
 
 #[tauri::command]
@@ -152,6 +158,9 @@ pub async fn key_status(app: AppHandle) -> Result<KeyStatus, String> {
         openrouter: has("openrouter"),
         deepseek: has("deepseek"),
         xai: has("xai"),
+        minimax: has("minimax"),
+        moonshotai: has("moonshotai"),
+        zhipuai: has("zhipuai"),
     })
 }
 
@@ -165,7 +174,10 @@ pub async fn has_any_key(app: AppHandle) -> Result<bool, String> {
         || status.ollama_url
         || status.openrouter
         || status.deepseek
-        || status.xai)
+        || status.xai
+        || status.minimax
+        || status.moonshotai
+        || status.zhipuai)
 }
 
 /// Maskeli ipucu (`••••a1b2`): tam değer ASLA dönmez.

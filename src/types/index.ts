@@ -5,7 +5,10 @@ export type Provider =
   | 'ollama'
   | 'openrouter'
   | 'deepseek'
-  | 'xai';
+  | 'xai'
+  | 'minimax'
+  | 'moonshotai'
+  | 'zhipuai';
 
 export type ProviderId = Provider;
 
@@ -134,6 +137,9 @@ export type ApiKeys = {
   openrouter: string;
   deepseek: string;
   xai: string;
+  minimax: string;
+  moonshotai: string;
+  zhipuai: string;
 };
 
 export type LineType = 'user' | 'ai' | 'sys' | 'err' | 'warn';
@@ -234,6 +240,10 @@ export interface ModelParams {
   maxTokens?: number;
   topP?: number;
   thinkingBudget?: number;
+  /** Model eforu (minimal/low/medium/high/xhigh/max...) — model bazında saklanır. */
+  reasoningEffort?: string;
+  /** Toggle-only reasoning modelleri için açık/kapalı (boş = sağlayıcı varsayılanı). */
+  reasoningEnabled?: boolean;
 }
 
 /** 1M token başına USD fiyatı (girdi/çıktı). */

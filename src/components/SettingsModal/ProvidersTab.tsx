@@ -34,7 +34,7 @@ interface Props {
 const CLOUD_PROVIDERS: Provider[] = PROVIDER_IDS.filter((p) => p !== 'ollama');
 
 /** Base URL override destekleyen sağlayıcılar (yalnız OpenAI-uyumlu olanlar). */
-const OVERRIDABLE: Provider[] = ['openai', 'openrouter', 'deepseek', 'xai'];
+const OVERRIDABLE: Provider[] = ['openai', 'openrouter', 'deepseek', 'xai', 'minimax', 'moonshotai', 'zhipuai'];
 
 interface SecretRowProps {
   label: string;

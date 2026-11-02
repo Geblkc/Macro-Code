@@ -42,6 +42,9 @@ const CATALOG_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   deepseek: 'DeepSeek',
   xai: 'xAI',
+  minimax: 'MiniMax',
+  moonshotai: 'Kimi (Moonshot AI)',
+  zhipuai: 'GLM (Zhipu AI)',
 };
 
 function fmtCtx(n: number): string {

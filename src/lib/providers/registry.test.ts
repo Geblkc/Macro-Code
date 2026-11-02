@@ -3,6 +3,7 @@ import { MAX_OUTPUT_TOKEN_CAP, OLLAMA_MAX_OUTPUT_CAP, lookupModel } from './comm
 import { anthropicProvider } from './anthropic';
 import { geminiProvider } from './gemini';
 import { ollamaProvider } from './ollama';
+import { openaiProvider } from './openai';
 import { createOpenAICompatibleProvider } from './openaiCompatible';
 import { resolveModels } from './index';
 import type { Model } from '../../types';
@@ -29,6 +30,35 @@ function capture(fetchImpl: ReturnType<typeof vi.fn>) {
     return JSON.parse(String(opts.body)) as Record<string, unknown>;
   };
 }
+
+describe('yerleşik model listesi — yeni modeller', () => {
+  const expectModel = (
+    provider: { models: Model[] },
+    id: string,
+    contextWindow: number,
+    maxOutput: number,
+  ) => {
+    const m = provider.models.find((x) => x.id === id);
+    expect(m, id).toBeDefined();
+    expect(m?.contextWindow, id).toBe(contextWindow);
+    expect(m?.maxOutput, id).toBe(maxOutput);
+    expect(m?.capabilities).toEqual({ tools: true, vision: true, reasoning: true });
+  };
+
+  it('Gemini 4 ve yeni Gemini 3.x modelleri kayıtlı', () => {
+    expectModel(geminiProvider, 'gemini-4-argon', 1048576, 65536);
+    expectModel(geminiProvider, 'gemini-3.6-flash', 1048576, 65536);
+    expectModel(geminiProvider, 'gemini-3.5-flash-lite', 1048576, 65536);
+    expectModel(geminiProvider, 'gemini-3.1-pro-preview', 1048576, 65536);
+    expectModel(geminiProvider, 'gemini-3.1-flash-lite', 1048576, 65536);
+  });
+
+  it('yeni OpenAI modelleri kayıtlı', () => {
+    expectModel(openaiProvider, 'gpt-6.1-terra', 1050000, 128000);
+    expectModel(openaiProvider, 'gpt-5.5-pro', 1050000, 128000);
+    expectModel(openaiProvider, 'gpt-5.4-mini', 400000, 128000);
+  });
+});
 
 describe('lookupModel — İş 3: registry > sabit liste', () => {
   const builtin: Model[] = [

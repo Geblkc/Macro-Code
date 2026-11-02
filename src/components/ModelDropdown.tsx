@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PROVIDER_DEFS, getCapabilitiesForModel } from '../lib/providers';
+import { PROVIDER_DEFS } from '../lib/providers';
 import type { Model, Provider } from '../types';
 import { useT } from '../lib/i18n';
 import { Icon, type IconName } from './icons';
@@ -199,7 +199,7 @@ export default function ModelDropdown({
                   {PROVIDER_DEFS[p as Provider]?.label ?? p}
                 </div>
                 {ms.map((m) => {
-                  const caps = getCapabilitiesForModel(m.id);
+                  const caps = m.capabilities;
                   const idx = flat.indexOf(m);
                   return (
                     <button

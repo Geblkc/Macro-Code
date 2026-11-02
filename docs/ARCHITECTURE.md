@@ -3,7 +3,7 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-30 · Sürüm: `0.2.1` (sabit) · 7 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-10-30 · Sürüm: `0.2.1` (sabit) · 10 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai) · models.dev kataloğu entegrasyonu
 > **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 > **Klasör seçme altyapısı** eklendi: `tauri-plugin-dialog` ile yerel klasör diyaloğu
@@ -108,8 +108,8 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 | Alan | İçerik |
 |---|---|
 | İskelet | Tauri + React + Vite + Zustand, özel Titlebar, sidebar, terminal |
-| Keystore + settings | 7 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
-| Provider katmanı | 7 sağlayıcı SSE streaming, registry + capability lookup |
+| Keystore + settings | 10 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
+| Provider katmanı | 10 sağlayıcı SSE streaming, registry + capability lookup |
 | Model kataloğu | `docs/MODELS.md` — registry listesi (27 model) + models.dev eşleşmesi |
 | Slash komutları + streaming hook | 26 komut (`COMMAND_SPECS` tek kaynak + inputbar öneri menüsü; `/mode`+`/build`+`/plan`+`/ask`) + `/export` varyantları, abort + usage kaydı |
 | Terminal UI | Markdown render, boot sequence, SQLite persist (debounce) |
@@ -287,7 +287,7 @@ MacroCode/
 │   │       ├── validate.ts      # validateDetailed 3-durumlu bağlantı testi (ok/invalid/network)
 │   │       ├── params.ts        # sanitizeParams (thinking topP'yi ezer, geçersizi atar)
 │   │       ├── discovery.ts     # Model keşfi: openrouter/ollama/openai/gemini + SOURCE_PROVIDER
-│   │       ├── modelsDev.ts     # models.dev kataloğu: fetch + parse + 6 sağlayıcıya kırpma + localStorage önbellek
+│   │       ├── modelsDev.ts     # models.dev kataloğu: fetch + parse + 9 sağlayıcıya kırpma + localStorage önbellek
 │   │       ├── catalog.ts       # models.dev eşleştirme (3 aşama) + zenginleştirme + katalog→registry + aktif katalog singleton'ı
 │   │       ├── visibility.ts    # API anahtarı kuralı: hasProviderKey/visibleModels/hiddenProviders
 │   │       ├── rustStream.ts    # streamAnthropicViaRust (Tauri Channel) + isTauriRuntime
@@ -693,8 +693,8 @@ interface AIProvider {
 | | Endpoint | Kimlik | Stream | Modeller |
 |---|---|---|---|---|
 | **anthropic** | `POST https://api.anthropic.com/v1/messages` | `x-api-key` + `anthropic-version: 2023-06-01` | `content_block_delta/text_delta` | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-1` (hepsi 1M context, vision; maxOutput model bazlı, istekte `min(maxOutput,16384)`) |
-| **openai** | `POST https://api.openai.com/v1/chat/completions` | `Authorization: Bearer` | `choices[0].delta.content` | `gpt-6.1-sol` (default), `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` (1.05M) |
-| **gemini** | `POST .../v1beta/models/{model}:streamGenerateContent?key=…&alt=sse` | query `key` | `candidates[0].content.parts[].text` | `gemini-3.8-flash` (default), `gemini-3.5-flash`, `gemini-3-pro` (1M) |
+| **openai** | `POST https://api.openai.com/v1/chat/completions` | `Authorization: Bearer` | `choices[0].delta.content` | `gpt-6.1-sol` (default), `gpt-6.1-terra`, `gpt-5.6*`, `gpt-5.5-pro` (1.05M), `gpt-5.4-mini` (400k) |
+| **gemini** | `POST .../v1beta/models/{model}:streamGenerateContent?key=…&alt=sse` | query `key` | `candidates[0].content.parts[].text` | `gemini-3.8-flash` (default), `gemini-4-argon`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-3-pro` (1M+) |
 | **ollama** | `POST {baseUrl}/api/chat` | yok (yerel) | çıplak JSON → `message.content` | `llama3.1`, `llama3.3` (default), `mistral`, `qwen2.5`, `qwen3`, `codellama` |
 | **openrouter** | `POST https://openrouter.ai/api/v1/chat/completions` | `Authorization: Bearer` | OpenAI-compatible | `openrouter/auto` (default), `anthropic/claude-sonnet-5.5` (noktalı!), `openai/gpt-6.1-sol`, `deepseek/deepseek-chat`, `x-ai/grok-4.7` |
 | **deepseek** | `POST https://api.deepseek.com/v1/chat/completions` | `Authorization: Bearer` | OpenAI-compatible | `deepseek-chat` (tools), `deepseek-reasoner` (reasoning, toolsuz) |
@@ -724,7 +724,7 @@ Yardımcılar: `common.ts` → `systemTextOf(messages)` / `withoutSystemMessages
 
 ### 7.5 Registry (`providers/index.ts`) + `openaiCompatible.ts` + `rustStream.ts`
 
-- `PROVIDER_DEFS` + `PROVIDER_IDS` + `PROVIDERS` (7 provider). `ALL_MODELS` registry'den türetilir.
+- `PROVIDER_DEFS` + `PROVIDER_IDS` + `PROVIDERS` (10 provider). `ALL_MODELS` registry'den türetilir.
 - `getModel/getCapabilitiesForModel/supportsToolsForModel/getMaxOutputForModel/getProviderForModel`, `isKnownModel`.
 - `suggestProvider()` — `/provider` ve `getProvider` hatasında "bunu mu demek istedin" önerisi.
 - `resolveModels(customs)` — registry + elle eklenenler (çakışmada custom kazanır);
@@ -734,6 +734,12 @@ Yardımcılar: `common.ts` → `systemTextOf(messages)` / `withoutSystemMessages
 - `sanitizeParams()` (`params.ts`) — thinking topP'yi ezer, geçersizi atar. Eşleme:
   Anthropic (temperature/top_p/thinking, thinking'te temp=1 + top_p yok + fetch yoluna düşer),
   OpenAI-uyumlu (temperature/top_p, 16k tavan), Gemini (`generationConfig`), Ollama (`options`).
+- Model eforu (`modelParams[model].reasoningEffort`, `effort.ts` + `/effort` menüsü) —
+  model bazında saklanır; katalogdaki `reasoning_options` effort değerleri kullanılır
+  (yoksa `low/medium/high`). Eşleme: OpenAI/xAI/DeepSeek/özel uçlar `reasoning_effort`,
+  OpenRouter `reasoning.effort`, Anthropic `output_config.effort` (Rust proxy dahil),
+  Gemini 3/4 `thinkingConfig.thinkingLevel`, Gemini 2.5 `thinkingConfig.thinkingBudget`;
+  Ollama desteklemez. `thinkingBudget` ayarı ayrı kalır.
 - Özel uçlar registry DIŞI: `custom.ts` (`makeEndpointId/parseEndpointModels/buildCustomProvider`)
   runtime'da OpenAI-uyumlu provider üretir; `ALL_MODELS`'a girmez, sohbet akışıyla sınırlıdır.
 - `REMOVED_MODEL_MAP` + `migrateModelId/migrateProviderModel` — eski ID'ler güncel karşılıklarına taşınır (özel/boş ID korunur).
@@ -892,7 +898,7 @@ const { sendAgent } = useAgent();
 | `/reset` | Mesajları siler (`clearSession`) |
 | `/session` | Yeni session |
 | `/model` / `/model <id>` | Aktif modeli gösterir / ayarlar (bilinmeyense uyarı + registry/custom capability satırı) |
-| `/provider <p>` | Sağlayıcıyı doğrular + ayarlar (7 provider; yazım hatasında öneri) |
+| `/provider <p>` | Sağlayıcıyı doğrular + ayarlar (10 provider; yazım hatasında öneri) |
 | `/key` | Ayarlar modalını açar |
 | `/export` / `/export md` | Markdown indirir (L6/L7: gizli değer kalıpları redakte edilir) |
 | `/export json` / `/backup` | JSON yedek indirir (L6/L7: aynı redaksiyon, JSON yapısı korunur) |
@@ -1159,9 +1165,9 @@ diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace 
 
 - **Sağlayıcılar 4 bölüme ayrıldı:** Bulut sağlayıcıları (6 kart) · Yerel sağlayıcı
   (Ollama, ayrı kart) · Özel taban URL · Özel uçlar.
-- **`PROVIDER_DEFS` → `keyUrl` + `keyUrlLabel` + `defaultBaseUrl`** (7 sağlayıcı).
+- **`PROVIDER_DEFS` → `keyUrl` + `keyUrlLabel` + `defaultBaseUrl`** (10 sağlayıcı).
   Her kartta **"Anahtar al"** dış bağlantısı (konsol adresiyle) görünür.
-- **"Tümünü test et"** butonu — 7 sağlayıcıyı sırayla test eder.
+- **"Tümünü test et"** butonu — 10 sağlayıcıyı sırayla test eder.
 - **Aktif sağlayıcı rozeti** (sağlayıcının başlığında yeşil "aktif" çipi).
 - **Base URL override**: placeholder artık **fabrika adresini** gösterir; dolu
   olduğunda **"sıfırla"** butonu çıkar. (Override yalnız OpenAI-uyumlu 4

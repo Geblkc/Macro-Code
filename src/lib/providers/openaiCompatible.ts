@@ -2,6 +2,7 @@ import type { AIProvider, ProviderConfig } from './common';
 import { MAX_OUTPUT_TOKEN_CAP, ProviderError, feedSSELines, lookupModel, parseDataUrl, parseJsonPayload, systemTextOf, throwIfHttpError, toUsage, toUsageCount, withoutSystemMessages } from './common';
 import { fetchFor } from './rustFetch';
 import { sanitizeParams } from './params';
+import { reasoningModeForModel } from './effort';
 import { accumulateOpenAIToolCalls, toOpenAITools } from '../engine/toolspec';
 import type { Model } from '../../types';
 
@@ -12,6 +13,8 @@ export interface OpenAICompatibleOptions {
   extraHeaders?: (apiKey: string) => Record<string, string>;
   mapRole?: (model: string, role: string) => string;
   validateUrl?: string;
+  /** Model sıcaklık (temperature) kabul ediyor mu? boolean veya model bazlı fonksiyon. */
+  supportsTemperature?: boolean | ((model: string) => boolean);
 }
 
 /**
@@ -83,6 +86,52 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
         p.maxTokens ?? maxFor(model, config.registry),
         MAX_OUTPUT_TOKEN_CAP,
       );
+      // Model eforu: OpenRouter birleşik `reasoning` nesnesini, diğer
+      // OpenAI-uyumlu sağlayıcılar standart `reasoning_effort` alanını kullanır.
+      const reasoningMode = reasoningModeForModel(record);
+      const combinedReasoning =
+        !!record?.reasoningOptions?.some((o) => o.type === 'toggle') &&
+        !!record?.reasoningOptions?.some((o) => o.type === 'effort');
+      const tempSupported =
+        typeof opts.supportsTemperature === 'function'
+          ? opts.supportsTemperature(model)
+          : (opts.supportsTemperature ?? true);
+      // Sağlayıcı/model bazlı istek gövdesi (thinking + effort).
+      const thinkingBody: Record<string, unknown> = {};
+      const effortBody: Record<string, unknown> = {};
+      if (combinedReasoning) {
+        if (p.reasoningEnabled === false) {
+          thinkingBody.thinking = { type: 'disabled' };
+        } else if (p.reasoningEffort) {
+          if (opts.name === 'zhipuai') thinkingBody.thinking = { type: 'enabled' };
+          effortBody.reasoning_effort = p.reasoningEffort;
+        }
+        // auto: hiçbir şey gönderme (sağlayıcı varsayılanı).
+      } else if (reasoningMode === 'effort' && p.reasoningEffort) {
+        const effort = p.reasoningEffort;
+        if (opts.name === 'openrouter') {
+          effortBody.reasoning = { effort };
+        } else if (opts.name === 'zhipuai') {
+          thinkingBody.thinking = { type: 'enabled' };
+          effortBody.reasoning_effort = effort;
+        } else {
+          effortBody.reasoning_effort = effort;
+        }
+      } else if (reasoningMode === 'toggle') {
+        if (p.reasoningEnabled === true) {
+          if (opts.name === 'minimax') {
+            thinkingBody.thinking = { type: 'adaptive' };
+          } else {
+            thinkingBody.thinking = { type: 'enabled' };
+          }
+        } else if (p.reasoningEnabled === false) {
+          thinkingBody.thinking = { type: 'disabled' };
+        }
+      } else if (reasoningMode === 'fixed') {
+        if (opts.name === 'zhipuai') {
+          thinkingBody.thinking = { type: 'enabled' };
+        }
+      }
       // Reasoning modelleri (openai) max_tokens yerine max_completion_tokens ister.
       const reasoning = record?.capabilities.reasoning ?? false;
       const limitField =
@@ -101,8 +150,10 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
           messages: apiMessages,
           stream: true,
           [limitField]: maxTokens,
-          ...(p.temperature !== undefined ? { temperature: p.temperature } : {}),
+          ...(tempSupported && p.temperature !== undefined ? { temperature: p.temperature } : {}),
           ...(p.topP !== undefined ? { top_p: p.topP } : {}),
+          ...thinkingBody,
+          ...effortBody,
           stream_options: { include_usage: true },
           // Faz 11: prompt cache — aynı oturumun istekleri aynı önbelleğe
           // yönlendirilir (OpenAI `prompt_cache_key`; DeepSeek otomatik cache'ler).

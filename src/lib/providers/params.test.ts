@@ -24,4 +24,9 @@ describe('sanitizeParams', () => {
       sanitizeParams({ temperature: NaN, maxTokens: -5, topP: Infinity, thinkingBudget: 0 }),
     ).toEqual({});
   });
+
+  it('reasoningEffort normalize edilir', () => {
+    expect(sanitizeParams({ reasoningEffort: ' HIGH ' })).toEqual({ reasoningEffort: 'high' });
+    expect(sanitizeParams({ reasoningEffort: '   ' })).toEqual({});
+  });
 });

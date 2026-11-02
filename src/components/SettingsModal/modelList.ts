@@ -19,6 +19,9 @@ export function keyedProviders(draft: Draft): ApiKeys {
     openrouter: '',
     deepseek: '',
     xai: '',
+    minimax: '',
+    moonshotai: '',
+    zhipuai: '',
   };
   for (const p of Object.keys(draft.secrets) as Provider[]) {
     if (p === 'ollama') continue;

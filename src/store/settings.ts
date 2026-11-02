@@ -22,6 +22,9 @@ const EMPTY_KEYS: ApiKeys = {
   openrouter: '',
   deepseek: '',
   xai: '',
+  minimax: '',
+  moonshotai: '',
+  zhipuai: '',
 };
 
 /** Provider -> keystore anahtar adi (`ollama` URL saklar). */
@@ -293,6 +296,13 @@ export const useSettingsStore = create<SettingsStore>()(
             params.thinkingBudget > 0
           ) {
             cleaned.thinkingBudget = Math.floor(params.thinkingBudget);
+          }
+          if (typeof params.reasoningEffort === 'string') {
+            const effort = params.reasoningEffort.trim().toLowerCase();
+            if (effort) cleaned.reasoningEffort = effort;
+          }
+          if (typeof params.reasoningEnabled === 'boolean') {
+            cleaned.reasoningEnabled = params.reasoningEnabled;
           }
           const next = { ...s.modelParams };
           if (Object.keys(cleaned).length === 0) delete next[id];

@@ -29,7 +29,7 @@ Header, die direkt an den von dir konfigurierten Anbieter gehen.
 
 | | |
 |---|---|
-| 🧠 **7 Anbieter** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek und xAI. Jeder Anbieter erscheint erst in den Listen, wenn sein Schlüssel (bei Ollama: eine lokale URL) hinterlegt ist. |
+| 🧠 **10 Anbieter** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) und GLM (Zhipu AI). Jeder Anbieter erscheint erst in den Listen, wenn sein Schlüssel (bei Ollama: eine lokale URL) hinterlegt ist. |
 | 🔮 **Hunderte Modelle** | Der kleine kuratierte Katalog wird mit Metadaten von [models.dev](https://models.dev) angereichert: Kontextlimits, Vision-/Reasoning-Fähigkeiten und Preise. |
 | ⌨️ **Terminal-Bedienung** | Slash-Befehle (`/model`, `/tokens`, `/compact`, `/help` …), Nachrichtenverlauf mit `↑ ↓`, sofortige Token-Messung pro Runde. |
 | 🤖 **Agent-Modus** | Weise mit `/root` einen Projektordner zu: Er kann Dateien lesen, im Code suchen, Dateien bearbeiten und Shell-Befehle ausführen. Jede Schreib- oder Ausführungsaktion läuft über eine Freigabekarte, die du bestätigen oder ablehnen kannst; `rm` ist eingeschränkt und Systemordner sind blockiert. Zusätzlich verbindet er sich mit MCP-Servern (stdio oder HTTP) für weitere Werkzeuge. |

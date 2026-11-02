@@ -28,7 +28,7 @@ authentication headers sent directly to the provider you configured.
 
 | | |
 |---|---|
-| 🧠 **7 providers** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek and xAI. Each provider only appears in the lists once its key (or, for Ollama, a local URL) is set. |
+| 🧠 **10 providers** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) and GLM (Zhipu AI). Each provider only appears in the lists once its key (or, for Ollama, a local URL) is set. |
 | 🔮 **Hundreds of models** | A small hand-curated catalog enriched with [models.dev](https://models.dev) metadata: context limits, vision/reasoning capabilities and pricing. |
 | ⌨️ **Terminal-native UX** | Slash commands (`/model`, `/tokens`, `/compact`, `/help`…), message history with `↑ ↓`, instant token metering for every turn. |
 | 🤖 **Agent mode** | Point it at a project folder with `/root` and it can read files, search the codebase, edit files and run shell commands. Every write/execution goes through an approval card you can accept or reject; `rm` is restricted and system folders are blocked. It also connects to MCP servers (stdio or HTTP) for extra tools. |

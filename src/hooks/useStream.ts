@@ -291,8 +291,11 @@ export function useStream() {
         model,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Kısmi yanıt ekranda kalmışsa o ana kadarki kullanım da kaydedilmeli
+      // (maliyet/bağlam sayaçları eksik kalmasın). Boş placeholder silinirse
+      // yazma zaten etkisizdir.
+      if (usage) store().setMessageUsage(sessionId, assistantId, usage);
       if (ctrl.signal.aborted) {
-        if (usage) store().setMessageUsage(sessionId, assistantId, usage);
         return null;
       }
       // Bos kalan assistant placeholder gecmisi kirletmesin.

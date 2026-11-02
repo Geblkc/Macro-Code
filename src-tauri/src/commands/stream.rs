@@ -206,6 +206,7 @@ fn build_request_body(
     messages: Vec<serde_json::Value>,
     tools: Option<serde_json::Value>,
     thinking: Option<serde_json::Value>,
+    output_config: Option<serde_json::Value>,
     temperature: Option<f64>,
     top_p: Option<f64>,
 ) -> serde_json::Value {
@@ -229,6 +230,11 @@ fn build_request_body(
     if let Some(th) = thinking {
         if !th.is_null() {
             body["thinking"] = th;
+        }
+    }
+    if let Some(oc) = output_config {
+        if !oc.is_null() {
+            body["output_config"] = oc;
         }
     }
     if let Some(temp) = temperature {
@@ -261,6 +267,7 @@ pub async fn stream_anthropic(
     messages: Vec<serde_json::Value>,
     tools: Option<serde_json::Value>,
     thinking: Option<serde_json::Value>,
+    output_config: Option<serde_json::Value>,
     temperature: Option<f64>,
     top_p: Option<f64>,
     max_tokens: Option<u32>,
@@ -276,6 +283,7 @@ pub async fn stream_anthropic(
         messages,
         tools,
         thinking,
+        output_config,
         temperature,
         top_p,
     );
@@ -477,6 +485,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -533,6 +542,7 @@ mod tests {
             vec![serde_json::json!({"role": "user", "content": "selam"})],
             Some(tools.clone()),
             Some(thinking.clone()),
+            None,
             Some(0.7),
             None,
         );
@@ -541,8 +551,25 @@ mod tests {
         assert_eq!(b["temperature"], 0.7);
         assert!(b.get("top_p").is_none());
         // max_tokens verilmezse 4096 default.
-        let b2 = build_request_body("m", None, None, vec![], None, None, None, None);
+        let b2 = build_request_body("m", None, None, vec![], None, None, None, None, None);
         assert_eq!(b2["max_tokens"], 4096);
+    }
+
+    #[test]
+    fn effort_output_config_govdeye_eklenir() {
+        let oc = serde_json::json!({"effort": "high"});
+        let b = build_request_body(
+            "claude-opus-5-5",
+            Some(256),
+            None,
+            vec![serde_json::json!({"role": "user", "content": "selam"})],
+            None,
+            None,
+            Some(oc.clone()),
+            None,
+            None,
+        );
+        assert_eq!(b["output_config"], oc);
     }
 
     #[test]

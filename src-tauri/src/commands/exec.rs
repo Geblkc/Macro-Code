@@ -51,6 +51,50 @@ fn check_file_arg(a: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// O1 (desen istisnası) — değeri yol değil **glob deseni** alan bayraklar.
+/// TS `policy.ts` `PATTERN_FLAGS` ile senkron: `rg --glob '!**/.git/**'`,
+/// `find . -name '*.pem'` gibi meşru aramalar jail'e takılmamalı.
+fn pattern_flags(cmd: &str) -> &'static [&'static str] {
+    match cmd {
+        "find" => &["-name", "-iname", "-path", "-ipath", "-regex", "-iregex"],
+        "rg" => &["-g", "--glob", "--iglob"],
+        _ => &[],
+    }
+}
+
+/// Dosya operandsı olarak denetlenecek argümanlar (desen bayraklarının
+/// değerleri hariç). Glob içeren HER argümanı muaf tutmak `cat *.pem`
+/// operandı üzerinden blok listesini atlatırdı; bu yüzden yalnızca desen
+/// değeri alan bayraklar atlanır.
+fn file_path_args(cmd: &str, args: &[String]) -> Vec<String> {
+    let flags = pattern_flags(cmd);
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if !a.starts_with('-') {
+            out.push(args[i].clone());
+            i += 1;
+            continue;
+        }
+        // `-name desen` / `--glob desen`: değeri atla.
+        if flags.contains(&a) {
+            i += 2;
+            continue;
+        }
+        // `--glob=desen`: argümanın tamamı desendir.
+        if flags
+            .iter()
+            .any(|f| a.strip_prefix(f).is_some_and(|rest| rest.starts_with('=')))
+        {
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
 /// M6 — `--opt=değer` biçiminden değeri çıkarır (`--filefoo` gibi adları
 /// yanlışlıkla eşleştirmez).
 fn opt_value<'a>(arg: &'a str, flag: &str) -> Option<&'a str> {
@@ -399,7 +443,7 @@ fn guard_file_args(
             None => dir.to_path_buf(),
         };
         (resolve_dir, git_path_args(args))
-    } else if FILE_ARG_CMDS.contains(&cmd) || cmd == "rm" {
+    } else if cmd == "rm" {
         (
             dir.to_path_buf(),
             args.iter()
@@ -407,6 +451,8 @@ fn guard_file_args(
                 .cloned()
                 .collect(),
         )
+    } else if FILE_ARG_CMDS.contains(&cmd) {
+        (dir.to_path_buf(), file_path_args(cmd, args))
     } else {
         return Ok(());
     };
@@ -477,8 +523,8 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
     // jail hiç çalışmıyor; mutlak yol / `../` / bloklu dosya doğrudan invoke
     // ile hedeflenebiliyordu (yerleşik tabloyla aynı sertlikte olmalı).
     if FILE_ARG_CMDS.contains(&c) {
-        for a in args.iter().filter(|a| !a.starts_with('-')) {
-            check_file_arg(a)?;
+        for a in file_path_args(c, args) {
+            check_file_arg(&a)?;
         }
     }
     // M6 — git dosya argümanı jail'i. `git` eskiden `FILE_ARG_CMDS` dışındaydı:
@@ -683,6 +729,15 @@ mod tests {
         assert!(check_cmd2("find", &args(&[".", "-name", "*.ts"])).is_ok());
         assert!(check_cmd2("rg", &args(&["desen", "src"])).is_ok());
         assert!(check_cmd2("cat", &args(&["-n", "src/a.ts"])).is_ok());
+        // Desen bayraklarının değerleri yol gibi denetlenmez (yanlış ret).
+        assert!(check_cmd2("rg", &args(&["--glob", "!**/.git/**", "token", "src"])).is_ok());
+        assert!(check_cmd2("rg", &args(&["-g", "*.pem", "token"])).is_ok());
+        assert!(check_cmd2("rg", &args(&["--glob=!**/node_modules/**", "token"])).is_ok());
+        assert!(check_cmd2("find", &args(&[".", "-path", "*/node_modules/*", "-prune"])).is_ok());
+        assert!(check_cmd2("find", &args(&[".", "-name", "*.pem"])).is_ok());
+        // Glob'lu OPERAND muaf değildir: gizli dosya hedefi hâlâ reddedilir.
+        assert!(check_cmd2("cat", &args(&["*.pem"])).is_err());
+        assert!(check_cmd2("rg", &args(&["--glob", "*.ts", "token", ".git"])).is_err());
         // Bayraklar jail'e takılmaz.
         assert!(check_cmd2("ls", &args(&["-la"])).is_ok());
     }

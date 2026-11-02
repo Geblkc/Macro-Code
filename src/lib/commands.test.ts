@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  COMMAND_GROUPS,
   COMMAND_SPECS,
   approxTokens,
   buildExportMarkdown,
@@ -58,6 +59,9 @@ describe('B — slash komutları', () => {
     expect(r.lines.some((l) => l.content.includes('/model'))).toBe(true);
     expect(r.lines.some((l) => l.content.includes('/backup'))).toBe(true);
     expect(r.lines.some((l) => l.content.includes('/compact'))).toBe(true);
+    // Gruplandırılmış başlıklar (yardım okunabilirliği).
+    expect(r.lines.some((l) => l.content.includes('çalışma alanı'))).toBe(true);
+    expect(r.lines.some((l) => l.content.includes('tanılama'))).toBe(true);
   });
 
   it('/model anahtarı olmayan sağlayıcıyı uyarıyla gösterir', () => {
@@ -325,6 +329,19 @@ describe('B — slash komutları', () => {
     expect(js.exportText).toContain('toolCalls');
     expect(js.exportText).toContain('toolCallId');
   });
+
+  it('JSON içe aktarma agentMode alanını korur (plan oturumu build’e dönmez)', () => {
+    const plan = sampleSession({ agentMode: 'plan' });
+    expect(parseSessionBackup(buildSessionBackup(plan))[0].agentMode).toBe('plan');
+    const ask = sampleSession({ agentMode: 'ask' });
+    expect(parseSessionBackup(buildSessionBackup(ask))[0].agentMode).toBe('ask');
+    // Geçersiz değer sessizce düşürülür (bilinmeyen mod build sayılmaz).
+    const raw = JSON.parse(buildSessionBackup(sampleSession())) as {
+      session: { agentMode?: string };
+    };
+    raw.session.agentMode = 'gecersiz';
+    expect(parseSessionBackup(JSON.stringify(raw))[0].agentMode).toBeUndefined();
+  });
 });
 
 describe('Slash önerileri (COMMAND_SPECS tek kaynağı)', () => {
@@ -366,7 +383,8 @@ describe('Slash önerileri (COMMAND_SPECS tek kaynağı)', () => {
 
   it('/help tablodan üretilir; satır sayısı ve zorunlu alanlar korunur', () => {
     const r = handleSlashCommand('/help', fakeCtx(sampleSession()));
-    expect(r.lines.length).toBe(COMMAND_SPECS.length + 2); // başlık + approvalModes
+    // başlık + grup başlıkları + approvalModes
+    expect(r.lines.length).toBe(COMMAND_SPECS.length + COMMAND_GROUPS.length + 2);
     expect(r.lines.some((l) => l.content.includes('manual='))).toBe(true);
     expect(r.lines.some((l) => l.content.includes('anthropic/openai'))).toBe(true);
   });

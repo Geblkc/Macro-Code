@@ -63,7 +63,8 @@ function formatClock(ts: number, fmt: '24h' | '12h'): string {
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   if (fmt === '12h') {
     const h = d.getHours() % 12 || 12;
-    return `${h}:${pad(d.getMinutes())}`;
+    const suffix = d.getHours() < 12 ? 'AM' : 'PM';
+    return `${h}:${pad(d.getMinutes())} ${suffix}`;
   }
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

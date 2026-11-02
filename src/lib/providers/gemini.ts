@@ -1,12 +1,18 @@
 import type { AIProvider, ProviderConfig } from './common';
 import { MAX_OUTPUT_TOKEN_CAP, ProviderError, feedSSELines, lookupModel, parseDataUrl, parseJsonPayload, throwIfHttpError, toUsage } from './common';
 import { sanitizeParams } from './params';
+import { effortThinkingBudget, geminiThinkingLevel } from './effort';
 import { geminiFunctionCallToToolCall, toGeminiTools } from '../engine/toolspec';
 import { createToolCallId } from '../engine/types';
 
 const MODELS: AIProvider['models'] = [
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
   { id: 'gemini-3-pro', name: 'Gemini 3 Pro', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 131072, capabilities: { tools: true, vision: true, reasoning: true } },
   // Faz 12: "Nano Banana" görsel modelleri (models.dev verisiyle).
   // Not: çıktıları **görsel** — uygulama yalnızca metin çıktısı işler.
@@ -31,23 +37,31 @@ export const geminiProvider: AIProvider = {
     const systemText = [systemPrompt?.trim(), ...systemExtra].filter(Boolean).join('\n\n');
     const buildGeminiContents = (rawMessages: typeof messages) => {
       const out: Array<{ role: string; parts: Array<Record<string, unknown>> }> = [];
+      // Gemini REST şeması yalnızca `user` / `model` rollerini kabul eder;
+      // tool sonuçları `role: "function"` ile 400 INVALID_ARGUMENT üretiyordu.
+      // Ardışık tool sonuçları TEK user turunda birleşir, ama gerçek bir
+      // kullanıcı metin turuna eklenmez (metin + functionResponse karışık tur
+      // da API tarafından reddedilir).
+      let lastWasToolResponse = false;
       for (const m of rawMessages) {
         if (m.role === 'tool') {
           const funcPart = {
             functionResponse: {
               name: m.toolName || 'tool',
               response: { output: m.content },
+              ...(m.toolCallId ? { id: m.toolCallId } : {}),
             },
           };
           const last = out[out.length - 1];
-          if (last && last.role === 'function') {
+          if (lastWasToolResponse && last && last.role === 'user') {
             last.parts.push(funcPart);
           } else {
             out.push({
-              role: 'function',
+              role: 'user',
               parts: [funcPart],
             });
           }
+          lastWasToolResponse = true;
         } else if (m.role === 'assistant') {
           const parts: Array<Record<string, unknown>> = [];
           if (m.content) {
@@ -59,11 +73,13 @@ export const geminiProvider: AIProvider = {
                 functionCall: {
                   name: tc.name,
                   args: tc.args,
+                  ...(tc.id ? { id: tc.id } : {}),
                 },
               });
             }
           }
           out.push({ role: 'model', parts });
+          lastWasToolResponse = false;
         } else if (m.role === 'user') {
           const parts: Array<Record<string, unknown>> = [
             { text: m.content },
@@ -73,6 +89,7 @@ export const geminiProvider: AIProvider = {
               .map((p) => ({ inline_data: { mime_type: p.mime, data: p.data } })),
           ];
           out.push({ role: 'user', parts });
+          lastWasToolResponse = false;
         }
       }
       return out;
@@ -83,10 +100,24 @@ export const geminiProvider: AIProvider = {
     const p = sanitizeParams(config.params);
     // İş 4: 16k tavanı artık Gemini için de geçerli (registry 65k/131k reklam
     // eder; istekte hepsi tek tavana kırpılır — openai-uyumlu ile aynı kural).
+    const record = lookupModel(model, config.registry, geminiProvider.models);
     const maxOutputTokens = Math.min(
-      p.maxTokens ?? lookupModel(model, config.registry, geminiProvider.models)?.maxOutput ?? 8192,
+      p.maxTokens ?? record?.maxOutput ?? 8192,
       MAX_OUTPUT_TOKEN_CAP,
     );
+    // Gemini 3/4 `thinkingLevel`, 2.5 ise `thinkingBudget` kullanır.
+    const usesThinkingLevel = model.startsWith('gemini-3') || model.startsWith('gemini-4');
+    const thinkingConfig =
+      p.reasoningEffort && (record?.capabilities.reasoning ?? false)
+        ? usesThinkingLevel
+          ? { thinkingLevel: geminiThinkingLevel(p.reasoningEffort) }
+          : {
+              thinkingBudget: Math.min(
+                effortThinkingBudget(p.reasoningEffort),
+                maxOutputTokens,
+              ),
+            }
+        : undefined;
     const res = await fetchImpl(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -97,6 +128,7 @@ export const geminiProvider: AIProvider = {
           maxOutputTokens,
           ...(p.temperature !== undefined ? { temperature: p.temperature } : {}),
           ...(p.topP !== undefined ? { topP: p.topP } : {}),
+          ...(thinkingConfig ? { thinkingConfig } : {}),
         },
         ...(tools ? { tools } : {}),
       }),
@@ -131,7 +163,7 @@ export const geminiProvider: AIProvider = {
           if (u) onChunk({ text: '', done: false, usage: u });
         }
         const candidates = json.candidates as
-          | { content?: { parts?: { text?: string; functionCall?: { name?: string; args?: Record<string, unknown> } }[] } }[]
+          | { content?: { parts?: { text?: string; functionCall?: { id?: string; name?: string; args?: Record<string, unknown> } }[] } }[]
           | undefined;
         const parts = candidates?.[0]?.content?.parts ?? [];
         for (const part of parts) {

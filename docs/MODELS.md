@@ -2,19 +2,19 @@
 
 > Uygulamanın **model listesi** iki kaynaktan gelir:
 >
-> 1. **Elle çekirdek** (43 model) — `src/lib/providers/*.ts` → `ALL_MODELS`.
+> 1. **Elle çekirdek** (54 model) — `src/lib/providers/*.ts` → `ALL_MODELS`.
 >    Varsayılanlar, garantili çalışır, offline'da bile hazırdır.
 > 2. **models.dev kataloğu** (~467 model) — `https://models.dev/api.json`.
 >    Çekirdekle eşleşmeyen modeller otomatik listeye eklenir.
 >
-> Toplam: **~510 model / 7 sağlayıcı**. Kullanıcı tarafından eklenen modeller
+> Toplam: **~510 model / 10 sağlayıcı**. Kullanıcı tarafından eklenen modeller
 > (`customModels`) ve gizlenenler (`disabledModels`) cihazdaki store'da durur,
 > burada yer almaz.
 >
 > **Görünürlük kuralı:** API anahtarı olmayan sağlayıcının modelleri hiçbir
 > listede görünmez (`ollama` hariç — URL yeterli). Bkz. "API Anahtarı Kuralı".
 >
-> Son güncelleme: 2026-10-19 (Faz 12) · Toplam: **~510 model / 7 sağlayıcı**
+> Son güncelleme: 2026-10-19 (Faz 12) · Toplam: **~510 model / 10 sağlayıcı**
 
 ## Başlıklar
 
@@ -210,3 +210,31 @@ Eşleşmeyenlerde **yerleşik limit/fiyat bilgileri aynen korunur**, otomatik fi
 > Model id'leri ve limit/fiyat bilgileri **models.dev gerçek verisinden** alındı
 > (tahmin edilmedi). `claude-mythos-5` models.dev'de bulunmadığı için yerleşik
 > limitleriyle (1M ctx / 128k out) eklendi; otomatik fiyat gelmez.
+
+## MiniMax / Kimi / GLM (yeni sağlayıcılar)
+
+### MiniMax (`minimax`) — 2 çekirdek
+
+| Model | ctx | max out | Vision | Reasoning |
+|---|---:|---:|---|---|
+| `MiniMax-M3.1-Flash` ★ | 1.000.000 | 524.288 | ✓ | effort: low/medium/high/xhigh/max |
+| `MiniMax-M3` | 1.000.000 | 524.288 | ✓ | toggle |
+
+### Kimi / Moonshot AI (`moonshotai`) — 4 çekirdek (+2 katalog)
+
+| Model | ctx | max out | Vision | Reasoning |
+|---|---:|---:|---|---|
+| `kimi-k3.1-pro` ★ | 1.048.576 | 1.048.576 | ✓ | effort: low/high/max |
+| `kimi-k3` | 1.048.576 | 1.048.576 | ✓ | effort: low/high/max |
+| `kimi-k2.6` | 262.144 | 262.144 | ✓ | toggle |
+| `kimi-k2.7-code` | 262.144 | 262.144 | ✓ | sabit açık |
+
+### GLM / Zhipu AI (`zhipuai`) — 5 çekirdek (+13 katalog)
+
+| Model | ctx | max out | Vision | Reasoning |
+|---|---:|---:|---|---|
+| `glm-5.3` ★ | 1.000.000 | 131.072 | — | effort: low/high/max |
+| `glm-5.3-flash` | 1.000.000 | 131.072 | ✓ | effort: low/high/max |
+| `glm-5.3-flashx` | 1.000.000 | 131.072 | ✓ | effort: low/high/max |
+| `glm-5.2` | 1.000.000 | 131.072 | — | effort: high/max + toggle |
+| `glm-5-turbo` | 200.000 | 131.072 | — | toggle |

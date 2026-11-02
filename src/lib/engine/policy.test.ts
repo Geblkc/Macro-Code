@@ -283,6 +283,16 @@ describe('Faz C — policy', () => {
     expect(jail('find', ['.', '-name', '*.ts'])).toBe(true);
     expect(jail('rg', ['desen', 'src'])).toBe(true);
     expect(jail('ls', ['-la'])).toBe(true);
+    // Desen bayraklarının değerleri yol gibi denetlenmez (yanlış ret düzeltmesi).
+    expect(jail('rg', ['--glob', '!**/.git/**', 'token', 'src'])).toBe(true);
+    expect(jail('rg', ['-g', '*.pem', 'token'])).toBe(true);
+    expect(jail('rg', ['--glob=!**/node_modules/**', 'token'])).toBe(true);
+    expect(jail('find', ['.', '-path', '*/node_modules/*', '-prune'])).toBe(true);
+    expect(jail('find', ['.', '-name', '*.pem'])).toBe(true);
+    // Glob'lu OPERAND muaf değildir: gizli dosya hedefi hâlâ reddedilir.
+    expect(jail('cat', ['*.pem'])).toBe(false);
+    // Desen bayrağından sonra gelen gerçek operand denetlenir.
+    expect(jail('rg', ['--glob', '*.ts', 'token', '.git'])).toBe(false);
     // Dosya argümanı olmayan komut etkilenmez
     expect(jail('echo', ['/bir/yol'])).toBe(true);
     expect(jail('npm', ['test'])).toBe(true);

@@ -10,6 +10,9 @@ const keys = (over: Partial<ApiKeys> = {}): ApiKeys => ({
   openrouter: '',
   deepseek: '',
   xai: '',
+  minimax: '',
+  moonshotai: '',
+  zhipuai: '',
   ...over,
 });
 

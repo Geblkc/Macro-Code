@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { useKeyHistory } from '../hooks/useKeyHistory';
 import { useT } from '../lib/i18n';
 import { filterCommands, type CommandSpec } from '../lib/commands';
+import { isEffortCommand } from '../lib/providers/effort';
 import { Icon } from './icons';
 import ModeSelector from './ModeSelector';
+import EffortSelector from './EffortSelector';
 import type { AgentMode } from '../types';
 
 interface Props {
@@ -74,6 +76,7 @@ export default function InputBar({
   const [dragOver, setDragOver] = useState(false);
   const [cmdIdx, setCmdIdx] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [effortOpen, setEffortOpen] = useState(false);
   const { push, move } = useKeyHistory();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,6 +126,11 @@ export default function InputBar({
     if (focusRef) focusRef.current = () => areaRef.current?.focus();
   }, [focusRef]);
 
+  /** Efor menüsü kapandıktan sonra yazmaya dön. */
+  const focusInput = useCallback(() => {
+    requestAnimationFrame(() => areaRef.current?.focus());
+  }, []);
+
   /**
    * Gönderi. Ham metin verilmezse alanın güncel değerini kullanır
    * (popup Enter birleştirmesi güncel state'i beklememesi için override'lı).
@@ -131,6 +139,14 @@ export default function InputBar({
     (raw?: string) => {
       const text = (raw ?? value).trim();
       if ((!text && pending.length === 0) || streaming) return;
+      // `/effort` (ve yaygın yazımları) mesaj olarak gönderilmez: efor menüsü açılır.
+      if (text && isEffortCommand(text)) {
+        setValue('');
+        setDismissed(true);
+        setEffortOpen(true);
+        requestAnimationFrame(() => areaRef.current?.focus());
+        return;
+      }
       if (text) push(text);
       setValue('');
       setPending([]);
@@ -432,6 +448,12 @@ export default function InputBar({
               void attachImages(e.target.files);
               e.target.value = '';
             }}
+          />
+          <EffortSelector
+            open={effortOpen}
+            onOpenChange={setEffortOpen}
+            onDone={focusInput}
+            disabled={streaming}
           />
           {!streaming && onModeChange && (
             <ModeSelector mode={mode} onChange={onModeChange} disabled={streaming} />

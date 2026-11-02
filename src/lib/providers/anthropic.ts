@@ -143,6 +143,10 @@ export const anthropicProvider: AIProvider = {
     const thinkingCfg = hasThinking
       ? { type: 'enabled', budget_tokens: p.thinkingBudget as number }
       : undefined;
+    // Claude effort parametresi thinking'ten bağımsızdır; `thinkingBudget`
+    // ayarı korunur, efor seçildiyse ayrıca gönderilir.
+    const effort = p.reasoningEffort;
+    const outputConfig = effort ? { effort } : undefined;
     const tools = config.tools && config.tools.length > 0 ? toAnthropicTools(config.tools) : undefined;
     // Faz 7 A2: compaction özeti ve kalıcı sistem mesajları istek gövdesinin
     // `system` alanına taşınır (Anthropic `messages` dizisinde system rolü yok).
@@ -179,6 +183,7 @@ export const anthropicProvider: AIProvider = {
           messages: buildAnthropicMessages(messages, msgOpts),
           tools,
           thinking: thinkingCfg,
+          outputConfig,
           temperature: hasThinking ? 1 : p.temperature,
           topP: hasThinking ? undefined : p.topP,
           onChunk: (c) => {
@@ -210,6 +215,7 @@ export const anthropicProvider: AIProvider = {
           : {}),
         ...(p.topP !== undefined && !hasThinking ? { top_p: p.topP } : {}),
         ...(thinkingCfg ? { thinking: thinkingCfg } : {}),
+        ...(outputConfig ? { output_config: outputConfig } : {}),
         ...(systemText ? { system: systemBody } : {}),
         messages: buildAnthropicMessages(messages, msgOpts),
         stream: true,

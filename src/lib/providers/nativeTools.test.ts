@@ -145,19 +145,87 @@ describe('Yerel (Native) Tool Calling Biçimlendirme', () => {
           functionCall: {
             name: 'list_dir',
             args: { path: '' },
+            id: 'g_1',
           },
         },
       ],
     });
     expect(body.contents[2]).toEqual({
-      role: 'function',
+      role: 'user',
       parts: [
         {
           functionResponse: {
             name: 'list_dir',
             response: { output: 'dir src\nfile package.json' },
+            id: 'g_1',
           },
         },
+      ],
+    });
+  });
+
+  it('Gemini: ardışık tool sonuçları tek user turunda birleşir', async () => {
+    const fetchImpl = vi.fn(async () => sseResponse(['data: {}']));
+
+    await geminiProvider.stream({
+      apiKey: 'gemini-key',
+      model: 'gemini-3.8-flash',
+      messages: [
+        { role: 'user', content: 'iki dosyayı oku' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            { id: 'g_a', name: 'read_file', args: { path: 'a.ts' } },
+            { id: 'g_b', name: 'read_file', args: { path: 'b.ts' } },
+          ],
+        },
+        { role: 'tool', toolCallId: 'g_a', toolName: 'read_file', content: 'a' },
+        { role: 'tool', toolCallId: 'g_b', toolName: 'read_file', content: 'b' },
+      ],
+      onChunk: () => {},
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const [, opts] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(opts.body as string) as {
+      contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+    };
+
+    // user, model, tek user (iki functionResponse) — ayrı "function" rolleri YOK.
+    expect(body.contents).toHaveLength(3);
+    expect(body.contents[2].role).toBe('user');
+    expect(body.contents[2].parts).toEqual([
+      { functionResponse: { name: 'read_file', response: { output: 'a' }, id: 'g_a' } },
+      { functionResponse: { name: 'read_file', response: { output: 'b' }, id: 'g_b' } },
+    ]);
+  });
+
+  it('Gemini: tool sonucu gerçek user metin turuna eklenmez', async () => {
+    const fetchImpl = vi.fn(async () => sseResponse(['data: {}']));
+
+    await geminiProvider.stream({
+      apiKey: 'gemini-key',
+      model: 'gemini-3.8-flash',
+      messages: [
+        { role: 'user', content: 'devam et' },
+        { role: 'tool', toolCallId: 'g_x', toolName: 'exec', content: 'ok' },
+      ],
+      onChunk: () => {},
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const [, opts] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(opts.body as string) as {
+      contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+    };
+
+    expect(body.contents).toHaveLength(2);
+    expect(body.contents[0]).toEqual({ role: 'user', parts: [{ text: 'devam et' }] });
+    expect(body.contents[1]).toEqual({
+      role: 'user',
+      parts: [
+        { functionResponse: { name: 'exec', response: { output: 'ok' }, id: 'g_x' } },
       ],
     });
   });
