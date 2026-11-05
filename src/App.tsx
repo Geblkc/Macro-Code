@@ -6,6 +6,7 @@ import InputBar from './components/InputBar';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
 import ConfirmDialog from './components/ConfirmDialog';
+import GitPanel from './components/git/GitPanel';
 import ToastHost from './components/Toast';
 import { useStream } from './hooks/useStream';
 import { getActiveAgentRun, useAgent } from './hooks/useAgent';
@@ -26,6 +27,9 @@ import { recentLogs } from './lib/logger';
 import { compactSessionMessages, shouldCompact } from './lib/engine/compact';
 import { makeSummarizeFn, summarizerConfig } from './lib/summarize';
 import { buildExportMarkdown, buildSessionBackup, handleSlashCommand, parseSessionBackup, type CommandContext } from './lib/commands';
+import { runGitCommand } from './lib/git/commands';
+import { gitApi } from './lib/git/api';
+import { useGitStore } from './store/git';
 import { copyText } from './lib/clipboard';
 import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsToDb, sqlError } from './lib/db';
 import type { ExtraLine, Provider } from './types';
@@ -78,6 +82,8 @@ interface ConfirmRequest {
   danger?: boolean;
   initialFocus?: 'confirm' | 'cancel';
   onConfirm: () => void;
+  /** Kutu iptal ile kapanırsa (promise tabanlı onaylar için). */
+  onCancel?: () => void;
 }
 
 export default function App() {
@@ -88,6 +94,22 @@ export default function App() {
   const inputFocus = useRef<(() => void) | null>(null);
   /** Genel onay isteği — ConfirmDialog uygulama kökünde tek instance. */
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+
+  /**
+   * Promise tabanlı onay köprüsü (Git paneli/komutları için). Aynı
+   * `ConfirmDialog` instance'ını kullanır; iptal `false` ile çözülür.
+   */
+  const askConfirm = useCallback(
+    (req: Omit<ConfirmRequest, 'onConfirm' | 'onCancel'>) =>
+      new Promise<boolean>((resolve) => {
+        setConfirmReq({
+          ...req,
+          onConfirm: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      }),
+    [],
+  );
   const [clearedBefore, setClearedBefore] = useState<Record<string, number>>({});
   const [pendingBySession, setPendingBySession] = useState<Record<string, PendingApproval[]>>({});
   const bootedRef = useRef(false);
@@ -113,7 +135,21 @@ export default function App() {
   const language = useSettingsStore((s) => s.language);
   const contrast = useSettingsStore((s) => s.contrast);
   const uiFont = useSettingsStore((s) => s.uiFont);
+  const wsRoot = useWorkspaceStore((s) => s.root);
   const session = sessions.find((s) => s.id === activeId) ?? null;
+
+  /**
+   * Workspace değişince Git durumunu bir kez tespit et — panel kapalıyken de
+   * durum çubuğundaki branch rozeti dolu olsun. Panel açıkken kendi
+   * polling'i devralır.
+   */
+  useEffect(() => {
+    if (!wsRoot) {
+      useGitStore.getState().reset();
+      return;
+    }
+    void useGitStore.getState().refresh(wsRoot);
+  }, [wsRoot]);
 
   const MAX_EXTRAS_PER_SESSION = 200;
   /**
@@ -963,6 +999,21 @@ export default function App() {
         if (images.length > 0) {
           pushExtra(sessionId, { type: 'warn', content: t('commands.imagesIgnored') });
         }
+        // Git komutları: generic handleSlashCommand'dan önce (async + onay).
+        if (trimmed === '/git' || trimmed.startsWith('/git ')) {
+          const handled = await runGitCommand(trimmed, {
+            root: useWorkspaceStore.getState().root,
+            api: gitApi,
+            push: (line) => pushExtra(sessionId, line),
+            openPanel: () => useGitStore.getState().setOpen(true),
+            confirm: askConfirm,
+          });
+          if (handled) {
+            // Panel kapalıyken de durum çubuğu rozeti güncel kalsın.
+            void useGitStore.getState().refresh(useWorkspaceStore.getState().root);
+            return;
+          }
+        }
         const ctx: CommandContext = {
           getSession: () => useSessionStore.getState().getActiveSession(),
           provider: () =>
@@ -1084,6 +1135,7 @@ export default function App() {
       runRootCommand,
       performUpdateCheck,
       runUpdateInstall,
+      askConfirm,
       t,
     ],
   );
@@ -1497,6 +1549,7 @@ export default function App() {
             }}
           />
         </div>
+        <GitPanel confirm={askConfirm} />
       </div>
       <StatusBar
         pendingCount={activeId ? (pendingBySession[activeId]?.length ?? 0) : 0}
@@ -1507,6 +1560,7 @@ export default function App() {
         }}
         onWorkspaceClick={() => void runRootCommand('')}
         onCompact={streaming ? undefined : () => handleSendRef.current?.('/compact')}
+        onGitClick={() => useGitStore.getState().toggle()}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ConfirmDialog
@@ -1521,7 +1575,10 @@ export default function App() {
           confirmReq?.onConfirm();
           setConfirmReq(null);
         }}
-        onCancel={() => setConfirmReq(null)}
+        onCancel={() => {
+          confirmReq?.onCancel?.();
+          setConfirmReq(null);
+        }}
       />
       <ToastHost />
     </div>

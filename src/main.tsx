@@ -8,6 +8,7 @@ import "./styles/message.css";
 import "./styles/markdown.css";
 import "./styles/agent.css";
 import "./styles/settings.css";
+import "./styles/git.css";
 import "./styles/toast.css";
 import "./styles/utilities.css";
 

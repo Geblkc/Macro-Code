@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../store/workspace';
 import { sessionCost } from '../lib/pricing';
 import { windowFor } from '../lib/engine/tokens';
 import { useT } from '../lib/i18n';
+import { useGitStore } from '../store/git';
 import { Icon } from './icons';
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   onWorkspaceClick?: () => void;
   /** Bağlam rozetine tıkla → bağlamı şimdi özetle (/compact). */
   onCompact?: () => void;
+  /** Git rozetine tıkla → Git panelini aç/kapat. */
+  onGitClick?: () => void;
 }
 
 function fmtCount(n: number): string {
@@ -32,6 +35,7 @@ export default function StatusBar({
   onPendingClick,
   onWorkspaceClick,
   onCompact,
+  onGitClick,
 }: Props) {
   const t = useT();
   const sessions = useSessionStore((s) => s.sessions);
@@ -45,6 +49,9 @@ export default function StatusBar({
   const root = useWorkspaceStore((s) => s.root);
   const label = useWorkspaceStore((s) => s.label);
   const approvalMode = useWorkspaceStore((s) => s.approvalMode);
+  const gitInfo = useGitStore((s) => s.info);
+  const gitStatus = useGitStore((s) => s.status);
+  const gitOpen = useGitStore((s) => s.open);
 
   const session = sessions.find((s) => s.id === activeId) ?? null;
   const model = session?.model || currentModel;
@@ -203,6 +210,32 @@ export default function StatusBar({
       </span>
 
       <span className="sb-right">
+        {onGitClick && gitInfo?.isRepo && gitStatus ? (
+          <>
+            <button
+              type="button"
+              className={`sb-item btn-reset clickable sb-git${gitOpen ? ' open' : ''}`}
+              title={t('status.gitTitle')}
+              aria-label={t('status.gitTitle')}
+              onClick={onGitClick}
+            >
+              <Icon name="branch" size="sm" />
+              <span className="sb-git-branch">
+                {gitStatus.detached ? t('status.gitDetached') : gitStatus.branch || 'HEAD'}
+              </span>
+              {gitStatus.ahead > 0 ? <span>↑{gitStatus.ahead}</span> : null}
+              {gitStatus.behind > 0 ? <span>↓{gitStatus.behind}</span> : null}
+              <span
+                className={`sb-git-dirty${gitStatus.files.length > 0 ? ' dirty' : ''}`}
+              >
+                {gitStatus.files.length > 0
+                  ? t('status.gitDirty', { count: gitStatus.files.length })
+                  : t('status.gitClean')}
+              </span>
+            </button>
+            <span className="sb-sep" aria-hidden="true" />
+          </>
+        ) : null}
         {root ? (
           <button
             className="sb-item btn-reset clickable"

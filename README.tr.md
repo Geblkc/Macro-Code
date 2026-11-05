@@ -33,6 +33,7 @@ kimlik doğrulama başlıkları olarak çıkar.
 | 🔮 **Yüzlerce model** | Elle hazırlanmış küçük katalog, [models.dev](https://models.dev) metadata'sıyla zenginleşir: bağlam limitleri, görsel/düşünme yetenekleri ve fiyatlandırma. |
 | ⌨️ **Terminal deneyimi** | Slash komutları (`/model`, `/tokens`, `/compact`, `/help`…), `↑ ↓` ile mesaj geçmişi, her turda anlık token ölçümü. |
 | 🤖 **Ajan modu** | `/root` ile bir proje klasörünü gösterin; dosya okuyabilir, kodda arama yapabilir, dosya düzenleyebilir ve shell komutu çalıştırabilir. Her yazma/çalıştırma, kabul edebileceğin veya reddedebileceğin bir onay kartından geçer; `rm` kısıtlıdır ve sistem klasörleri engellidir. Ek araçlar için stdio veya HTTP MCP sunucularına da bağlanır. |
+| 🔀 **Yerleşik Git** | Sağ panel ve `/git` komutları: durum, diff, stage/unstage, commit (isteğe bağlı AI mesajı), geçmiş, branch'ler, fetch/pull (yalnızca fast-forward)/push. Mutasyonlar onay ister; uygulama credential saklamaz ve force push yapmaz. |
 | 💸 **Maliyet kontrolü** | Prompt önbellekleme (Anthropic cache breakpoint'leri / OpenAI uyumlu cache anahtarları) uzun oturumları ucuz tutar; `/tokens` her turun tam maliyetini, önbellek okumaları dahil gösterir. |
 | 🌍 **5 dil** | Arayüzün 5 tam çevirisi var: English, Türkçe, Deutsch, Français ve Español; geçiş anında uygulanır, yeniden başlatma gerekmez. |
 | 🔒 **Verin sende kalsın** | Oturumlar JSON içe/dışa aktarmayla SQLite'ta yaşar; her şey taşınabilirdir ve gerektiğinde çevrimdışı çalışır. |

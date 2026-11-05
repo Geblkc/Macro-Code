@@ -188,7 +188,7 @@ pub(crate) fn check_rel_components(base: &Path, full: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn canonical_root(root: &str) -> Result<PathBuf, String> {
+pub(crate) fn canonical_root(root: &str) -> Result<PathBuf, String> {
     let r = root.trim();
     if r.is_empty() {
         return Err(err("workspace root boş olamaz · /root ile seç"));

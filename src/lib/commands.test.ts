@@ -383,8 +383,8 @@ describe('Slash önerileri (COMMAND_SPECS tek kaynağı)', () => {
 
   it('/help tablodan üretilir; satır sayısı ve zorunlu alanlar korunur', () => {
     const r = handleSlashCommand('/help', fakeCtx(sampleSession()));
-    // başlık + grup başlıkları + approvalModes
-    expect(r.lines.length).toBe(COMMAND_SPECS.length + COMMAND_GROUPS.length + 2);
+    // başlık + grup başlıkları + approvalModes + git alt komut satırı
+    expect(r.lines.length).toBe(COMMAND_SPECS.length + COMMAND_GROUPS.length + 3);
     expect(r.lines.some((l) => l.content.includes('manual='))).toBe(true);
     expect(r.lines.some((l) => l.content.includes('anthropic/openai'))).toBe(true);
   });

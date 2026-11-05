@@ -2,14 +2,65 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-10-30
+> Son güncelleme: 2026-11-05
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
 
 ---
 
-## 2026-10-30 — v0.2.1: jail sertleştirme + onay görünürlüğü + paket yenileme
+## 2026-11-05 — Git entegrasyonu: panel + `/git` + AI commit mesajı
+
+> Kullanıcı talebi: masaüstü uygulamaya kapsamlı Git entegrasyonu. Mevcut
+> güvenlik modeli (workspace jail, yol/ref doğrulaması, shell yok, onay)
+> korunarak Git CLI köprüsü eklendi.
+
+### A. Rust backend (`src-tauri/src/commands/git.rs`)
+
+- `git` CLI, shell olmadan; `GIT_TERMINAL_PROMPT=0`, `SSH_ASKPASS_REQUIRE=never`,
+  `GIT_PAGER=cat`, `LC_ALL=C`, `GIT_CEILING_DIRECTORIES`, okumalarda
+  `GIT_OPTIONAL_LOCKS=0`; 15/90 sn timeout + 4 MB çıktı tavanı.
+- Repo kökü workspace köküne eşit değilse mutasyon yok
+  (`E_REPO_OUTSIDE_WORKSPACE`); bare repo reddi.
+- `git status --porcelain=v2 --branch -z` için katı parser (ordinary, rename
+  origPath, conflict, untracked, detached, initial).
+- Yol doğrulaması (`--` sonrası; mutlak/`..`/`-`/`:`/`.git`/secret yasak),
+  branch (`check-ref-format --branch`), mesaj (stdin `commit -F -`), SHA.
+- Komutlar: detect/status/diff/log/show/branches/remotes/stage/unstage/discard/
+  commit/switch/fetch/pull/push/init. `pull --ff-only`; eski git'te `switch`
+  → `checkout` fallback.
+
+### B. Frontend
+
+- `src/lib/git/`: `types`, `api`, `errors`, `diff` (unified parser), `policy`
+  (yol/branch/mesaj + AI secret filtresi), `commitMessage`, `ai`, `commands`.
+- `store/git.ts`: yalnızca panel tercihleri persist; nesil sayacıyla eski
+  yanıtlar ezilmez; 6 sn yoklama.
+- UI: sağ dock `GitPanel` (değişiklikler/geçmiş/branch'ler, diff görüntüleyici,
+  commit kutusu, AI öneri onayı), durum çubuğu branch/kirli rozeti.
+- `/git` slash komutları `handleSend`'de generic komutlardan önce çalışır;
+  stage/unstage onaysız, diğer mutasyonlar `ConfirmDialog` onaylı.
+- Bloklu/secret dosyalar listede eylemsiz gösterilir; stage-all/discard-all
+  bunları atlar. Klasör pathspec'i `git ls-files` ile genişletilip içindeki
+  secret dosyalar reddedilir.
+- 5 dilde (TR/EN/DE/FR/ES) yeni anahtarlar.
+
+### C. Testler ve doğrulama
+
+- Rust: `commands::git::tests::*` (parser + doğrulayıcılar + işlem hatası eşleme).
+- TS: `src/lib/git/{diff,policy,commitMessage,commands}.test.ts`.
+- `npm test` (635 → 676), `npx tsc --noEmit`, `cargo test` (92), `cargo clippy`.
+  `cargo fmt --check` yeni dosyalarda temiz; `exec.rs`/`mcp.rs`/`fs.rs`'teki
+  biçim farkları bu değişiklikten önce de vardı.
+
+### D. Bilinçli kapsam dışı
+
+Merge/rebase/cherry-pick/revert, force push, remote ekleme/silme, untracked
+dosya silme ve credential saklama v1'de yoktur.
+
+---
+
+
 
 > Kullanıcı talebi: biriken değişiklikleri incelemek, sürümü her yerde
 > **v0.2.1** yapmak ve `bundles/` dağıtımlarını yeniden derlemek.

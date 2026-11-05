@@ -54,14 +54,15 @@ const VALID_PROVIDERS: Provider[] = [...PROVIDER_IDS];
  * Slash komut tanımları — öneri popup'ı ve /help için TEK KAYNAK.
  * Sıra /help çıktısının sırasıdır; yeni komut buraya eklenir.
  */
-export type CommandGroup = 'chat' | 'workspace' | 'agent' | 'diag';
+export type CommandGroup = 'chat' | 'workspace' | 'git' | 'agent' | 'diag';
 
 /** /help çıktısındaki grup sırası. */
-export const COMMAND_GROUPS: CommandGroup[] = ['chat', 'workspace', 'agent', 'diag'];
+export const COMMAND_GROUPS: CommandGroup[] = ['chat', 'workspace', 'git', 'agent', 'diag'];
 
 const GROUP_LABEL_KEY: Record<CommandGroup, TranslationKey> = {
   chat: 'commands.help.group.chat',
   workspace: 'commands.help.group.workspace',
+  git: 'commands.help.group.git',
   agent: 'commands.help.group.agent',
   diag: 'commands.help.group.diag',
 };
@@ -111,6 +112,12 @@ export const COMMAND_SPECS: CommandSpec[] = [
   { name: 'apply', group: 'workspace', args: '[id]', descKey: 'commands.desc.apply' },
   { name: 'undo', group: 'workspace', args: '[id]', descKey: 'commands.desc.undo' },
   { name: 'context', group: 'workspace', descKey: 'commands.desc.context' },
+  {
+    name: 'git',
+    group: 'git',
+    args: '[status|diff|log|branch|switch|add|commit|push|pull|fetch|init]',
+    descKey: 'commands.desc.git',
+  },
   { name: 'skill', group: 'agent', descKey: 'commands.desc.skill' },
   { name: 'approval', group: 'agent', args: '[m]', descKey: 'commands.desc.approval' },
   { name: 'mode', group: 'agent', args: '[m]', descKey: 'commands.desc.mode' },
@@ -155,6 +162,9 @@ function helpLines(): CommandLine[] {
       lines.push({ type: 'sys', content: t(helpKey, c.descParams) });
       if (c.name === 'approval') {
         lines.push({ type: 'sys', content: t('commands.help.approvalModes') });
+      }
+      if (c.name === 'git') {
+        lines.push({ type: 'sys', content: t('commands.help.gitSubcommands') });
       }
     }
   }

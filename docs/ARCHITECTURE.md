@@ -905,6 +905,7 @@ const { sendAgent } = useAgent();
 | `/tokens` | Gerçek usage varsa gerçek, yoksa karakter/4 approx; fiyat varsa `· maliyet ~$X` (kısmi fiyatta not) |
 | `/system <text>` | System prompt günceller |
 | `/root` `/files` `/apply` `/undo` `/skill` `/compact` `/audit` `/approval` `/note` `/context` | `/root` (argümansız=klasör diyaloğu · `off` · `1..5` · `<yol>` — hepsi `applyRoot` tek yolundan: SAF doğrulama → Rust `list_dir` varlık → `setWorkspace`) `/files`/`/skill`/`/compact`/`/audit [n]`/`/approval [m]` `App.tsx handleSend`'de; `/apply` aktif run varsa `resolve` yolundan devam eder, yoksa doğrudan `applyPendingPatch` (kalıcı `pending_approvals` + bellek `PendingPatch`). **Faz 8 L7:** `/approval manual\|auto-read\|auto-edit` onay modunu değiştirir (`auto-edit` seçilirse uyarı satırı düşer). **Faz 9:** `/note <not>` kalıcı proje notu ekler, `/context` repo bağlamını gösterir. |
+| `/git …` | Git entegrasyonu (bkz. §9.1): `status`, `diff`, `log`, `branch`, `switch`, `add`, `unstage`, `commit`, `push`, `pull`, `fetch`, `init`, `help`. Mutasyonlar genel `ConfirmDialog` üzerinden onay ister. |
 | bilinmeyen | `✗ bilinmeyen komut · /help ile listeye bak` |
 
 **Yardımcılar:** `approxTokens` (karakter/4), `realTokens`, `formatTokenCount` (k kısaltması),
@@ -916,7 +917,31 @@ const { sendAgent } = useAgent();
 Dosya adı `macrocode-session-YYYYMMDD-HHMM.{md,json}`.
 
 **App köprüsü (`handleSend` sırası):** `/root|/files|/apply|/skill` → direkt workspace yolu;
-diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace varsa `sendAgent`, yoksa `send`.
+`/git` → `lib/git/commands.ts` (async, onaylı); diğer `/…` → `handleSlashCommand` (export varsa indir); değilse workspace varsa `sendAgent`, yoksa `send`.
+
+---
+
+## 9.1 Git Entegrasyonu (`lib/git/` + `commands/git.rs`)
+
+Git, **git CLI** üzerinden Rust'ta çalışır; yeni bağımlılık yoktur. Ayrıntılı
+güvenlik/kapsam dokümanı: `docs/GIT.md`.
+
+- **Repo sınırı:** repo kökü workspace köküne eşit olmalı; üst repo'nun alt
+  klasöründe mutasyonlar kapalıdır (`E_REPO_OUTSIDE_WORKSPACE`). Bare repo reddedilir.
+- **Süreç sertleştirme:** shell yok, `GIT_TERMINAL_PROMPT=0`,
+  `SSH_ASKPASS_REQUIRE=never`, `GIT_PAGER=cat`, `LC_ALL=C`,
+  `GIT_CEILING_DIRECTORIES=<parent>`, okumalarda `GIT_OPTIONAL_LOCKS=0`;
+  15 sn (ağ: 90 sn) timeout, 4 MB çıktı tavanı.
+- **Doğrulama:** yol (`--` sonrası, mutlak/`..`/`-`/`:`/`.git`/secret yasak),
+  branch (`check-ref-format --branch`), mesaj (stdin ile `commit -F -`), SHA.
+- **Status:** `--porcelain=v2 --branch -z` + katı Rust ayrıştırıcı (rename'in
+  ikinci NUL alanı `origPath`).
+- **Onay:** stage/unstage onaysız; discard/commit/amend/push/pull/switch/init
+  onaylı. Onay diyalogları hook uyarısını taşır. `pull` yalnızca `--ff-only`.
+- **AI commit mesajı:** yalnızca açık onayla; secret dosyalar diff'ten çıkarılır,
+  12 KB'a kısaltılır; mesaj kutuya yazılır, **otomatik commit yoktur**.
+- **UI:** sağ dock paneli (`components/git/`), durum çubuğu branch rozeti,
+  `/git` komutları; tüm metinler 5 dilde.
 
 ---
 
@@ -1491,6 +1516,12 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 40. **i18n:** Rust backend hata mesajları (`fs.rs`, `exec.rs`, `keystore.rs`)
     çeviri **kapsamı dışındadır** — Türkçe kalır. Locale'in invoke ile Rust'a
     taşınması ayrı bir çalışma gerektirir.
+41. **Git entegrasyonu:** git CLI Rust'ta çalışır (shell yok). Repo kökü workspace köküne eşit
+    değilse mutasyon yoktur. Yol/branch/mesaj/SHA doğrulaması Rust'tadır; path'ler `--` sonrası
+    verilir. Stage/unstage onaysız; discard/commit/push/pull/switch/init onaylıdır. Pull yalnızca
+    `--ff-only`; merge/rebase/force-push v1 dışıdır. AI commit mesajı açık onay ister ve
+    otomatik commit yapmaz. `GIT_DIR` vb. dış ortam değişkenleri temizlenir; klasör pathspec'i
+    `git ls-files` ile genişletilip secret dosyalar reddedilir.
 
 ## 16. Geliştirme & Build Komutları
 

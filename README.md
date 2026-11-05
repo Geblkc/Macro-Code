@@ -32,6 +32,7 @@ authentication headers sent directly to the provider you configured.
 | 🔮 **Hundreds of models** | A small hand-curated catalog enriched with [models.dev](https://models.dev) metadata: context limits, vision/reasoning capabilities and pricing. |
 | ⌨️ **Terminal-native UX** | Slash commands (`/model`, `/tokens`, `/compact`, `/help`…), message history with `↑ ↓`, instant token metering for every turn. |
 | 🤖 **Agent mode** | Point it at a project folder with `/root` and it can read files, search the codebase, edit files and run shell commands. Every write/execution goes through an approval card you can accept or reject; `rm` is restricted and system folders are blocked. It also connects to MCP servers (stdio or HTTP) for extra tools. |
+| 🔀 **Git built in** | A docked Git panel and `/git` commands: status, diff, staged/unstaged files, commit (with optional AI message), history, branches and fetch/pull (fast-forward only)/push. Mutations ask for confirmation; the app never stores credentials or force-pushes. |
 | 💸 **Cost control** | Prompt caching (Anthropic cache breakpoints / OpenAI-compatible cache keys) keeps long sessions cheap, and `/tokens` shows exactly what each turn cost, including cache reads. |
 | 🌍 **5 languages** | Fully translated UI: English, Türkçe, Deutsch, Français and Español — switching applies instantly, no restart. |
 | 🔒 **Your data, always** | Sessions live in SQLite with JSON export/import, so everything is portable and works offline when you need it to. |

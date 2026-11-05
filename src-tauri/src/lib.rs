@@ -3,7 +3,9 @@ mod commands;
 use tauri::Manager;
 
 use commands::{
-    apply_patch, delete_api_key, exec_cmd, get_api_key, get_app_paths, glob_files, grep_files,
+    apply_patch, delete_api_key, exec_cmd, get_api_key, get_app_paths, git_branches, git_commit,
+    git_detect, git_diff, git_discard, git_fetch, git_init, git_log, git_pull, git_push,
+    git_remotes, git_show, git_stage, git_status, git_switch, git_unstage, glob_files, grep_files,
     has_any_key, key_hint, key_status, list_dir, list_tree, mcp_kill, mcp_read, mcp_spawn,
     mcp_write, memory_append, memory_read, proxy_abort, proxy_fetch, read_file, set_api_key,
     stream_anthropic, undo_patch, update_support, write_file, McpState, ProxyState,
@@ -70,6 +72,22 @@ pub fn run() {
             mcp_read,
             mcp_kill,
             exec_cmd,
+            git_detect,
+            git_status,
+            git_diff,
+            git_log,
+            git_show,
+            git_branches,
+            git_remotes,
+            git_stage,
+            git_unstage,
+            git_discard,
+            git_commit,
+            git_switch,
+            git_fetch,
+            git_pull,
+            git_push,
+            git_init,
             proxy_fetch,
             proxy_abort,
             update_support
