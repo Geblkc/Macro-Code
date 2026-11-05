@@ -38,7 +38,9 @@ fn check_file_arg(a: &str) -> Result<(), String> {
         if crate::commands::fs::is_blocked_dir(seg) {
             return Err(err(format!("yasaklı dizin argümanda: {a}")));
         }
-        if crate::commands::fs::is_blocked_file_name(seg) || crate::commands::fs::is_env_prefixed(seg) {
+        if crate::commands::fs::is_blocked_file_name(seg)
+            || crate::commands::fs::is_env_prefixed(seg)
+        {
             return Err(err(format!("yasaklı dosya argümanda: {a}")));
         }
         // O7 (D2b senkronu): gizli/veri uzantıları — ad-bazlı (`.pem` dotfile
@@ -233,16 +235,11 @@ fn git_path_args(args: &[String]) -> Vec<String> {
                     out.extend(rest[j + 1..].iter().cloned());
                     break;
                 }
-                if let Some(v) = opt_value(a, "--file")
-                    .or_else(|| opt_value(a, "--pathspec-from-file"))
+                if let Some(v) =
+                    opt_value(a, "--file").or_else(|| opt_value(a, "--pathspec-from-file"))
                 {
                     out.push(v.to_string());
-                } else if a == "--file" || a == "--pathspec-from-file" {
-                    if let Some(v) = rest.get(j + 1) {
-                        out.push(v.clone());
-                        j += 1;
-                    }
-                } else if a == "-F" {
+                } else if a == "--file" || a == "--pathspec-from-file" || a == "-F" {
                     if let Some(v) = rest.get(j + 1) {
                         out.push(v.clone());
                         j += 1;
@@ -293,8 +290,12 @@ fn git_c_base(args: &[String]) -> Option<PathBuf> {
         }
         if matches!(
             a,
-            "-c" | "--git-dir" | "--work-tree" | "--config-env" | "--namespace"
-                | "--super-prefix" | "--attr-source"
+            "-c" | "--git-dir"
+                | "--work-tree"
+                | "--config-env"
+                | "--namespace"
+                | "--super-prefix"
+                | "--attr-source"
         ) {
             i += 2;
             continue;
@@ -536,7 +537,9 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
             .iter()
             .any(|a| a == "--exec-path" || a.starts_with("--exec-path="))
         {
-            return Err(err("yasaklı argüman: git --exec-path · keyfi program çalıştırabilir"));
+            return Err(err(
+                "yasaklı argüman: git --exec-path · keyfi program çalıştırabilir",
+            ));
         }
         for p in git_path_args(args) {
             check_file_arg(&p)?;

@@ -1045,7 +1045,9 @@ mod tests {
         let kok = benzersiz_tmp("mem-ok");
         let root = kok.to_str().unwrap().to_string();
         assert_eq!(memory_read(root.clone()).await.unwrap(), "");
-        let line = memory_append(root.clone(), "selam".to_string()).await.unwrap();
+        let line = memory_append(root.clone(), "selam".to_string())
+            .await
+            .unwrap();
         assert!(line.contains("selam"));
         assert!(memory_read(root).await.unwrap().contains("selam"));
         let _ = std::fs::remove_dir_all(&kok);

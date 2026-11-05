@@ -129,9 +129,7 @@ fn check_env_keys(env: &std::collections::HashMap<String, String>) -> Result<(),
             || upper.starts_with("LD_")
             || upper.starts_with("DYLD_")
         {
-            return Err(err(format!(
-                "mcp: izin verilmeyen ortam değişkeni: {key}"
-            )));
+            return Err(err(format!("mcp: izin verilmeyen ortam değişkeni: {key}")));
         }
     }
     Ok(())
@@ -345,7 +343,14 @@ mod tests {
     #[tokio::test]
     async fn m3_zararli_env_anahtarlari_reddedilir() {
         let state = McpState::default();
-        for key in ["LD_PRELOAD", "ld_preload", "PYTHONPATH", "NODE_OPTIONS", "PATH", "DYLD_INSERT_LIBRARIES"] {
+        for key in [
+            "LD_PRELOAD",
+            "ld_preload",
+            "PYTHONPATH",
+            "NODE_OPTIONS",
+            "PATH",
+            "DYLD_INSERT_LIBRARIES",
+        ] {
             let mut env = std::collections::HashMap::new();
             env.insert(key.to_string(), "/tmp/something".to_string());
             let r = spawn_inner(&state, "cat".to_string(), vec![], Some(env), None).await;
