@@ -1,6 +1,6 @@
 {
   "productName": "MacroCode",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "identifier": "com.macrocode.app",
   "build": {
     "devUrl": "http://localhost:1420",

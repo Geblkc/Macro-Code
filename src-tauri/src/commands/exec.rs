@@ -1,10 +1,20 @@
+use super::proc_tree::{self, ProcTree};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use tauri::ipc::Channel;
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::sync::watch;
 
 const TIMEOUT_SECS: u64 = 15;
+const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_OUTPUT_BYTES: usize = 8192;
+/// Süreç öldükten sonra boru okuyucularının boşalması için üst sınır.
+/// Torun süreçler stdout/stderr'i açık tutarsa exec sonsuza kadar asılı
+/// kalmasın (iptal/timeout sonucu yine UI'a döner).
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Faz 3 (K3) — exec allowlist tek kaynağı: `src/lib/engine/allowlist.json`.
 /// TS `policy.ts` aynı dosyayı import eder; burası `include_str!` ile gömer.
@@ -319,6 +329,176 @@ pub struct ExecOut {
     pub stderr: String,
     pub code: i32,
     pub truncated: bool,
+    /// Kullanıcı `exec_cancel` ile süreci durdurdu.
+    #[serde(default)]
+    pub cancelled: bool,
+    /// Süreç `timeout_ms` sınırını aştığı için durduruldu.
+    #[serde(default)]
+    pub timed_out: bool,
+}
+
+/// P0.2 — canlı exec akışı olayları (`Channel<ExecEvent>`).
+/// `k` alanı TS tarafında ayrım için kullanılır: `stdout` / `stderr` / `exit`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "k", rename_all = "snake_case")]
+pub enum ExecEvent {
+    Stdout {
+        data: String,
+    },
+    Stderr {
+        data: String,
+    },
+    Exit {
+        code: i32,
+        truncated: bool,
+        cancelled: bool,
+        timed_out: bool,
+    },
+}
+
+/// P0.2 — çalışan süreçlerin iptal kanalları.
+///
+/// `exec_cmd_stream` her çalıştırma için bir `watch` kanalı kaydeder;
+/// `exec_cancel(run_id)` bu kanala `true` gönderir. Akış döngüsü sinyali
+/// görünce `Child::start_kill` ile süreci sonlandırır ve `wait` ile reaping
+/// yapar (zombie kalmaz).
+#[derive(Default)]
+pub struct ExecState {
+    runs: Mutex<HashMap<String, watch::Sender<bool>>>,
+}
+
+impl ExecState {
+    /// `false` → aynı `run_id` zaten çalışıyor; yeni kayıt eskisini ezmemeli
+    /// (eski akışın iptal kanalı düşerdi).
+    fn register(&self, run_id: &str, tx: watch::Sender<bool>) -> bool {
+        if let Ok(mut runs) = self.runs.lock() {
+            if runs.contains_key(run_id) {
+                return false;
+            }
+            runs.insert(run_id.to_string(), tx);
+            return true;
+        }
+        false
+    }
+
+    fn remove(&self, run_id: &str) {
+        if let Ok(mut runs) = self.runs.lock() {
+            runs.remove(run_id);
+        }
+    }
+
+    fn cancel(&self, run_id: &str) -> bool {
+        if let Ok(runs) = self.runs.lock() {
+            if let Some(tx) = runs.get(run_id) {
+                tx.send_replace(true);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn resolve_timeout(timeout_ms: Option<u64>) -> Duration {
+    Duration::from_millis(
+        timeout_ms
+            .unwrap_or(TIMEOUT_SECS * 1000)
+            .clamp(1000, MAX_TIMEOUT_MS),
+    )
+}
+
+/// Çıktı tavanı: bellekte yalnızca son `limit` bayt tutulur. Canlı akış
+/// tüm parçaları gönderir; nihai `ExecOut` ise kuyruk odaklı kırpılır
+/// (hata mesajları genellikle çıktının sonundadır).
+struct CappedBuf {
+    text: String,
+    truncated: bool,
+    limit: usize,
+}
+
+impl CappedBuf {
+    fn new(limit: usize) -> Self {
+        Self {
+            text: String::new(),
+            truncated: false,
+            limit,
+        }
+    }
+
+    fn push(&mut self, chunk: &str) {
+        if self.limit == 0 {
+            self.truncated = true;
+            return;
+        }
+        if chunk.len() >= self.limit {
+            let mut start = chunk.len() - self.limit;
+            while start < chunk.len() && !chunk.is_char_boundary(start) {
+                start += 1;
+            }
+            self.text.clear();
+            self.text.push_str(&chunk[start..]);
+            self.truncated = true;
+            return;
+        }
+        if self.text.len() + chunk.len() > self.limit {
+            let drop = self.text.len() + chunk.len() - self.limit;
+            let mut start = drop;
+            while start < self.text.len() && !self.text.is_char_boundary(start) {
+                start += 1;
+            }
+            self.text.drain(..start);
+            self.truncated = true;
+        }
+        self.text.push_str(chunk);
+    }
+}
+
+/// Boru okuyucusunu sınırlı süre bekler. Süreç ölmüş olsa bile torun bir
+/// süreç boruyu açık tutabilir; bu durumda görev iptal edilir ve exec sonucu
+/// yine döner.
+async fn collect_pump(
+    mut task: tokio::task::JoinHandle<CappedBuf>,
+    stream: &str,
+) -> Result<CappedBuf, String> {
+    match tokio::time::timeout(DRAIN_TIMEOUT, &mut task).await {
+        Ok(Ok(buf)) => Ok(buf),
+        Ok(Err(e)) => Err(err(format!("{stream} okunamadı: {e}"))),
+        Err(_) => {
+            task.abort();
+            let _ = task.await;
+            Ok(CappedBuf::new(MAX_OUTPUT_BYTES))
+        }
+    }
+}
+
+async fn pump_exec<R>(reader: R, is_stderr: bool, channel: Channel<ExecEvent>) -> CappedBuf
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buf = CappedBuf::new(MAX_OUTPUT_BYTES);
+    let mut reader = BufReader::new(reader);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line).await {
+            Ok(0) => break,
+            Ok(_) => {
+                // Satır sınırında okunduğu için UTF-8 bölünmesi olmaz denebilir;
+                // yine de geçersiz baytlar kaybı önlemek için lossy çevrilir.
+                let text = String::from_utf8_lossy(&line).into_owned();
+                buf.push(&text);
+                let ev = if is_stderr {
+                    ExecEvent::Stderr { data: text }
+                } else {
+                    ExecEvent::Stdout { data: text }
+                };
+                // WebView kapandıysa gönderim başarısız olur; süreç yine
+                // tamamlanana kadar arka planda çalışır (çıktı birikmez).
+                let _ = channel.send(ev);
+            }
+            Err(_) => break,
+        }
+    }
+    buf
 }
 
 fn allow_table() -> Result<serde_json::Map<String, serde_json::Value>, String> {
@@ -624,6 +804,27 @@ fn resolve_jailed_cwd(root: &str, cwd: &str) -> Result<(PathBuf, PathBuf), Strin
     Ok((base, dir))
 }
 
+/// P0.2 — güvenlik kapılarının tek ortak yolu (hem `exec_cmd` hem
+/// `exec_cmd_stream` spawn'dan ÖNCE buradan geçer).
+fn prepare_exec(
+    cmd: &str,
+    args: &[String],
+    cwd: &str,
+    root: &str,
+    extra: &ExtraAllow,
+) -> Result<PathBuf, String> {
+    check_cmd(cmd, args, extra)?;
+    let (base, dir) = resolve_jailed_cwd(root, cwd)?;
+
+    // O7 (Y2) — exec dosya argümanlarında **symlink çözümü**:
+    // `check_file_arg` string düzeyinde çalışır; "creds -> ~/.ssh/id_ed25519"
+    // gibi workspace içi symlink'i göremez (fs araçları bu kontrolü
+    // `resolve_rooted` içinde yapar, exec deliyordu). Var olan hedef burada
+    // canonicalize edilip workspace altında kalmak zorundadır.
+    guard_file_args(&dir, &base, cmd.trim(), args)?;
+    Ok(dir)
+}
+
 #[tauri::command]
 pub async fn exec_cmd(
     cmd: String,
@@ -637,25 +838,38 @@ pub async fn exec_cmd(
     extra_allow: Option<ExtraAllow>,
 ) -> Result<ExecOut, String> {
     let extra = extra_allow.unwrap_or_default();
-    check_cmd(&cmd, &args, &extra)?;
-    let (base, dir) = resolve_jailed_cwd(&root, &cwd)?;
+    let dir = prepare_exec(&cmd, &args, &cwd, &root, &extra)?;
 
-    // O7 (Y2) — exec dosya argümanlarında **symlink çözümü**:
-    // `check_file_arg` string düzeyinde çalışır; "creds -> ~/.ssh/id_ed25519"
-    // gibi workspace içi symlink'i göremez (fs araçları bu kontrolü
-    // `resolve_rooted` içinde yapar, exec deliyordu). Var olan hedef burada
-    // canonicalize edilip workspace altında kalmak zorundadır.
-    guard_file_args(&dir, &base, cmd.trim(), &args)?;
-
-    let timeout =
-        Duration::from_millis(timeout_ms.unwrap_or(TIMEOUT_SECS * 1000).clamp(1000, 30000));
+    let timeout = resolve_timeout(timeout_ms);
 
     let mut child_cmd = tokio::process::Command::new(cmd.trim());
-    child_cmd.args(&args).current_dir(&dir).kill_on_drop(true);
-    let output_fut = child_cmd.output();
-    let output = match tokio::time::timeout(timeout, output_fut).await {
-        Ok(res) => res.map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?,
-        Err(_) => return Err(err("komut zaman aşımına uğradı")),
+    proc_tree::configure_command(&mut child_cmd);
+    child_cmd
+        .args(&args)
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = child_cmd
+        .spawn()
+        .map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?;
+    let mut tree = ProcTree::attach(&mut child);
+    let output_fut = child.wait_with_output();
+    tokio::pin!(output_fut);
+    let output = match tokio::time::timeout(timeout, &mut output_fut).await {
+        Ok(res) => {
+            // Child sonuçlandı; guard drop'ta eski PID'e dokunmamalı.
+            tree.disarm();
+            res.map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?
+        }
+        Err(_) => {
+            // Yalnız doğrudan child'ı değil, süreç ağacını da durdur.
+            tree.kill();
+            tree.disarm();
+            let _ = tokio::time::timeout(DRAIN_TIMEOUT, &mut output_fut).await;
+            return Err(err("komut zaman aşımına uğradı"));
+        }
     };
 
     let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -673,7 +887,162 @@ pub async fn exec_cmd(
         stderr,
         code: output.status.code().unwrap_or(-1),
         truncated,
+        cancelled: false,
+        timed_out: false,
     })
+}
+
+/// P0.2 — canlı akışlı exec.
+///
+/// Güvenlik kapıları (`check_cmd`, cwd jail, symlink/dosya argümanı jail'i)
+/// `prepare_exec` üzerinden **spawn'dan önce** aynen çalışır. Çıktı satır
+/// satır `Channel<ExecEvent>` ile UI'a akar; nihai sonuç yine `ExecOut`'tur
+/// (eski sözleşme korunur).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn exec_cmd_stream(
+    run_id: String,
+    cmd: String,
+    args: Vec<String>,
+    cwd: String,
+    timeout_ms: Option<u64>,
+    root: String,
+    extra_allow: Option<ExtraAllow>,
+    on_event: Channel<ExecEvent>,
+    state: tauri::State<'_, ExecState>,
+) -> Result<ExecOut, String> {
+    let run_id = run_id.trim().to_string();
+    if run_id.is_empty() || run_id.len() > 256 {
+        return Err(err("geçersiz çalıştırma kimliği"));
+    }
+    let extra = extra_allow.unwrap_or_default();
+    let dir = prepare_exec(&cmd, &args, &cwd, &root, &extra)?;
+    let timeout = resolve_timeout(timeout_ms);
+
+    // Kayıt spawn'dan ÖNCE: aynı kimlikle ikinci bir çalıştırma eskisinin
+    // iptal kanalını ezmesin ve gereksiz süreç doğurmasın.
+    let (tx, mut rx) = watch::channel(false);
+    if !state.register(&run_id, tx) {
+        return Err(err("çalıştırma kimliği zaten kullanımda"));
+    }
+
+    let mut child_cmd = tokio::process::Command::new(cmd.trim());
+    proc_tree::configure_command(&mut child_cmd);
+    child_cmd
+        .args(&args)
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = match child_cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            state.remove(&run_id);
+            return Err(err(format!("komut çalıştırılamadı: {e}")));
+        }
+    };
+    // İptal/timeout'ta doğrudan child yerine tüm süreç ağacını durdur.
+    let mut tree = ProcTree::attach(&mut child);
+    let Some(stdout) = child.stdout.take() else {
+        state.remove(&run_id);
+        return Err(err("stdout alınamadı"));
+    };
+    let Some(stderr) = child.stderr.take() else {
+        state.remove(&run_id);
+        return Err(err("stderr alınamadı"));
+    };
+
+    // Kayıt sonrası HER çıkış yolunda state temizlenmeli (erken `?` dahil).
+    let result = async {
+        let stdout_task = tokio::spawn(pump_exec(stdout, false, on_event.clone()));
+        let stderr_task = tokio::spawn(pump_exec(stderr, true, on_event.clone()));
+
+        let started = std::time::Instant::now();
+        let mut cancelled = false;
+        let mut timed_out = false;
+        let status = loop {
+            if let Some(st) = child
+                .try_wait()
+                .map_err(|e| err(format!("süreç durumu alınamadı: {e}")))?
+            {
+                break st;
+            }
+            if started.elapsed() >= timeout {
+                timed_out = true;
+                tree.kill();
+                let _ = child.start_kill();
+                break child
+                    .wait()
+                    .await
+                    .map_err(|e| err(format!("süreç beklenemedi: {e}")))?;
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(40)) => {}
+                changed = rx.changed() => {
+                    if changed.is_err() || *rx.borrow() {
+                        cancelled = true;
+                        tree.kill();
+                        let _ = child.start_kill();
+                        break child
+                            .wait()
+                            .await
+                            .map_err(|e| err(format!("süreç beklenemedi: {e}")))?;
+                    }
+                }
+            }
+        };
+        // Süreç normal bitti; ağaç guard'ı artık drop'ta öldürmemeli.
+        tree.disarm();
+
+        // Boru okuyucuları süreç ölünce EOF görür; burada reaping tamamlanır.
+        // (Torun süreç boruyu açık tutarsa yine de asılı kalmayız.)
+        // İki okuyucu da beklenir; biri hata verse bile diğeri boşta kalmaz.
+        let out_res = collect_pump(stdout_task, "stdout").await;
+        let err_res = collect_pump(stderr_task, "stderr").await;
+        let out_buf = out_res?;
+        let err_buf = err_res?;
+        let mut stdout = out_buf.text;
+        let mut stderr = err_buf.text;
+        let mut truncated = out_buf.truncated || err_buf.truncated;
+        if stdout.len() + stderr.len() > MAX_OUTPUT_BYTES {
+            let combined = format!("{stdout}\n{stderr}");
+            let mut start = combined.len().saturating_sub(MAX_OUTPUT_BYTES);
+            while start < combined.len() && !combined.is_char_boundary(start) {
+                start += 1;
+            }
+            stdout = combined[start..].to_string();
+            stderr.clear();
+            truncated = true;
+        }
+        let code = status.code().unwrap_or(-1);
+        let out = ExecOut {
+            stdout,
+            stderr,
+            code,
+            truncated,
+            cancelled,
+            timed_out,
+        };
+        let _ = on_event.send(ExecEvent::Exit {
+            code,
+            truncated,
+            cancelled,
+            timed_out,
+        });
+        Ok(out)
+    }
+    .await;
+
+    state.remove(&run_id);
+    result
+}
+
+/// P0.2 — çalışan bir `exec_cmd_stream` sürecini iptal eder.
+/// Bilinmeyen/tamamlanmış `run_id` için `false` döner (yarış durumu güvenli).
+#[tauri::command]
+pub fn exec_cancel(run_id: String, state: tauri::State<'_, ExecState>) -> bool {
+    state.cancel(run_id.trim())
 }
 
 #[cfg(test)]
@@ -687,6 +1056,80 @@ mod tests {
     /// Ek allowlist olmadan kontrol (yerleşik tablo).
     fn check_cmd2(cmd: &str, args: &[String]) -> Result<(), String> {
         check_cmd(cmd, args, &serde_json::Map::new())
+    }
+
+    /// P0.2 — timeout üst sınırı 600 sn'ye çıkarıldı; alt sınır 1 sn korunur.
+    #[test]
+    fn p02_timeout_clamp() {
+        assert_eq!(resolve_timeout(Some(0)).as_millis(), 1000);
+        assert_eq!(resolve_timeout(Some(999)).as_millis(), 1000);
+        assert_eq!(resolve_timeout(Some(15_000)).as_millis(), 15_000);
+        assert_eq!(resolve_timeout(Some(300_000)).as_millis(), 300_000);
+        assert_eq!(resolve_timeout(Some(600_000)).as_millis(), 600_000);
+        assert_eq!(resolve_timeout(Some(9_999_999)).as_millis(), 600_000);
+        // Verilmezse eski varsayılan (15 sn) korunur.
+        assert_eq!(resolve_timeout(None).as_millis(), 15_000);
+    }
+
+    /// P0.2 — iptal kaydı: bilinen id sinyal gönderir, temizlenen id false döner.
+    #[test]
+    fn p02_exec_state_cancel() {
+        let state = ExecState::default();
+        let (tx, rx) = watch::channel(false);
+        assert!(state.register("kosu-1", tx));
+        assert!(!*rx.borrow());
+        assert!(state.cancel("kosu-1"));
+        assert!(*rx.borrow());
+        assert!(!state.cancel("bilinmeyen"));
+        // Aynı kimlik ikinci kez kaydedilemez (mevcut kanal ezilmez).
+        let (tx2, _rx2) = watch::channel(false);
+        assert!(!state.register("kosu-1", tx2));
+        state.remove("kosu-1");
+        assert!(!state.cancel("kosu-1"));
+    }
+
+    /// P0.2 — `exec_cmd` artık `spawn + wait_with_output` kullanıyor; süreç
+    /// ağacı guard'ı normal çıkışta disarme edilmeli ve çıktı korunmalı.
+    #[cfg(unix)]
+    #[test]
+    fn p02_exec_cmd_spawn_yolu_calisir() {
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("macrocode-p02-exec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let root = base.to_string_lossy().to_string();
+
+        let out = tauri::async_runtime::block_on(exec_cmd(
+            "echo".to_string(),
+            vec!["merhaba".to_string()],
+            root.clone(),
+            Some(5_000),
+            root,
+            None,
+        ))
+        .expect("echo çalışmalı");
+        assert_eq!(out.code, 0);
+        assert!(out.stdout.contains("merhaba"));
+        assert!(!out.cancelled);
+        assert!(!out.timed_out);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// P0.2 — final çıktı tavanı: bellekte son 8 KB tutulur, kırpma işaretlenir.
+    #[test]
+    fn p02_capped_buf_son_kismi_tutar() {
+        let mut b = CappedBuf::new(10);
+        b.push("abc");
+        assert_eq!(b.text, "abc");
+        assert!(!b.truncated);
+        b.push("defghijk");
+        assert_eq!(b.text, "bcdefghijk");
+        assert!(b.truncated);
+        // Tek parça limitten büyükse yalnızca son limit bayt kalır.
+        let mut c = CappedBuf::new(4);
+        c.push("0123456789");
+        assert_eq!(c.text, "6789");
+        assert!(c.truncated);
     }
 
     /// Kullanıcı allowlist'i: `{ "docker": [["ps"]] }`

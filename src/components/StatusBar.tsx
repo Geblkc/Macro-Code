@@ -3,7 +3,7 @@ import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { useWorkspaceStore } from '../store/workspace';
 import { sessionCost } from '../lib/pricing';
-import { windowFor } from '../lib/engine/tokens';
+import { contextUsage } from '../lib/engine/contextUsage';
 import { useT } from '../lib/i18n';
 import { useGitStore } from '../store/git';
 import { Icon } from './icons';
@@ -57,42 +57,38 @@ export default function StatusBar({
   const model = session?.model || currentModel;
   const provider = session?.provider ?? currentProvider;
 
-  // Token toplamı (giriş + çıkış) ve bağlam kullanımı. Bağlam = **son
-  // isteğin** token boyutu; tüm mesajların toplamı değil. Eski hesap uzun
-  // sohbetlerde pencereyi aşarak göstergeyi yanlışlıkla %100'e sabitliyordu.
-  const { inTok, outTok, ctxUsed, ctxWindow } = useMemo(() => {
+  // Bağlam = **son API isteğinin** boyutu (agent'ta adım başına kaydedilir);
+  // oturum toplamı ise ayrı gösterilir. Gerçek usage yoksa yaklaşık geçmiş
+  // token'ına düşülür — `tokens` agent turunda kümülatif olduğu için kullanılmaz.
+  const { inTok, outTok } = useMemo(() => {
     let i = 0;
     let o = 0;
-    let last: { input: number; output: number } | null = null;
     for (const m of session?.messages ?? []) {
       const tok = m.tokens;
       if (!tok) continue;
       i += tok.input ?? 0;
       o += tok.output ?? 0;
-      last = { input: tok.input ?? 0, output: tok.output ?? 0 };
     }
-    const win = windowFor(model, customModels);
-    return {
-      inTok: i,
-      outTok: o,
-      ctxUsed: last ? last.input + last.output : 0,
-      ctxWindow: win,
-    };
-  }, [session?.messages, model, customModels]);
+    return { inTok: i, outTok: o };
+  }, [session?.messages]);
 
-  const ctxPct = ctxWindow > 0 ? Math.min(100, Math.round((ctxUsed / ctxWindow) * 100)) : 0;
-  const ctxClass = ctxPct >= 90 ? 'err' : ctxPct >= 75 ? 'warn' : '';
+  const ctx = useMemo(
+    () => contextUsage(session?.messages ?? [], model, customModels),
+    [session?.messages, model, customModels],
+  );
+  const ctxClass = ctx.level === 'err' ? 'err' : ctx.level === 'warn' ? 'warn' : '';
   const ctxTitle = t('status.contextUsage', {
-    used: fmtCount(ctxUsed),
-    total: fmtCount(ctxWindow),
-    percent: ctxPct,
+    used: fmtCount(ctx.used),
+    total: fmtCount(ctx.window),
+    percent: ctx.percent,
+    compactAt: ctx.compactAt,
   });
   const ctxMeter = (
     <>
       <span className="ctx-meter" aria-hidden="true">
-        <span className={`ctx-fill ${ctxClass}`} style={{ width: `${ctxPct}%` }} />
+        <span className={`ctx-fill ${ctxClass}`} style={{ width: `${ctx.percent}%` }} />
       </span>
-      {fmtCount(ctxUsed)} / {fmtCount(ctxWindow)}
+      {fmtCount(ctx.used)} / {fmtCount(ctx.window)}
     </>
   );
 
@@ -143,20 +139,25 @@ export default function StatusBar({
         {modeLabel}
       </span>
 
-      {ctxWindow > 0 ? (
+      {ctx.window > 0 ? (
         <>
           <span className="sb-sep" aria-hidden="true" />
           {onCompact ? (
             <button
               type="button"
-              className="sb-item btn-reset clickable"
+              className={`sb-item btn-reset clickable${ctx.level !== 'ok' ? ` ctx-${ctx.level}` : ''}`}
               title={`${ctxTitle} · ${t('status.contextCompact')}`}
+              aria-label={`${ctxTitle} · ${t('status.contextCompact')}`}
               onClick={onCompact}
             >
               {ctxMeter}
             </button>
           ) : (
-            <span className="sb-item" title={ctxTitle}>
+            <span
+              className={`sb-item${ctx.level !== 'ok' ? ` ctx-${ctx.level}` : ''}`}
+              title={ctxTitle}
+              aria-label={ctxTitle}
+            >
               {ctxMeter}
             </span>
           )}
@@ -166,7 +167,16 @@ export default function StatusBar({
       {inTok > 0 || outTok > 0 ? (
         <>
           <span className="sb-sep" aria-hidden="true" />
-          <span className="sb-item" title={t('status.tokenCounter')}>
+          <span
+            className="sb-item"
+            title={`${t('status.tokenCounter')} · ${t('status.sessionTotals', {
+              input: fmtCount(inTok),
+              output: fmtCount(outTok),
+            })}`}
+          >
+            <span className="sb-sigma" aria-hidden="true">
+              Σ
+            </span>
             ↑ {fmtCount(inTok)}&nbsp; ↓ {fmtCount(outTok)}
           </span>
         </>

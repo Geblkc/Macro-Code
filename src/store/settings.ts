@@ -92,6 +92,8 @@ interface SettingsStore {
   mcpSecrets: Record<string, Record<string, string>>;
   /** Faz 6: kullanıcı shell uzantıları ("docker ps" satırları). */
   customAllowList: string[];
+  /** P0.2: exec için genel timeout üst sınırı (ms). */
+  execTimeoutMs: number;
   /** Faz 6: denetim kaydı tutulsun mu (default true). */
   auditEnabled: boolean;
   /** Görünüm: yüksek kontrast paleti (token override). */
@@ -148,6 +150,8 @@ interface SettingsStore {
   setMcpEnv: (serverId: string, env: Record<string, string>) => void;
   clearMcpEnv: (serverId: string) => void;
   setCustomAllowList: (list: string[]) => void;
+  /** P0.2: exec timeout üst sınırı (1 sn–600 sn aralığına kırpılır). */
+  setExecTimeoutMs: (ms: number) => void;
   setAuditEnabled: (v: boolean) => void;
   setContrast: (v: ContrastMode) => void;
   setUiFont: (v: UiFontMode) => void;
@@ -217,6 +221,7 @@ export const useSettingsStore = create<SettingsStore>()(
       mcpServers: [],
       mcpSecrets: {},
       customAllowList: [],
+      execTimeoutMs: 300_000,
       auditEnabled: true,
       contrast: 'normal',
       uiFont: 'mono',
@@ -394,6 +399,11 @@ export const useSettingsStore = create<SettingsStore>()(
           customAllowList: [...new Set(list.map((s) => s.trim()).filter(Boolean))],
         }),
 
+      setExecTimeoutMs: (ms) =>
+        set({
+          execTimeoutMs: Math.max(1_000, Math.min(600_000, Math.round(ms || 300_000))),
+        }),
+
       setAuditEnabled: (v) => set({ auditEnabled: v }),
 
       setContrast: (v) => set({ contrast: v }),
@@ -548,6 +558,7 @@ export const useSettingsStore = create<SettingsStore>()(
               mcpServers: s.mcpServers,
               mcpSecrets: {},
               customAllowList: s.customAllowList,
+              execTimeoutMs: s.execTimeoutMs,
               auditEnabled: s.auditEnabled,
               contrast: s.contrast,
               uiFont: s.uiFont,

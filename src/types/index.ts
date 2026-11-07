@@ -72,6 +72,12 @@ export type Message = {
   model?: string;
   provider?: Provider;
   tokens?: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number };
+  /**
+   * Son API isteğinin bağlam boyutu (girdi + çıktı).
+   * Agent turlarında `tokens` tur boyunca **kümülatiftir**; bağlam göstergesi
+   * bu alanı kullanır (yoksa yaklaşık geçmiş token'ına düşülür).
+   */
+  lastRequest?: { input: number; output: number };
   /** Ekli görseller (data URL, JPEG). Sadece user mesajlarında dolar. */
   images?: string[];
   /** Faz 4: reasoning/thinking metni (dim blokta gösterilir). */
@@ -155,6 +161,8 @@ export type TerminalLine = {
   content: string;
   isStreaming?: boolean;
   codeBlocks?: CodeBlock[];
+  /** /help grup başlığı gibi vurgulu sistem satırları. */
+  emphasis?: boolean;
 };
 
 /**
@@ -332,4 +340,33 @@ export interface McpServerConfig {
   enabled: boolean;
   /** İzinli araç adları; null = tümü. */
   allowedTools: string[] | null;
+}
+
+/** Stats: usage event recorded per request */
+export interface UsageEvent {
+  id: string;
+  ts: number;
+  sessionId: string;
+  provider: string;
+  model: string;
+  project?: string;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  latencyMs: number;
+  ttftMs: number;
+  status: 'ok' | 'error' | 'rate_limited' | 'timeout' | 'cancelled';
+  costUsd: number;
+  estimated: number;
+  toolName?: string;
+  toolMs: number;
+}
+
+/** Stats: project from workspace context */
+export interface ProjectStats {
+  id: string;
+  name: string;
+  path: string;
 }

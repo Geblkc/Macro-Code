@@ -5,10 +5,19 @@
 import type { Message } from '../../types';
 import type { AgentHistoryItem } from './agent';
 import { t } from '../i18n/core';
-import { approxHistoryTokens, approxMessageTokens, type TokenCountable } from './tokens';
+import {
+  approxHistoryTokens,
+  approxMessageTokens,
+  CONTEXT_COMPACT_RATIO,
+  type TokenCountable,
+} from './tokens';
 
-/** Bütçenin %75'i aşılınca compaction tetiklenir. */
-export const COMPACTION_THRESHOLD = 0.75;
+/**
+ * Otomatik compaction'ın pencere doluluğu eşiği.
+ * `compactionLimitFor()` bu orandan türetilir; gösterge ve davranış aynı
+ * kaynağı kullanır (önceden %60 bütçe × %75 = pencere %45'iydi).
+ */
+export const COMPACTION_THRESHOLD = CONTEXT_COMPACT_RATIO;
 
 /** Özet mesajı içeriği en fazla bu kadar (döngüsel compaction önlemi). */
 export const SUMMARY_MAX_CHARS = 2000;
@@ -18,15 +27,21 @@ export const TRANSCRIPT_MAX_CHARS = 12_000;
 
 export interface CompactInput<T extends AgentHistoryItem = AgentHistoryItem> {
   history: T[];
+  /** `compactionLimitFor()` çıktısı (aşılınca özet başlar). */
   budget: number;
   summarize: (transcript: string) => Promise<string>;
   /** Testte sabit tarih için. */
   nowTs?: number;
 }
 
-export function shouldCompact(history: TokenCountable[], budget: number): boolean {
-  if (history.length === 0 || budget <= 0) return false;
-  return approxHistoryTokens(history) > budget * COMPACTION_THRESHOLD;
+/**
+ * Geçmiş, verilen compaction limitini aşıyor mu?
+ * Limit zaten `compactionLimitFor()` tarafından pencere yüzdesinden
+ * hesaplanır; burada ikinci kez eşikle çarpılmaz.
+ */
+export function shouldCompact(history: TokenCountable[], limit: number): boolean {
+  if (history.length === 0 || limit <= 0) return false;
+  return approxHistoryTokens(history) > limit;
 }
 
 /**

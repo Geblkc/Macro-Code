@@ -137,6 +137,17 @@
   word-break: break-word;
 }
 
+/* /help grup başlığı — diğer sistem satırlarından ayrışır. */
+.msg.help-group {
+  margin-top: 10px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.msg.help-group:first-child { margin-top: 0; }
+
 .log-warn {
   background: var(--bg-inset);
   border: 1px solid rgba(255, 200, 97, 0.22);

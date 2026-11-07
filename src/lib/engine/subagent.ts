@@ -4,7 +4,7 @@
  * Yazma araçları (exec/write_file/edit_file/propose_patch) yasaktır.
  */
 import { compactHistory } from './compact';
-import { budgetFor } from './tokens';
+import { compactionLimitFor } from './tokens';
 import { createAgentRun, type AgentDeps, type AgentHistoryItem } from './agent';
 
 export const SUBAGENT_BLOCKED_TOOLS = [
@@ -38,7 +38,7 @@ export async function runSubagent(
   history: AgentHistoryItem[],
   deps: SubagentDeps,
 ): Promise<SubagentResult> {
-  const budget = budgetFor(deps.model, deps.customModels ?? []);
+  const budget = compactionLimitFor(deps.model, deps.customModels ?? []);
   let effHistory = history;
   let compacted = false;
   try {

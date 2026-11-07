@@ -4,11 +4,12 @@ pub mod git;
 pub mod keystore;
 pub mod mcp;
 pub mod paths;
+mod proc_tree;
 pub mod proxy;
 pub mod stream;
 pub mod updater;
 
-pub use exec::exec_cmd;
+pub use exec::{exec_cancel, exec_cmd, exec_cmd_stream, ExecState};
 pub use fs::{
     apply_patch, glob_files, grep_files, list_dir, list_tree, memory_append, memory_read,
     read_file, undo_patch, write_file,

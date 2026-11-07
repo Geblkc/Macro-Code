@@ -3,12 +3,13 @@ mod commands;
 use tauri::Manager;
 
 use commands::{
-    apply_patch, delete_api_key, exec_cmd, get_api_key, get_app_paths, git_branches, git_commit,
-    git_detect, git_diff, git_discard, git_fetch, git_init, git_log, git_pull, git_push,
-    git_remotes, git_show, git_stage, git_status, git_switch, git_unstage, glob_files, grep_files,
-    has_any_key, key_hint, key_status, list_dir, list_tree, mcp_kill, mcp_read, mcp_spawn,
-    mcp_write, memory_append, memory_read, proxy_abort, proxy_fetch, read_file, set_api_key,
-    stream_anthropic, undo_patch, update_support, write_file, McpState, ProxyState,
+    apply_patch, delete_api_key, exec_cancel, exec_cmd, exec_cmd_stream, get_api_key,
+    get_app_paths, git_branches, git_commit, git_detect, git_diff, git_discard, git_fetch,
+    git_init, git_log, git_pull, git_push, git_remotes, git_show, git_stage, git_status,
+    git_switch, git_unstage, glob_files, grep_files, has_any_key, key_hint, key_status, list_dir,
+    list_tree, mcp_kill, mcp_read, mcp_spawn, mcp_write, memory_append, memory_read, proxy_abort,
+    proxy_fetch, read_file, set_api_key, stream_anthropic, undo_patch, update_support, write_file,
+    ExecState, McpState, ProxyState,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +17,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(McpState::default())
         .manage(ProxyState::default())
+        .manage(ExecState::default())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -72,6 +74,8 @@ pub fn run() {
             mcp_read,
             mcp_kill,
             exec_cmd,
+            exec_cmd_stream,
+            exec_cancel,
             git_detect,
             git_status,
             git_diff,

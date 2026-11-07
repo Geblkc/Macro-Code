@@ -15,6 +15,8 @@ import type { AgentMode, CustomModel, LineType, Message, ModelPrice, Provider, S
 export interface CommandLine {
   type: LineType;
   content: string;
+  /** Grup başlığı gibi görsel olarak vurgulanacak satır. */
+  emphasis?: boolean;
 }
 
 export interface CommandContext {
@@ -156,7 +158,7 @@ function helpLines(): CommandLine[] {
   for (const group of COMMAND_GROUPS) {
     const cmds = COMMAND_SPECS.filter((c) => c.group === group);
     if (cmds.length === 0) continue;
-    lines.push({ type: 'sys', content: `— ${t(GROUP_LABEL_KEY[group])} —` });
+    lines.push({ type: 'sys', content: `— ${t(GROUP_LABEL_KEY[group])} —`, emphasis: true });
     for (const c of cmds) {
       const helpKey = `commands.help.${c.name}` as TranslationKey;
       lines.push({ type: 'sys', content: t(helpKey, c.descParams) });

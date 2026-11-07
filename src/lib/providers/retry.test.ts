@@ -60,4 +60,82 @@ describe('Faz 1 G6 — retry+backoff', () => {
     expect(out).toBe('net-ok');
     expect(n).toBe(2);
   });
+
+  it('onRetry: deneme numarası ve bekleme süresini bildirir', async () => {
+    let n = 0;
+    const infos: Array<{ nextAttempt: number; maxAttempts: number; delayMs: number }> = [];
+    const out = await withRetry(
+      async () => {
+        n++;
+        if (n < 3) throw new ProviderError('rate', 429);
+        return 'ok';
+      },
+      {
+        retries: 2,
+        baseMs: 1,
+        maxMs: 5,
+        sleepImpl: async () => {},
+        onRetry: (info) => infos.push(info),
+      },
+    );
+    expect(out).toBe('ok');
+    expect(infos.map((i) => i.nextAttempt)).toEqual([2, 3]);
+    expect(infos.every((i) => i.maxAttempts === 3)).toBe(true);
+    expect(infos.every((i) => i.delayMs > 0)).toBe(true);
+  });
+
+  it('Retry-After başlığı backoff yerine kullanılır', async () => {
+    let n = 0;
+    const sleeps: number[] = [];
+    await withRetry(
+      async () => {
+        n++;
+        if (n === 1) throw new ProviderError('rate', 429, 4000);
+        return 'ok';
+      },
+      {
+        retries: 2,
+        baseMs: 1,
+        maxMs: 5,
+        sleepImpl: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+    );
+    expect(sleeps).toEqual([4000]);
+  });
+
+  it('shouldRetry false → o hata için retry yok', async () => {
+    let n = 0;
+    await expect(
+      withRetry(
+        async () => {
+          n++;
+          throw new ProviderError('rate', 429);
+        },
+        { retries: 2, sleepImpl: async () => {}, shouldRetry: () => false },
+      ),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(n).toBe(1);
+  });
+
+  it('onRetry hata fırlatsa bile retry akışı sürer', async () => {
+    let n = 0;
+    const out = await withRetry(
+      async () => {
+        n++;
+        if (n === 1) throw new ProviderError('rate', 429);
+        return 'ok';
+      },
+      {
+        retries: 2,
+        sleepImpl: async () => {},
+        onRetry: () => {
+          throw new Error('ui-boom');
+        },
+      },
+    );
+    expect(out).toBe('ok');
+    expect(n).toBe(2);
+  });
 });

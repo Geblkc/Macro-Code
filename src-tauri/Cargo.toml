@@ -1,6 +1,6 @@
 [package]
 name = "macrocode"
-version = "0.2.2"
+version = "0.2.3"
 description = "MacroCode — AI terminal desktop app"
 authors = ["Gökhan Efe Balıkçı"]
 license = "GPL-2.0-only"
@@ -28,6 +28,18 @@ tokio = { version = "1", features = ["process", "time", "io-util", "sync"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
+
+# P0.2 — iptal/timeout'ta süreç AĞACINI sonlandırma (yalnız doğrudan child değil).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
 
 [features]
 default = ["custom-protocol"]

@@ -18,7 +18,7 @@ function item(role: string, chars: number, extra: Partial<AgentHistoryItem> = {}
 describe('Faz 2 — compaction', () => {
   it('eşik altında tetiklenmez', () => {
     const h = [item('user', 100), item('assistant', 100)];
-    // ~ (8+25)*2 = 66 token; bütçe 1000 → %75 = 750
+    // ~ (8+25)*2 = 66 token; limit doğrudan 1000 → tetiklenmez
     expect(shouldCompact(h, 1000)).toBe(false);
     expect(COMPACTION_THRESHOLD).toBe(0.75);
   });
@@ -26,6 +26,13 @@ describe('Faz 2 — compaction', () => {
   it('eşik üstünde tetiklenir', () => {
     const h = [item('user', 4000), item('assistant', 4000)];
     expect(shouldCompact(h, 1000)).toBe(true);
+  });
+
+  it('limit doğrudan kullanılır (ikinci kez eşikle çarpılmaz)', () => {
+    // ~2016 token. 2200 limiti aşılmadığı için tetiklenmez; 2000 aşılır.
+    const h = [item('user', 4000), item('assistant', 4000)];
+    expect(shouldCompact(h, 2200)).toBe(false);
+    expect(shouldCompact(h, 2000)).toBe(true);
   });
 
   it('split: son mesaj korunur, keep bütçe içinde', () => {

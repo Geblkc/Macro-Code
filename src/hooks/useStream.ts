@@ -8,13 +8,13 @@ import {
   resolveModels,
   withRetry,
 } from '../lib/providers';
-import type { ChatItem, StreamChunk } from '../lib/providers';
+import type { ChatItem, RetryInfo, StreamChunk } from '../lib/providers';
 import { buildCustomProvider } from '../lib/providers/custom';
 import { DEFAULT_OLLAMA_URL } from '../lib/providers/ollama';
 import type { ApiKeys, CustomModel, Provider } from '../types';
 import { createId, useSessionStore } from '../store/session';
 import { providerNeedsKey, useSettingsStore } from '../store/settings';
-import { budgetFor } from '../lib/engine/tokens';
+import { compactionLimitFor } from '../lib/engine/tokens';
 import { compactHistory, shouldCompact } from '../lib/engine/compact';
 import { applyMemo, memoToPersisted, resolveMemo, setMemo } from '../lib/engine/compactionMemo';
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
@@ -70,6 +70,8 @@ export function useStream() {
       images?: string[],
       onFallback?: (modelId: string) => void,
       onSys?: (line: string) => void,
+      /** Retry başlarken bilgi, akış bitince `null` (geri sayım satırını temizler). */
+      onRetry?: (info: RetryInfo | null) => void,
     ): Promise<string | null> => {
     const trimmed = text.trim();
     if (!trimmed && (!images || images.length === 0)) return null;
@@ -206,8 +208,8 @@ export function useStream() {
     // Faz 2: gönderim öncesi otomatik compaction (özet kendi başına tur başlatmaz).
     let effHistory = history;
     try {
-      const budget = budgetFor(model, settings.customModels);
-      if (shouldCompact(history, budget)) {
+      const limit = compactionLimitFor(model, settings.customModels);
+      if (shouldCompact(history, limit)) {
         const cfg = summarizerConfig({
           currentProvider: providerName,
           currentModel: model,
@@ -220,7 +222,7 @@ export function useStream() {
         if (cfg) {
           effHistory = await compactHistory({
             history,
-            budget,
+            budget: limit,
             summarize: makeSummarizeFn(cfg),
           });
           if (effHistory !== history) {
@@ -248,21 +250,36 @@ export function useStream() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let usage: UsageLike | null = null;
-    let sawText = false;
+    // Text/reasoning/tool çağrısı aktıysa retry aynı içeriği ikinci kez yazar.
+    let sawOutput = false;
+    // Retry satırı, yeniden bağlanılan akıştan ilk veri gelince kaldırılır.
+    let pendingRetry = false;
     const onChunk = (chunk: StreamChunk) => {
+      if (pendingRetry) {
+        pendingRetry = false;
+        onRetry?.(null);
+      }
       // Usage event'leri kümülatiftir (Anthropic: message_start input,
       // message_delta output) — üzerine yazma, max ile birleştir.
       if (chunk.usage && (chunk.usage.input > 0 || chunk.usage.output > 0 || (chunk.usage.reasoning ?? 0) > 0)) {
         usage = mergeUsage(usage, chunk.usage);
       }
       if (chunk.text) {
-        sawText = true;
+        sawOutput = true;
         store().updateLastMessage(sessionId, chunk.text);
       }
       // Faz 4: reasoning dim blokta birikir (kalıcı mesaj alanında).
       if (chunk.reasoning) {
+        sawOutput = true;
         store().appendReasoning(sessionId, assistantId, chunk.reasoning);
       }
+      if (chunk.toolCalls && chunk.toolCalls.length > 0) sawOutput = true;
+    };
+    // onChunk içindeki atama TS'in akış daraltmasına yansımaz; okuyucu ile al.
+    const currentUsage = (): UsageLike | null => usage;
+    const reportRetry = (info: RetryInfo) => {
+      pendingRetry = true;
+      onRetry?.(info);
     };
     logInfo('stream.start', { provider: providerName, model, messages: effHistory.length });
     try {
@@ -270,20 +287,35 @@ export function useStream() {
         // G6: aynı modelde retry (429/5xx/ağ), sonra yedek model tek deneme.
         await withRetry(
           () => doStream({ provider: providerName, model }, effHistory, onChunk, ctrl.signal),
-          { retries: 2 },
+          {
+            retries: 2,
+            ...(onRetry ? { onRetry: reportRetry } : {}),
+            shouldRetry: () => !sawOutput,
+          },
         );
       } catch (first) {
-        // Yedek model: tek retry — metin aktıysa karışmasın diye denenmez.
+        // Yedek model: tek retry — metin/araç çıktısı aktıysa karışmasın diye denenmez.
         // Hedef sağlayıcı yedek modelin sahibidir (ayrı anahtar/URL çekilir).
-        if (ctrl.signal.aborted || !fallbackTarget || sawText) throw first;
+        if (ctrl.signal.aborted || !fallbackTarget || sawOutput) throw first;
         onFallback?.(fallbackTarget.model);
         await withRetry(
           () => doStream(fallbackTarget, effHistory, onChunk, ctrl.signal),
-          { retries: 2 },
+          {
+            retries: 2,
+            ...(onRetry ? { onRetry: reportRetry } : {}),
+            shouldRetry: () => !sawOutput,
+          },
         );
       }
-      if (usage) store().setMessageUsage(sessionId, assistantId, usage);
-      logInfo('stream.done', { provider: providerName, model, usage });
+      const doneUsage = currentUsage();
+      if (doneUsage) {
+        store().setMessageUsage(sessionId, assistantId, doneUsage);
+        store().setMessageLastRequest(sessionId, assistantId, {
+          input: doneUsage.input,
+          output: doneUsage.output,
+        });
+      }
+      logInfo('stream.done', { provider: providerName, model, usage: doneUsage });
       return null;
     } catch (err) {
       logError('stream.error', {
@@ -294,7 +326,14 @@ export function useStream() {
       // Kısmi yanıt ekranda kalmışsa o ana kadarki kullanım da kaydedilmeli
       // (maliyet/bağlam sayaçları eksik kalmasın). Boş placeholder silinirse
       // yazma zaten etkisizdir.
-      if (usage) store().setMessageUsage(sessionId, assistantId, usage);
+      const partialUsage = currentUsage();
+      if (partialUsage) {
+        store().setMessageUsage(sessionId, assistantId, partialUsage);
+        store().setMessageLastRequest(sessionId, assistantId, {
+          input: partialUsage.input,
+          output: partialUsage.output,
+        });
+      }
       if (ctrl.signal.aborted) {
         return null;
       }
@@ -308,6 +347,11 @@ export function useStream() {
     } finally {
       store().setStreaming(false);
       if (abortRef.current === ctrl) abortRef.current = null;
+      try {
+        onRetry?.(null);
+      } catch {
+        // UI temizliği akışı bozmaz.
+      }
     }
   }, [t]);
 

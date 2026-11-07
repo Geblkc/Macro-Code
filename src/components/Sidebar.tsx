@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore, clampSidebarWidth } from '../store/settings';
+import { getModel } from '../lib/providers';
+import { showToast } from '../lib/toast';
 import { useT } from '../lib/i18n';
-import type { TFn } from '../lib/i18n';
+import type { TFn, TranslationKey } from '../lib/i18n';
 import type { AgentMode } from '../types';
 import { Icon, type IconName } from './icons';
 
 interface Props {
   onOpenSettings: () => void;
+  onOpenStats: () => void;
   onClear: () => void;
   onExportJson: () => void;
   onImportFile: (file: File) => void;
@@ -70,10 +73,17 @@ function groupSessions(
     .map(([labelKey, items]) => ({ labelKey: labelKey as Group['labelKey'], items }));
 }
 
-/** plan/ask oturum rozeti ikonları (build varsayılan → rozet gösterilmez). */
-const MODE_ICON: Record<'plan' | 'ask', IconName> = {
+/** Oturum modu rozeti ikonları (build soluk gösterilir). */
+const MODE_ICON: Record<AgentMode, IconName> = {
+  build: 'wrench',
   plan: 'list-checks',
   ask: 'message',
+};
+
+const MODE_LABEL_KEY: Record<AgentMode, TranslationKey> = {
+  build: 'mode.build',
+  plan: 'mode.plan',
+  ask: 'mode.ask',
 };
 
 /** Göreli zaman: 14:32 / dün / 3 gün önce */
@@ -97,6 +107,7 @@ function relativeTime(ts: number, t: TFn): string {
 
 export default function Sidebar({
   onOpenSettings,
+  onOpenStats,
   onClear,
   onExportJson,
   onImportFile,
@@ -106,6 +117,7 @@ export default function Sidebar({
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeSessionId);
   const currentModel = useSettingsStore((s) => s.currentModel);
+  const customModels = useSettingsStore((s) => s.customModels);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
@@ -131,11 +143,16 @@ export default function Sidebar({
   }, []);
 
   const commitRename = useCallback(() => {
-    if (editingId && renameValue.trim()) {
-      store().renameSession(editingId, renameValue);
+    if (editingId) {
+      if (renameValue.trim()) {
+        store().renameSession(editingId, renameValue);
+      } else {
+        // Boş ad store'da yok sayılıyor; kullanıcıya neden değişmediğini söyle.
+        showToast(t('sidebar.renameEmpty'), 'info');
+      }
     }
     setEditingId(null);
-  }, [editingId, renameValue]);
+  }, [editingId, renameValue, t]);
 
   const cancelRename = useCallback(() => {
     skipBlurRef.current = true;
@@ -148,6 +165,22 @@ export default function Sidebar({
     renameRef.current?.focus();
     renameRef.current?.select();
   }, [editingId]);
+
+  // Global F2: satır odaklı olmasa da aktif oturumu yeniden adlandır.
+  // Metin alanlarında F2 tarayıcıya kalsın (imleç/geri alma davranışı).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2' || e.defaultPrevented || editingId) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      const active = sessions.find((s) => s.id === activeId);
+      if (!active) return;
+      e.preventDefault();
+      startRename(active.id, active.name);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeId, sessions, editingId, startRename]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr');
@@ -260,6 +293,7 @@ export default function Sidebar({
                         className="session-rename"
                         value={renameValue}
                         maxLength={60}
+                        title={t('sidebar.renameKeys')}
                         aria-label={t('sidebar.renameAria', { name: s.name })}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setRenameValue(e.target.value)}
@@ -286,15 +320,22 @@ export default function Sidebar({
                     <span className="session-body">
                       <span className="session-name">{s.name}</span>
                       <span className="session-meta">
-                        {s.agentMode === 'plan' || s.agentMode === 'ask' ? (
-                          <span
-                            className="smode"
-                            title={t(s.agentMode === 'plan' ? 'mode.plan' : 'mode.ask')}
-                          >
-                            <Icon name={MODE_ICON[s.agentMode]} size="sm" />
-                          </span>
-                        ) : null}
-                        <span className="smodel">{s.model || currentModel}</span>
+                        {(() => {
+                          const mode = s.agentMode ?? 'build';
+                          const modelId = s.model || currentModel;
+                          const modelLabel = getModel(modelId, customModels)?.name ?? modelId;
+                          const modeLabel = t(MODE_LABEL_KEY[mode]);
+                          return (
+                            <>
+                              <span className={`smode smode-${mode}`} title={modeLabel} aria-label={modeLabel}>
+                                <Icon name={MODE_ICON[mode]} size="sm" />
+                              </span>
+                              <span className="smodel" title={modelId}>
+                                {modelLabel}
+                              </span>
+                            </>
+                          );
+                        })()}
                         <span aria-hidden="true">·</span>
                         <span>{relativeTime(s.updatedAt, t)}</span>
                         <span aria-hidden="true">·</span>
@@ -347,6 +388,10 @@ export default function Sidebar({
         <button className="btn" onClick={onOpenSettings}>
           <Icon name="settings" size="sm" />
           <span>{t('sidebar.settings')}</span>
+        </button>
+        <button className="btn" onClick={onOpenStats}>
+          <Icon name="bar-chart" size="sm" />
+          <span>{t('sidebar.stats')}</span>
         </button>
         <div className="row">
           <button

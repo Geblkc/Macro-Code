@@ -111,11 +111,28 @@ export interface AIProvider {
 
 export class ProviderError extends Error {
   status?: number;
-  constructor(message: string, status?: number) {
+  /** Sunucunun `Retry-After` başlığından çözülen bekleme (ms). */
+  retryAfterMs?: number;
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message);
     this.name = 'ProviderError';
     this.status = status;
+    if (retryAfterMs !== undefined) this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** `Retry-After` başlığını ms'ye çevirir (saniye veya HTTP tarihi). */
+function parseRetryAfter(res: Response): number | undefined {
+  const raw = res.headers?.get?.('retry-after');
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, 60_000);
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isFinite(at)) return Math.max(0, Math.min(at - Date.now(), 60_000));
+  return undefined;
 }
 
 /**
@@ -150,7 +167,7 @@ export async function throwIfHttpError(res: Response): Promise<void> {
   } catch {
     // Govde okunamazsa sadece kodu kullan.
   }
-  throw new ProviderError(detail || `http ${status}`, status);
+  throw new ProviderError(detail || `http ${status}`, status, parseRetryAfter(res));
 }
 
 /**
@@ -412,6 +429,16 @@ export function formatProviderError(err: unknown): string | null {
   return t('errors.unknown', { message: msg });
 }
 
+/** Retry başlamadan önce UI'a verilen bilgi. */
+export interface RetryInfo {
+  /** 1 tabanlı: yapılacak deneme numarası (ilk tekrar = 2). */
+  nextAttempt: number;
+  /** Toplam deneme sayısı (retries + 1). */
+  maxAttempts: number;
+  /** Beklenecek süre (ms). */
+  delayMs: number;
+}
+
 /** Faz 1 G6 (K8): retry+backoff. Yalnızca 429/≥500 ProviderError ve TypeError retry eder. */
 export interface RetryOptions {
   retries?: number;
@@ -419,6 +446,10 @@ export interface RetryOptions {
   maxMs?: number;
   /** Testte gerçek beklemeyi kapatmak için. */
   sleepImpl?: (ms: number) => Promise<void>;
+  /** Retry uykusundan önce çağrılır (görünür geri sayım). */
+  onRetry?: (info: RetryInfo) => void;
+  /** false dönerse bu hata için retry yapılmaz (ör. kısmi metin aktıysa). */
+  shouldRetry?: (error: unknown) => boolean;
 }
 
 function isAbortErr(e: unknown): boolean {
@@ -453,9 +484,19 @@ export async function withRetry<T>(
     } catch (e) {
       last = e;
       if (attempt >= retries || !isRetryable(e)) throw e;
+      if (opts.shouldRetry && !opts.shouldRetry(e)) throw e;
       const backoff = Math.min(maxMs, baseMs * 2 ** attempt);
       const jitter = Math.floor(Math.random() * 250);
-      await sleep(Math.min(maxMs, backoff + jitter));
+      // 429 yanıtındaki Retry-After, exponential backoff'tan daha doğrudur.
+      const retryAfter = e instanceof ProviderError ? e.retryAfterMs : undefined;
+      const delayMs =
+        retryAfter !== undefined ? Math.min(retryAfter, 60_000) : Math.min(maxMs, backoff + jitter);
+      try {
+        opts.onRetry?.({ nextAttempt: attempt + 2, maxAttempts: retries + 1, delayMs });
+      } catch {
+        // UI bildirimi retry akışını bozmaz.
+      }
+      await sleep(delayMs);
     }
   }
   throw last;

@@ -19,26 +19,32 @@ Bu doküman, MacroCode projesinin yeni bir sürümünü GitHub'a yüklemek için
 
 ## 1. Sürüm Bump (Versiyon Güncelleme)
 
-Yeni sürüm numarasını belirleyin (örn. `0.2.2`). Aşağıdaki dosyalarda sürümü güncelleyin:
+Yeni sürüm numarasını belirleyin (örn. `0.2.3`). Aşağıdaki dosyalarda sürümü güncelleyin:
 
-### 1.1 `package.json`
+### 1.1 `package.json` ve `package-lock.json`
 ```json
-"version": "0.2.2"
+"version": "0.2.3"
 ```
+> `npm version 0.2.3 --no-git-tag-version` her iki dosyayı da günceller.
 
 ### 1.2 `src-tauri/Cargo.toml`
 ```toml
-version = "0.2.2"
+version = "0.2.3"
 ```
 
-### 1.3 `bundles/README.md` (varsa)
-Dosya adlarındaki sürüm referanslarını güncelleyin (örn. `MacroCode_0.2.2_amd64.deb`).
+### 1.3 `src-tauri/tauri.conf.json`
+```json
+"version": "0.2.3"
+```
 
-### 1.4 Sürüm bump scripti (opsiyonel)
+### 1.4 `bundles/README.md` (varsa)
+Dosya adlarındaki sürüm referanslarını güncelleyin (örn. `MacroCode_0.2.3_amd64.deb`).
+
+### 1.5 Sürüm bump scripti (opsiyonel)
 ```bash
-bash scripts/release.sh 0.2.2
+bash scripts/release.sh 0.2.3
 ```
-> Bu script sürüm bump + tag + push işlemlerini otomatik yapar. Manuel yapmak isterseniz aşağıdaki adımları izleyin.
+> Bu script sürüm alanlarını günceller; commit/tag/push **yapmaz**. Manuel yapmak isterseniz aşağıdaki adımları izleyin.
 
 ---
 

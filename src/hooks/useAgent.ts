@@ -7,16 +7,17 @@ import {
   type AgentRunState,
 } from '../lib/engine/agent';
 import { listApprovals, queueApproval, takeApproval } from '../lib/engine/approvals';
-import { appendAudit } from '../lib/db';
+import { appendAudit, appendUsageEvent } from '../lib/db';
+import { costForTokens } from '../lib/pricing';
 import { parseCustomAllowList } from '../lib/engine/policy';
 import { supportsTools } from '../lib/engine/providers';
 import { createId, useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { useWorkspaceStore } from '../store/workspace';
 import { apiKeyFor, providerNeedsKey } from './useStream';
-import { formatProviderError } from '../lib/providers/common';
+import { formatProviderError, type RetryInfo } from '../lib/providers/common';
 import { PROVIDER_IDS, resolveModels } from '../lib/providers';
-import { budgetFor } from '../lib/engine/tokens';
+import { compactionLimitFor } from '../lib/engine/tokens';
 import { compactHistory, shouldCompact } from '../lib/engine/compact';
 import { applyMemo, memoToPersisted, resolveMemo, setMemo } from '../lib/engine/compactionMemo';
 import { buildRepoContext } from '../lib/engine/repoContext';
@@ -78,11 +79,15 @@ function previewOutput(out: string, limit = 220): string {
 function makeRunEventHandler(opts: {
   sessionId: string;
   assistantId: string;
+  provider: string;
+  model: string;
   callNames: Map<string, string>;
   emit: (line: AgentToolLine) => void;
 }) {
-  const { sessionId, assistantId, callNames, emit } = opts;
+  const { sessionId, assistantId, provider, model, callNames, emit } = opts;
   const store = useSessionStore.getState;
+  /** P0.2: exec canlı çıktısı çağrı id'si başına birikir. */
+  const streamBuf = new Map<string, string>();
   return (e: AgentEvent) => {
     if (e.k === 'text' && e.delta) {
       // Faz 7 A3: hedef mesaj sabit (tool sonrası "son mesaj" kuralı
@@ -100,6 +105,43 @@ function makeRunEventHandler(opts: {
       } catch {
         // yoksay
       }
+    } else if (e.k === 'usage') {
+      try {
+        store().setMessageLastRequest(sessionId, assistantId, {
+          input: e.usage.input,
+          output: e.usage.output,
+        });
+      } catch {
+        // yoksay
+      }
+      // v0.2.3: her API adımı için usage_events kaydı (stats ekranı).
+      try {
+        const settings = useSettingsStore.getState();
+        const price = settings.prices[model];
+        const ws = useWorkspaceStore.getState();
+        const project = ws.label || (ws.root ? ws.root.split(/[\\/]/).filter(Boolean).pop() : undefined);
+        void appendUsageEvent({
+          id: createId(),
+          ts: Date.now(),
+          sessionId,
+          provider,
+          model,
+          ...(project ? { project } : {}),
+          inputTokens: e.usage.input ?? 0,
+          outputTokens: e.usage.output ?? 0,
+          reasoningTokens: e.usage.reasoning ?? 0,
+          cacheReadTokens: e.usage.cacheRead ?? 0,
+          cacheWriteTokens: e.usage.cacheWrite ?? 0,
+          latencyMs: 0,
+          ttftMs: 0,
+          status: 'ok',
+          costUsd: price ? costForTokens(e.usage, price) : 0,
+          estimated: price ? 0 : 1,
+          toolMs: 0,
+        });
+      } catch {
+        // stats kaydı akışı durdurmaz
+      }
     } else if (e.k === 'done' && e.usage) {
       try {
         store().setMessageUsage(sessionId, assistantId, e.usage);
@@ -108,6 +150,7 @@ function makeRunEventHandler(opts: {
       }
     } else if (e.k === 'tool_call') {
       callNames.set(e.call.id, String(e.call.name));
+      streamBuf.delete(e.call.id);
       try {
         store().appendToolCalls(sessionId, assistantId, [
           { id: e.call.id, name: String(e.call.name), args: e.call.args as Record<string, unknown> },
@@ -125,10 +168,28 @@ function makeRunEventHandler(opts: {
           status: 'run',
         },
       });
+    } else if (e.k === 'tool_stream') {
+      // P0.2: aynı tool id'siyle birleşen canlı çıktı. Terminal.tsx kartı
+      // id üzerinden upsert eder; burada kümülatif metni taşırız.
+      const toolName = callNames.get(e.id) ?? 'exec';
+      const next = `${streamBuf.get(e.id) ?? ''}${e.data}`.slice(-8000);
+      streamBuf.set(e.id, next);
+      emit({
+        type: 'sys',
+        content: `/// tool ▸ ${toolName}`,
+        tool: {
+          id: String(e.id),
+          name: toolName,
+          args: '',
+          status: 'run',
+          output: next,
+        },
+      });
     } else if (e.k === 'tool_preview') {
       emit({ type: 'sys', content: `/// ${t('tool.output')} (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}` });
     } else if (e.k === 'tool_result') {
       const toolName = callNames.get(e.id);
+      streamBuf.delete(e.id);
       try {
         store().addToolMessages(sessionId, [
           {
@@ -183,6 +244,8 @@ export function useAgent() {
       onToolLine?: (line: AgentToolLine) => void,
       images?: string[],
       onPending?: (pending: ToolCall[]) => void,
+      /** Retry başlarken bilgi, tur bitince `null`. */
+      onRetry?: (info: RetryInfo | null) => void,
     ): Promise<string | null> => {
       const trimmed = text.trim();
       if (!trimmed && (!images || images.length === 0)) return null;
@@ -266,8 +329,8 @@ export function useAgent() {
         // Faz 2: gönderim öncesi otomatik compaction (user mesajı tura dahil).
         let effHistory = history;
         try {
-          const budget = budgetFor(model, settings.customModels);
-          if (shouldCompact(history, budget)) {
+          const limit = compactionLimitFor(model, settings.customModels);
+          if (shouldCompact(history, limit)) {
             const cfg = summarizerConfig({
               currentProvider: providerName,
               currentModel: model,
@@ -280,7 +343,7 @@ export function useAgent() {
             if (cfg) {
               const compacted = await compactHistory({
                 history,
-                budget,
+                budget: limit,
                 summarize: makeSummarizeFn(cfg),
               });
               if (compacted !== history) {
@@ -364,6 +427,7 @@ export function useAgent() {
             : {}),
           extraTools,
           extraAllow: parseCustomAllowList(settings.customAllowList),
+          execTimeoutMs: settings.execTimeoutMs,
           // Faz 8 L1: alt-agent kendi compaction'ı için özetleyici (yoksa kısaltma).
           summarize: async (transcript: string) => {
             const cfg = summarizerConfig({
@@ -379,9 +443,12 @@ export function useAgent() {
             return makeSummarizeFn(cfg)(transcript);
           },
           ...(settings.auditEnabled ? { auditSessionId: sessionId } : {}),
+          ...(onRetry ? { onRetry } : {}),
           onEvent: makeRunEventHandler({
             sessionId,
             assistantId,
+            provider: providerName,
+            model,
             callNames,
             emit,
           }),
@@ -443,6 +510,11 @@ export function useAgent() {
           store().setStreaming(false);
           if (abortRef.current === ctrl) abortRef.current = null;
         }
+        try {
+          onRetry?.(null);
+        } catch {
+          // UI temizliği turu bozmaz.
+        }
       }
     },
     [],
@@ -454,6 +526,8 @@ export function useAgent() {
       decisions: Array<{ id: string; approved: boolean }>,
       onToolLine?: (line: AgentToolLine) => void,
       onPending?: (pending: ToolCall[]) => void,
+      /** Onay sonrası devam eden turda retry göstergesini temizler. */
+      onRetry?: (info: RetryInfo | null) => void,
     ): Promise<string | null> => {
       const run = activeRuns.get(sessionId);
       if (!run) {
@@ -486,6 +560,7 @@ export function useAgent() {
             });
           }
         }
+        onRetry?.(null);
         return needsRun ? t('agent.cannotRestart') : null;
       }
       const store = useSessionStore.getState;
@@ -538,6 +613,12 @@ export function useAgent() {
         activeRuns.delete(sessionId);
         store().setStreaming(false);
         return formatProviderError(err);
+      } finally {
+        try {
+          onRetry?.(null);
+        } catch {
+          // UI temizliği turu bozmaz.
+        }
       }
     },
     [],
@@ -550,7 +631,8 @@ export function useAgent() {
    * durumu okunur ve tur kaldığı yerden sürülür (eskiden "yeniden başlatılamadı").
    * Dönen sayı: geri yüklenen oturum sayısı.
    */
-  const restorePendingRuns = useCallback(async (): Promise<number> => {
+  const restorePendingRuns = useCallback(
+    async (onRetryFor?: (sessionId: string, info: RetryInfo | null) => void): Promise<number> => {
     const settings = useSettingsStore.getState();
     const ws = useWorkspaceStore.getState();
     if (!ws.root) return 0;
@@ -627,13 +709,19 @@ export function useAgent() {
           registry: resolveModels(settings.customModels),
           extraTools,
           extraAllow: parseCustomAllowList(settings.customAllowList),
+          execTimeoutMs: settings.execTimeoutMs,
           ...(settings.auditEnabled ? { auditSessionId: a.sessionId } : {}),
           ...(settings.cachePrompts !== false
             ? { cachePrompts: true, promptCacheKey: promptCacheKey(a.sessionId, model) }
             : {}),
+          ...(onRetryFor
+            ? { onRetry: (info: RetryInfo | null) => onRetryFor(a.sessionId, info) }
+            : {}),
           onEvent: makeRunEventHandler({
             sessionId: a.sessionId,
             assistantId,
+            provider: providerName,
+            model,
             callNames,
             emit: () => {},
           }),
@@ -644,8 +732,10 @@ export function useAgent() {
       restored += 1;
       logInfo('agent.run.restored', { sessionId: a.sessionId, provider: providerName, model });
     }
-    return restored;
-  }, []);
+      return restored;
+    },
+    [],
+  );
 
   return { sendAgent, resolvePending, restorePendingRuns, abort };
 }

@@ -33,6 +33,7 @@ export type IconName =
   | 'cpu'
   | 'key'
   | 'activity'
+  | 'bar-chart'
   | 'coins'
   | 'image'
   | 'play'
@@ -126,6 +127,14 @@ const P: Record<IconName, ReactNode> = {
   cpu: <path d="M5 2.5v3M11 2.5v3M3.5 5.5h9v5a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 10.5z" />,
   key: <path d="M4 7V5a4 4 0 0 1 8 0v2M3 7h10v7H3z" />,
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
+  'bar-chart': (
+    <>
+      <path d="M2.5 13.5h11" />
+      <path d="M4 13.5V9" />
+      <path d="M8 13.5V5" />
+      <path d="M12 13.5V7.5" />
+    </>
+  ),
   coins: (
     <>
       <path d="M8 2.5c3 0 5.5 1 5.5 2.2S11 7 8 7 2.5 6 2.5 4.7 5 2.5 8 2.5z" />

@@ -9,7 +9,10 @@ export const SESSIONS_TABLE_SQL =
 export const PENDING_APPROVALS_TABLE_SQL =
   'CREATE TABLE IF NOT EXISTS pending_approvals (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, call_data TEXT NOT NULL, run_state TEXT, created_at INTEGER NOT NULL);';
 export const AUDIT_TABLE_SQL =
-  'CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, args_preview TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL);';
+  'CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, args_preview TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL);'
+
+export const USAGE_TABLE_SQL =
+  'CREATE TABLE IF NOT EXISTS usage_events (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, project TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, ttft_ms INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'ok\', cost_usd REAL NOT NULL DEFAULT 0, estimated INTEGER NOT NULL DEFAULT 0, tool_name TEXT, tool_ms INTEGER NOT NULL DEFAULT 0);';
 
 const META_ID = '__meta__';
 
@@ -55,6 +58,15 @@ async function openDb(provided?: SqlDatabase): Promise<SqlDatabase | null> {
         await db.execute(SESSIONS_TABLE_SQL);
         await db.execute(PENDING_APPROVALS_TABLE_SQL);
         await db.execute(AUDIT_TABLE_SQL);
+        await db.execute(USAGE_TABLE_SQL);
+        // v0.2.3: usage_events tablosuna `project` kolonu eklendi. Daha önce
+        // oluşturulmuş geliştirme veritabanlarında kolon yoksa ekle; hata
+        // (kolon zaten var) yok sayılır.
+        try {
+          await db.execute('ALTER TABLE usage_events ADD COLUMN project TEXT');
+        } catch {
+          // Kolon zaten mevcut.
+        }
         lastDbError = null;
         return db;
       } catch (e) {
@@ -238,6 +250,29 @@ export interface AuditRow extends AuditEntry {
   ts: number;
 }
 
+export type UsageStatus = 'ok' | 'error' | 'rate_limited' | 'timeout' | 'cancelled';
+
+export interface UsageEvent {
+  id: string;
+  ts: number;
+  sessionId: string;
+  provider: string;
+  model: string;
+  project?: string;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  latencyMs: number;
+  ttftMs: number;
+  status: UsageStatus;
+  costUsd: number;
+  estimated: number;
+  toolName?: string;
+  toolMs: number;
+}
+
 /** Ateşle-bırak yazım (akışı durdurmaz; hata false döner). */
 export async function appendAudit(e: AuditEntry, provided?: SqlDatabase): Promise<boolean> {
   const db = await openDb(provided);
@@ -260,6 +295,7 @@ export async function appendAudit(e: AuditEntry, provided?: SqlDatabase): Promis
   }
 }
 
+/** Denetim kayıtlarını en yeniden eskiye okur (Faz 6). */
 export async function readAuditLog(
   sessionId: string,
   limit = 20,
@@ -281,6 +317,164 @@ export async function readAuditLog(
       argsPreview: String(r.args_preview),
       decision: String(r.decision) as AuditDecision,
       result: String(r.result),
+    }));
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e);
+    return [];
+  }
+}
+
+export async function readUsageLog(sessionId: string, limit = 20, provided?: SqlDatabase): Promise<UsageEvent[]> {
+  const db = await openDb(provided);
+  if (!db) return [];
+  try {
+    await db.execute(USAGE_TABLE_SQL);
+    const rows = await db.select<Array<Record<string, unknown>>>(
+      'SELECT id, ts, session_id, provider, model, project, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, latency_ms, ttft_ms, status, cost_usd, estimated, tool_name, tool_ms FROM usage_events WHERE session_id = $1 ORDER BY ts DESC LIMIT $2',
+      [sessionId, Math.min(Math.max(limit, 1), 100)],
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: Number(r.ts),
+      sessionId: String(r.session_id),
+      provider: String(r.provider),
+      model: String(r.model),
+      inputTokens: Number(r.input_tokens),
+      outputTokens: Number(r.output_tokens),
+      reasoningTokens: Number(r.reasoning_tokens),
+      cacheReadTokens: Number(r.cache_read_tokens),
+      cacheWriteTokens: Number(r.cache_write_tokens),
+      latencyMs: Number(r.latency_ms),
+      ttftMs: Number(r.ttft_ms),
+      status: String(r.status) as UsageStatus,
+      ...(r.project !== null && r.project !== undefined ? { project: String(r.project) } : {}),
+      costUsd: Number(r.cost_usd),
+      estimated: Number(r.estimated),
+      toolName: String(r.tool_name),
+      toolMs: Number(r.tool_ms),
+    }));
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e);
+    return [];
+  }
+}
+
+export async function appendUsageEvent(
+  event: UsageEvent,
+  provided?: SqlDatabase,
+): Promise<boolean> {
+  const db = await openDb(provided);
+  if (!db) return false;
+  try {
+    await db.execute(USAGE_TABLE_SQL);
+    await db.execute(
+      'INSERT INTO usage_events (id, ts, session_id, provider, model, project, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, latency_ms, ttft_ms, status, cost_usd, estimated, tool_name, tool_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)',
+      [
+        event.id,
+        event.ts,
+        event.sessionId,
+        event.provider,
+        event.model,
+        event.project ?? null,
+        event.inputTokens,
+        event.outputTokens,
+        event.reasoningTokens,
+        event.cacheReadTokens,
+        event.cacheWriteTokens,
+        event.latencyMs,
+        event.ttftMs,
+        event.status,
+        event.costUsd,
+        event.estimated,
+        event.toolName ?? null,
+        event.toolMs,
+      ],
+    );
+    return true;
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e);
+    return false;
+  }
+}
+
+export async function readAllUsageEvents(
+  provided?: SqlDatabase,
+): Promise<UsageEvent[]> {
+  const db = await openDb(provided);
+  if (!db) return [];
+  try {
+    await db.execute(USAGE_TABLE_SQL);
+    const rows = await db.select<Array<Record<string, unknown>>>(
+      'SELECT * FROM usage_events ORDER BY ts DESC LIMIT 1000',
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: Number(r.ts),
+      sessionId: String(r.session_id),
+      provider: String(r.provider),
+      model: String(r.model),
+      inputTokens: Number(r.input_tokens),
+      outputTokens: Number(r.output_tokens),
+      reasoningTokens: Number(r.reasoning_tokens),
+      cacheReadTokens: Number(r.cache_read_tokens),
+      cacheWriteTokens: Number(r.cache_write_tokens),
+      latencyMs: Number(r.latency_ms),
+      ttftMs: Number(r.ttft_ms),
+      status: String(r.status) as UsageStatus,
+      ...(r.project !== null && r.project !== undefined ? { project: String(r.project) } : {}),
+      costUsd: Number(r.cost_usd),
+      estimated: Number(r.estimated),
+      toolName: String(r.tool_name),
+      toolMs: Number(r.tool_ms),
+    }));
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e);
+    return [];
+  }
+}
+
+export async function deleteUsageEvent(
+  eventId: string,
+  provided?: SqlDatabase,
+): Promise<boolean> {
+  const db = await openDb(provided);
+  if (!db) return false;
+  try {
+    await db.execute('DELETE FROM usage_events WHERE id = $1', [eventId]);
+    return true;
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e);
+    return false;
+  }
+}
+
+export async function readUsageEvents(provided?: SqlDatabase): Promise<UsageEvent[]> {
+  const db = await openDb(provided);
+  if (!db) return [];
+  try {
+    await db.execute(USAGE_TABLE_SQL);
+    const rows = await db.select<Array<Record<string, unknown>>>(
+      'SELECT * FROM usage_events ORDER BY ts DESC LIMIT 10000',
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: Number(r.ts),
+      sessionId: String(r.session_id),
+      provider: String(r.provider),
+      model: String(r.model),
+      inputTokens: Number(r.input_tokens),
+      outputTokens: Number(r.output_tokens),
+      reasoningTokens: Number(r.reasoning_tokens),
+      cacheReadTokens: Number(r.cache_read_tokens),
+      cacheWriteTokens: Number(r.cache_write_tokens),
+      latencyMs: Number(r.latency_ms),
+      ttftMs: Number(r.ttft_ms),
+      status: String(r.status) as UsageStatus,
+      ...(r.project !== null && r.project !== undefined ? { project: String(r.project) } : {}),
+      costUsd: Number(r.cost_usd),
+      estimated: Number(r.estimated),
+      toolName: String(r.tool_name),
+      toolMs: Number(r.tool_ms),
     }));
   } catch (e) {
     lastDbError = e instanceof Error ? e.message : String(e);

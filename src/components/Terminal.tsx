@@ -56,6 +56,8 @@ interface ViewLine {
   tool?: ToolEvent;
   /** Faz 4: hata satırı "tekrar dene" eylemi (extras'tan taşınır). */
   retry?: () => void;
+  /** /help grup başlığı gibi vurgulu satırlar. */
+  emphasis?: boolean;
 }
 
 function formatClock(ts: number, fmt: '24h' | '12h'): string {
@@ -190,6 +192,7 @@ export default function Terminal({
         type: e.type,
         content: e.content,
         ...(e.retry ? { retry: e.retry } : {}),
+        ...(e.emphasis ? { emphasis: true } : {}),
         meta:
           showTimestamps && (e.type === 'err' || e.type === 'warn' || e.type === 'user')
             ? formatClock(e.ts, clockFormat)
@@ -373,6 +376,7 @@ export default function Terminal({
                   showThinking={showThinking}
                   onCopy={copy}
                   onRetry={l.retry}
+                  emphasis={l.emphasis}
                   className={marks}
                   dataLineKey={l.key}
                 />

@@ -16,8 +16,18 @@
 .tool-head {
   display: flex;
   align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.tool-head:hover { background: var(--bg-overlay); }
+
+.tool-toggle {
+  display: flex;
+  align-items: center;
   gap: 9px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   text-align: left;
   padding: 6px 10px;
   background: transparent;
@@ -25,9 +35,22 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
-  transition: background var(--dur-1) var(--ease-out);
 }
-.tool-head:hover { background: var(--bg-overlay); }
+
+.tool-stop {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--col-err);
+  cursor: pointer;
+}
+.tool-stop:hover { background: var(--bg-overlay); }
 
 .tool-ico { color: var(--col-tool); display: grid; place-items: center; flex-shrink: 0; }
 .tool-failed .tool-ico { color: var(--col-err); }
@@ -58,7 +81,7 @@
 .tool-status.run { color: var(--col-warn); animation: sb-pulse 1.2s var(--ease-in-out) infinite; }
 
 .tool-chev { color: var(--text-tertiary); flex-shrink: 0; transition: transform var(--dur-2) var(--ease-out); }
-.tool-head[aria-expanded='true'] .tool-chev { transform: rotate(180deg); }
+.tool-toggle[aria-expanded='true'] .tool-chev { transform: rotate(180deg); }
 
 .tool-out {
   margin: 0;

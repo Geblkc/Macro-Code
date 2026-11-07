@@ -143,6 +143,25 @@ export default function ChatTab({ draft, patch, onOpenProviders }: Props) {
           ) : null}
         </div>
 
+        <div className="field">
+          <label className="field-label">{t('settings.chat.execTimeout')}</label>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={600}
+            step={1}
+            value={Math.round(draft.execTimeoutMs / 1000)}
+            onChange={(e) =>
+              patch({
+                execTimeoutMs:
+                  Math.max(1, Math.min(600, Number(e.target.value) || 300)) * 1000,
+              })
+            }
+          />
+          <span className="field-note">{t('settings.chat.execTimeoutNote')}</span>
+        </div>
+
         <div className="checkrow">
           <Switch
             checked={draft.auditEnabled}

@@ -19,6 +19,8 @@ interface Props {
   onRetry?: () => void;
   /** Satır arama vurgusu (Terminal ekler: match-hit / match-current). */
   className?: string;
+  /** /help grup başlığı gibi vurgulu sistem satırı. */
+  emphasis?: boolean;
   /** Arama kaydırma hedefi için DOM çapası (`data-line-key`). */
   dataLineKey?: string;
 }
@@ -50,12 +52,13 @@ function MessageLineInner({
   onCopy,
   onRetry,
   className,
+  emphasis,
   dataLineKey,
 }: Props) {
   const t = useT();
   const mdRef = useRef<HTMLDivElement>(null);
   // Kök satır sınıfı: `msg msg-<tip>` + arama vurgusu.
-  const rootClass = `msg msg-${type}${className ? ` ${className}` : ''}`;
+  const rootClass = `msg msg-${type}${emphasis ? ' help-group' : ''}${className ? ` ${className}` : ''}`;
 
   // ── Faz 4: stream throttle (trailing-edge) ──
   // İçerik her delta'da değişir; render yalnız STREAM_RENDER_MS gecikmeyle yapılır.

@@ -6,7 +6,7 @@ import { getProvider } from '../providers';
 import { appendAudit } from '../db';
 import type { ChatItem, StreamChunk } from '../providers/common';
 import { mergeUsage, sumUsage, withRetry } from '../providers/common';
-import type { TokenUsage } from '../providers/common';
+import type { RetryInfo, TokenUsage } from '../providers/common';
 import type { AgentMode, Message, Model, ModelParams, Provider } from '../../types';
 import { CORE_TOOLS, strArg } from './toolspec';
 import { filterToolsForMode, getDisallowedToolsForMode, isToolDisallowed } from './agentModes';
@@ -70,6 +70,11 @@ export interface AgentDeps {
   customModels?: import('../../types').CustomModel[];
   /** Faz 6: kullanıcı allowlist uzantısı (parseCustomAllowList çıktısı). */
   extraAllow?: Record<string, string[][]>;
+  /** P0.2: exec için ayarlardan gelen genel timeout üst sınırı (ms). */
+  execTimeoutMs?: number;
+  /** Retry başlamadan önce UI'a bildirilir (429/5xx geri sayımı). */
+  /** Retry başladığında bilgi, yeniden bağlanıp veri gelince `null`. */
+  onRetry?: (info: RetryInfo | null) => void;
   /** Faz 6: doluysa her tool kararı audit_log'a yazılır. */
   auditSessionId?: string;
   /**
@@ -208,6 +213,10 @@ async function defaultRunTool(
      *  çalıştırılabilmesi için kullanıcının onay ekranından geçmiş olması şart. */
     approved?: boolean;
     extraAllow?: Record<string, string[][]>;
+    /** P0.2: canlı çıktı köprüsü (agent `tool_stream` olayı üretir). */
+    onStream?: (stream: 'stdout' | 'stderr', data: string) => void;
+    /** P0.2: ayarlardan gelen genel timeout üst sınırı. */
+    maxTimeoutMs?: number;
   },
 ): Promise<string> {
   if (
@@ -246,6 +255,8 @@ async function defaultRunTool(
     return toolExec(root, call, mode, {
       approved: opts?.approved,
       extraAllow: opts?.extraAllow,
+      onStream: opts?.onStream,
+      maxTimeoutMs: opts?.maxTimeoutMs,
     });
   }
   throw new Error(`bilinmeyen araç: ${call.name}`);
@@ -282,7 +293,12 @@ async function executeTool(
     return runSubagentTool(deps, call, msgs);
   }
   if (deps.runToolImpl) return deps.runToolImpl(call);
-  return defaultRunTool(deps.workspaceRoot, mode, call, msgs, { extraAllow: deps.extraAllow });
+  return defaultRunTool(deps.workspaceRoot, mode, call, msgs, {
+    extraAllow: deps.extraAllow,
+    maxTimeoutMs: deps.execTimeoutMs,
+    onStream: (stream, data) =>
+      deps.onEvent({ k: 'tool_stream', id: call.id, stream, data }),
+  });
 }
 
 // ── Faz 1 G2: duraklatılabilir agent döngüsü (K2 reddet+devam) ─────────────
@@ -318,23 +334,35 @@ async function streamOneTurn(
   let thinking: Array<{ thinking: string; signature: string }> = [];
   // Faz 7 A4: tur içi kümülatif (max) → tur sonunda toplama (sum) eklenir.
   let turnUsage: TokenUsage | undefined;
+  // Kısmi çıktı üretildiyse retry aynı metni/araç çağrısını ikinci kez yazar.
+  let moved = false;
+  // Retry satırı, yeniden bağlanılan akıştan ilk veri gelince kaldırılır.
+  let pendingRetry = false;
   const onChunk = (c: StreamChunk) => {
+    if (pendingRetry) {
+      pendingRetry = false;
+      deps.onRetry?.(null);
+    }
     if (c.usage) {
       turnUsage = mergeUsage(turnUsage, c.usage);
     }
     if (c.text) {
+      moved = true;
       stepText += c.text;
       state.finalText += c.text;
       deps.onEvent({ k: 'text', delta: c.text });
     }
     // Faz 4: reasoning dim blokta akar (kalıcı mesaja useAgent/useStream yazar).
     if (c.reasoning) {
+      moved = true;
       deps.onEvent({ k: 'reasoning', delta: c.reasoning });
     }
     if (c.thinking && c.thinking.length > 0) {
+      moved = true;
       thinking = [...thinking, ...c.thinking];
     }
     if (c.toolCalls && c.toolCalls.length > 0) {
+      moved = true;
       toolCalls = [...toolCalls, ...c.toolCalls];
     }
   };
@@ -366,9 +394,23 @@ async function streamOneTurn(
         : {}),
     });
   };
-  await withRetry(() => runStream(), { retries: 2 });
+  await withRetry(() => runStream(), {
+    retries: 2,
+    ...(deps.onRetry
+      ? {
+          onRetry: (info: RetryInfo) => {
+            pendingRetry = true;
+            deps.onRetry?.(info);
+          },
+        }
+      : {}),
+    shouldRetry: () => !moved,
+  });
   // Faz 7 A4: turun usage'ı toplama eklenir (her tur ayrı bir istektir).
   state.usage = sumUsage(state.usage, turnUsage);
+  // Bağlam göstergesi için **son adımın** kullanımı ayrıca bildirilir;
+  // `done` olayı ise tur boyunca kümülatif toplamı taşır (maliyet).
+  if (turnUsage) deps.onEvent({ k: 'usage', usage: turnUsage });
   return { stepText, toolCalls, thinking };
 }
 
@@ -622,6 +664,9 @@ export function createAgentRun(
               : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
                   approved: true,
                   extraAllow: deps.extraAllow,
+                  maxTimeoutMs: deps.execTimeoutMs,
+                  onStream: (stream, data) =>
+                    deps.onEvent({ k: 'tool_stream', id: entry.call.id, stream, data }),
                 }));
             const clipped = clipOutput(out);
             deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped });

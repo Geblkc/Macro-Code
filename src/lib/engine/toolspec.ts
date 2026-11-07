@@ -114,6 +114,11 @@ export const CORE_TOOLS: ToolDefinition[] = [
         cmd: { type: 'string', description: 'Command (e.g. npm)' },
         args: { type: 'array', items: { type: 'string' } },
         cwd: { type: 'string', description: 'Workspace-relative working directory' },
+        timeoutMs: {
+          type: 'number',
+          description:
+            'Optional timeout in ms (default: 30s normal, 120s test, 300s build; max 600000)',
+        },
       },
       required: ['cmd'],
       additionalProperties: false,

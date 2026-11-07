@@ -92,6 +92,7 @@ function blankDraft(): Draft {
     cachePrompts: true,
     mcps: [],
     customAllowList: [],
+    execTimeoutMs: 300_000,
     auditEnabled: true,
     contrast: 'normal',
     uiFont: 'mono',
@@ -168,6 +169,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     next.showThinking = s.showThinking;
     next.cachePrompts = s.cachePrompts;
     next.customAllowList = [...s.customAllowList];
+    next.execTimeoutMs = s.execTimeoutMs;
     next.auditEnabled = s.auditEnabled;
     next.contrast = s.contrast;
     next.uiFont = s.uiFont;
@@ -703,6 +705,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     s.setShowThinking(draft.showThinking);
     s.setCachePrompts(draft.cachePrompts);
     s.setCustomAllowList(draft.customAllowList);
+    s.setExecTimeoutMs(draft.execTimeoutMs);
     s.setAuditEnabled(draft.auditEnabled);
     s.setContrast(draft.contrast);
     s.setUiFont(draft.uiFont);

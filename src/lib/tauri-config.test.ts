@@ -134,6 +134,12 @@ describe('Rust migration sözleşmesi (Faz 7 A1)', () => {
     expect(libRs).toContain('proxy_fetch');
     expect(libRs).toContain('stream_anthropic');
   });
+
+  it('P0.2: canlı exec + iptal komutları ve state kayıtlı', () => {
+    expect(libRs).toContain('exec_cmd_stream');
+    expect(libRs).toContain('exec_cancel');
+    expect(libRs).toContain('ExecState::default()');
+  });
 });
 
 describe('Tauri updater sözleşmesi', () => {

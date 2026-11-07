@@ -15,6 +15,17 @@ const EFFORT_LABEL_KEYS: Record<string, TranslationKey> = {
   medium: 'effort.value.medium',
   high: 'effort.value.high',
   xhigh: 'effort.value.xhigh',
+  max: 'effort.value.max',
+};
+
+/** Değerin hız/maliyet etkisi — gönderilen değer değişmez, yalnız ipucu. */
+const EFFORT_HINT_KEYS: Record<string, TranslationKey> = {
+  minimal: 'effort.hint.minimal',
+  low: 'effort.hint.low',
+  medium: 'effort.hint.medium',
+  high: 'effort.hint.high',
+  xhigh: 'effort.hint.xhigh',
+  max: 'effort.hint.max',
 };
 
 interface Props {
@@ -167,6 +178,11 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
     return key ? t(key) : v;
   };
 
+  const effortHint = (v: string): string | null => {
+    const key = EFFORT_HINT_KEYS[v];
+    return key ? t(key) : null;
+  };
+
   let label = t('common.dash');
   if (mode === 'fixed') label = t('effort.fixedOn');
   else if (mode === 'toggle') {
@@ -305,7 +321,12 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
                   <span className="effort-option-icon">
                     <Icon name="activity" size="sm" />
                   </span>
-                  <span className="effort-option-title">{effortText(value)}</span>
+                  <span className="effort-option-text">
+                    <span className="effort-option-title">{effortText(value)}</span>
+                    {effortHint(value) ? (
+                      <span className="effort-option-hint">{effortHint(value)}</span>
+                    ) : null}
+                  </span>
                   {value === selected && (
                     <span className="effort-option-check">
                       <Icon name="check" size="sm" />

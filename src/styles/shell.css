@@ -590,6 +590,10 @@
   color: var(--text-secondary);
   flex-shrink: 0;
 }
+/* Varsayılan mod (build) soluk; plan/ask ayırt edici renkte. */
+.session-meta .smode-build { color: var(--text-tertiary); opacity: 0.7; }
+.session-meta .smode-plan { color: var(--col-info, var(--accent)); }
+.session-meta .smode-ask { color: var(--col-warn); }
 
 .session-actions {
   opacity: 0;
@@ -740,6 +744,19 @@
 .ctx-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width var(--dur-3) var(--ease-out); }
 .ctx-fill.warn { background: var(--col-warn); }
 .ctx-fill.err { background: var(--col-err); }
+
+/* Bağlam göstergesi eşik renkleri (metin + çubuk). */
+.sb-item.ctx-warn { color: var(--col-warn); }
+.sb-item.ctx-err { color: var(--col-err); }
+.sb-item.ctx-err .ctx-fill { animation: sb-pulse 1.4s var(--ease-in-out) infinite; }
+
+/* Oturum toplamı (Σ) — son istek bağlamından görsel olarak ayrışır. */
+.sb-sigma {
+  display: inline-block;
+  margin-right: 2px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
 
 .sb-badge {
   display: inline-flex;
@@ -1228,10 +1245,24 @@
   background: rgba(244, 114, 182, 0.12);
 }
 
+.effort-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
 .effort-option-title {
   font-size: var(--fs-sm);
   font-weight: 600;
-  flex: 1;
+}
+
+.effort-option-hint {
+  font-size: var(--fs-2xs);
+  font-weight: 400;
+  color: var(--text-tertiary);
+  line-height: 1.25;
 }
 
 .effort-option-check {

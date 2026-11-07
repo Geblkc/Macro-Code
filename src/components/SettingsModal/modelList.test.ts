@@ -34,6 +34,7 @@ function draft(overrides: Partial<Draft> = {}): Draft {
     cachePrompts: true,
     mcps: [],
     customAllowList: [],
+    execTimeoutMs: 300_000,
     auditEnabled: true,
     contrast: 'normal',
     uiFont: 'mono',

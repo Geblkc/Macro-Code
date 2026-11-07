@@ -75,6 +75,12 @@ interface SessionStore {
     messageId: string,
     usage: UsageLike,
   ) => void;
+  /** Son isteğin bağlam boyutu (agent'ta `tokens` kümülatif olduğundan ayrı). */
+  setMessageLastRequest: (
+    sessionId: string,
+    messageId: string,
+    usage: { input: number; output: number },
+  ) => void;
   /** Faz 4: reasoning delta'sini assistant mesajına ekler. */
   appendReasoning: (sessionId: string, messageId: string, delta: string) => void;
   /** Faz 4: turun imzalı thinking bloklarını assistant mesajına yazar. */
@@ -325,6 +331,28 @@ export const useSessionStore = create<SessionStore>()(
                   updatedAt: Date.now(),
                   messages: sess.messages.map((m) =>
                     m.id === messageId ? { ...m, tokens: { ...usage } } : m,
+                  ),
+                }
+              : sess,
+          ),
+        })),
+
+      setMessageLastRequest: (sessionId, messageId, usage) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? {
+                  ...sess,
+                  messages: sess.messages.map((m) =>
+                    m.id === messageId
+                      ? {
+                          ...m,
+                          lastRequest: {
+                            input: Math.max(0, usage.input),
+                            output: Math.max(0, usage.output),
+                          },
+                        }
+                      : m,
                   ),
                 }
               : sess,

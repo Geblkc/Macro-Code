@@ -5,6 +5,7 @@ import Terminal from './components/Terminal';
 import InputBar from './components/InputBar';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
+import StatsScreen from './components/StatsScreen';
 import ConfirmDialog from './components/ConfirmDialog';
 import GitPanel from './components/git/GitPanel';
 import ToastHost from './components/Toast';
@@ -18,7 +19,7 @@ import { listApprovals, restoreApprovals, takeApproval } from './lib/engine/appr
 import type { PendingApproval } from './lib/engine/approvals';
 import type { ApprovalMode, ToolCall } from './lib/engine/types';
 import { summarizeWorkspace } from './lib/engine/context';
-import { budgetFor } from './lib/engine/tokens';
+import { compactionLimitFor } from './lib/engine/tokens';
 import { clearMemo } from './lib/engine/compactionMemo';
 import { appendMemory, buildRepoContext, clearRepoContextCache } from './lib/engine/repoContext';
 import { checkRootExists, pickWorkspaceFolder, validateRootInput } from './lib/workspace';
@@ -33,6 +34,7 @@ import { useGitStore } from './store/git';
 import { copyText } from './lib/clipboard';
 import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsToDb, sqlError } from './lib/db';
 import type { ExtraLine, Provider } from './types';
+import type { RetryInfo } from './lib/providers/common';
 import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
 import { APP_VERSION } from './lib/appInfo';
@@ -86,10 +88,23 @@ interface ConfirmRequest {
   onCancel?: () => void;
 }
 
+/** Geçici retry satırının sabit kimliği (extras içinde tek satır). */
+const RETRY_LINE_ID = 'retry-status';
+
+interface RetryState {
+  sessionId: string;
+  nextAttempt: number;
+  maxAttempts: number;
+  /** Geri sayımın biteceği zaman (epoch ms). */
+  until: number;
+}
+
 export default function App() {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
+const [statsOpen, setStatsOpen] = useState(false);
   const [extrasBySession, setExtrasBySession] = useState<Record<string, ExtraLine[]>>({});
+  const [retryState, setRetryState] = useState<RetryState | null>(null);
   /** Terminal araması kapanınca giriş alanına odak döner (InputBar yayını). */
   const inputFocus = useRef<(() => void) | null>(null);
   /** Genel onay isteği — ConfirmDialog uygulama kökünde tek instance. */
@@ -159,21 +174,57 @@ export default function App() {
    */
   const extrasCountRef = useRef<Map<string, number>>(new Map());
   const extrasCappedRef = useRef<Set<string>>(new Set());
+  /**
+   * P0.2: aynı araç kartına ait satırlar (canlı exec çıktısı) tek kayıtta
+   * güncellenir. Aksi halde saniyede onlarca parça extras cap'ini doldurup
+   * eski kartları siliyordu.
+   */
+  const toolLineIdsRef = useRef<Map<string, Set<string>>>(new Map());
 
   const pushExtra = useCallback(
     (sessionId: string, line: Omit<ExtraLine, 'id' | 'ts'>) => {
       const full: ExtraLine = { ...line, id: createId(), ts: Date.now() };
-      const count = (extrasCountRef.current.get(sessionId) ?? 0) + 1;
+      // Aynı tool id'si daha önce eklendiyse yeni satır sayma (upsert).
+      let isNewToolLine = true;
+      if (line.tool) {
+        let ids = toolLineIdsRef.current.get(sessionId);
+        if (!ids) {
+          ids = new Set();
+          toolLineIdsRef.current.set(sessionId, ids);
+        }
+        isNewToolLine = !ids.has(line.tool.id);
+        if (isNewToolLine) ids.add(line.tool.id);
+      }
+      const count = isNewToolLine
+        ? (extrasCountRef.current.get(sessionId) ?? 0) + 1
+        : (extrasCountRef.current.get(sessionId) ?? 0);
       extrasCountRef.current.set(sessionId, count);
       // Uyarı kararı + ek satır updater DIŞINDA: StrictMode'da updater iki kez
       // çalışır; yan etkisiz saf kalması gerekir.
-      const firstCap = count > MAX_EXTRAS_PER_SESSION && !extrasCappedRef.current.has(sessionId);
+      const firstCap = isNewToolLine && count > MAX_EXTRAS_PER_SESSION && !extrasCappedRef.current.has(sessionId);
       if (firstCap) extrasCappedRef.current.add(sessionId);
       const warn: ExtraLine | null = firstCap
         ? { id: createId(), ts: Date.now(), type: 'sys', content: t('extrasCapped') }
         : null;
       setExtrasBySession((prev) => {
-        const next = [...(prev[sessionId] ?? []), full, ...(warn ? [warn] : [])];
+        const arr = prev[sessionId] ?? [];
+        if (line.tool) {
+          const idx = arr.findIndex((x) => x.tool?.id === line.tool!.id);
+          if (idx >= 0) {
+            const before = arr[idx];
+            const tool = {
+              ...before.tool!,
+              ...line.tool,
+              // Akış parçaları boş args gönderir; özgün args korunur.
+              args: line.tool.args || before.tool!.args,
+              output: line.tool.output ?? before.tool!.output,
+            };
+            const next = arr.slice();
+            next[idx] = { ...before, type: line.type, content: line.content, tool };
+            return { ...prev, [sessionId]: next };
+          }
+        }
+        const next = [...arr, full, ...(warn ? [warn] : [])];
         const capped =
           next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
         return { ...prev, [sessionId]: capped };
@@ -181,6 +232,70 @@ export default function App() {
     },
     [t],
   );
+
+  /** Retry geri sayım satırını ekler/günceller (extras cap'ine sayılmaz). */
+  const upsertRetryLine = useCallback((sessionId: string, content: string) => {
+    setExtrasBySession((prev) => {
+      const arr = prev[sessionId] ?? [];
+      const idx = arr.findIndex((x) => x.id === RETRY_LINE_ID);
+      if (idx >= 0) {
+        const next = arr.slice();
+        next[idx] = { ...next[idx], content, ts: Date.now() };
+        return { ...prev, [sessionId]: next };
+      }
+      const next = [...arr, { id: RETRY_LINE_ID, ts: Date.now(), type: 'warn' as const, content }];
+      return {
+        ...prev,
+        [sessionId]:
+          next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next,
+      };
+    });
+  }, []);
+
+  const clearRetry = useCallback((sessionId: string) => {
+    setRetryState((prev) => (prev?.sessionId === sessionId ? null : prev));
+    setExtrasBySession((prev) => {
+      const arr = prev[sessionId];
+      if (!arr || !arr.some((x) => x.id === RETRY_LINE_ID)) return prev;
+      return { ...prev, [sessionId]: arr.filter((x) => x.id !== RETRY_LINE_ID) };
+    });
+  }, []);
+
+  /** Retry bilgisini oturum bazında gösterir; `null` satırı temizler. */
+  const reportRetry = useCallback(
+    (sessionId: string, info: RetryInfo | null) => {
+      if (!info) {
+        clearRetry(sessionId);
+        return;
+      }
+      setRetryState({
+        sessionId,
+        nextAttempt: info.nextAttempt,
+        maxAttempts: info.maxAttempts,
+        until: Date.now() + info.delayMs,
+      });
+    },
+    [clearRetry],
+  );
+
+  // Saniyede iki kez güncelle: geri sayım "4 sn → 3 sn…" görünür.
+  useEffect(() => {
+    if (!retryState) return;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((retryState.until - Date.now()) / 1000));
+      upsertRetryLine(
+        retryState.sessionId,
+        t('status.retrying', {
+          attempt: retryState.nextAttempt,
+          total: retryState.maxAttempts,
+          seconds,
+        }),
+      );
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [retryState, t, upsertRetryLine]);
 
   /** Onay kartındaki "bu komutu her zaman çalıştır" kutusu -> allowlist. */
   const handleAlwaysAllow = useCallback((_sessionId: string, command: string) => {
@@ -193,6 +308,8 @@ export default function App() {
 
   const clearView = useCallback((sessionId: string) => {
     extrasCountRef.current.set(sessionId, 0);
+    toolLineIdsRef.current.delete(sessionId);
+    extrasCappedRef.current.delete(sessionId);
     setExtrasBySession((prev) => ({ ...prev, [sessionId]: [] }));
     setClearedBefore((prev) => ({ ...prev, [sessionId]: Date.now() }));
   }, []);
@@ -235,10 +352,11 @@ export default function App() {
             sessionId,
             next.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
           ),
+        (info) => reportRetry(sessionId, info),
       );
       if (err) pushExtra(sessionId, { type: 'err', content: err });
     },
-    [pendingBySession, resolvePending, pushExtra, setPending, dropPending],
+    [pendingBySession, resolvePending, pushExtra, setPending, dropPending, reportRetry],
   );
 
   /** M1: `id` yoksa tümü (toplu reddetme — Esc de buradan gelir, güvenli taraf). */
@@ -259,10 +377,11 @@ export default function App() {
             sessionId,
             next.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
           ),
+        (info) => reportRetry(sessionId, info),
       );
       if (err) pushExtra(sessionId, { type: 'err', content: err });
     },
-    [pendingBySession, resolvePending, pushExtra, setPending, dropPending],
+    [pendingBySession, resolvePending, pushExtra, setPending, dropPending, reportRetry],
   );
 
   /**
@@ -525,8 +644,8 @@ export default function App() {
         }
         const settings = useSettingsStore.getState();
         const modelId = target?.model || settings.currentModel;
-        const budget = budgetFor(modelId, settings.customModels);
-        if (!shouldCompact(msgs, budget)) {
+        const limit = compactionLimitFor(modelId, settings.customModels);
+        if (!shouldCompact(msgs, limit)) {
           pushExtra(sessionId, { type: 'sys', content: t('commands.compactNotNeeded') });
           return;
         }
@@ -547,7 +666,7 @@ export default function App() {
           pushExtra(sessionId, { type: 'sys', content: t('commands.compactRunning') });
           const { messages: next, dropped, kept } = await compactSessionMessages(
             msgs,
-            budget,
+            limit,
             makeSummarizeFn(cfg),
           );
           if (dropped === 0) {
@@ -908,6 +1027,7 @@ export default function App() {
                   sessionId,
                   next.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
                 ),
+              (info) => reportRetry(sessionId, info),
             );
             if (err) pushExtra(sessionId, { type: 'err', content: err });
             return;
@@ -931,6 +1051,7 @@ export default function App() {
                 sessionId,
                 next.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
               ),
+            (info) => reportRetry(sessionId, info),
           );
           if (err) pushExtra(sessionId, { type: 'err', content: err });
           return;
@@ -1102,6 +1223,7 @@ export default function App() {
               sessionId,
               pending.map((c) => ({ id: c.id, sessionId, call: c, createdAt: Date.now() })),
             ),
+          (info) => reportRetry(sessionId, info),
         );
         if (err)
           pushExtra(sessionId, {
@@ -1117,6 +1239,7 @@ export default function App() {
         images,
         (fb) => pushExtra(sessionId, { type: 'sys', content: t('agent.fallbackUsed', { model: fb }) }),
         (line) => pushExtra(sessionId, { type: 'sys', content: line }),
+        (info) => reportRetry(sessionId, info),
       );
       if (err)
         pushExtra(sessionId, {
@@ -1136,6 +1259,7 @@ export default function App() {
       performUpdateCheck,
       runUpdateInstall,
       askConfirm,
+      reportRetry,
       t,
     ],
   );
@@ -1209,7 +1333,7 @@ export default function App() {
       // yerden sürülebilir (eskiden "yeniden başlatılamadı" deniyordu).
       let resumedRuns = 0;
       try {
-        resumedRuns = await restorePendingRuns();
+        resumedRuns = await restorePendingRuns((sessionId, info) => reportRetry(sessionId, info));
       } catch {
         // Geri yükleme hatası boot'u durdurmaz.
       }
@@ -1329,6 +1453,10 @@ export default function App() {
         extrasCountRef.current.delete(id);
         extrasCappedRef.current.delete(id);
       }
+    }
+    // P0.2: silinen oturumların tool kartı kimlikleri de bırakılmaz.
+    for (const id of [...toolLineIdsRef.current.keys()]) {
+      if (!ids.has(id)) toolLineIdsRef.current.delete(id);
     }
     setExtrasBySession((prev) => {
       const dead = Object.keys(prev).filter((k) => !ids.has(k));
@@ -1477,6 +1605,7 @@ export default function App() {
       <div className="body">
         <Sidebar
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenStats={() => setStatsOpen(true)}
           onClear={() => {
             if (activeId) clearView(activeId);
           }}
@@ -1563,6 +1692,7 @@ export default function App() {
         onGitClick={() => useGitStore.getState().toggle()}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <StatsScreen open={statsOpen} onClose={() => setStatsOpen(false)} />
       <ConfirmDialog
         open={confirmReq !== null}
         title={confirmReq?.title ?? ''}

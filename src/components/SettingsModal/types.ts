@@ -92,6 +92,8 @@ export interface Draft {
   cachePrompts: boolean;
   mcps: McpDraft[];
   customAllowList: string[];
+  /** P0.2: exec genel timeout üst sınırı (ms). */
+  execTimeoutMs: number;
   auditEnabled: boolean;
   /** Görünüm: yüksek kontrast paleti. */
   contrast: 'normal' | 'high';

@@ -65,8 +65,18 @@ export type AgentEvent =
   | { k: 'reasoning'; delta: string }
   | { k: 'thinking'; blocks: Array<{ thinking: string; signature: string }> }
   | { k: 'tool_call'; call: ToolCall }
+  | {
+      k: 'tool_stream';
+      id: string;
+      /** Canlı çıktı kanalı (stdout/stderr). */
+      stream: 'stdout' | 'stderr';
+      /** Artımlı parça (kümülatif değil). */
+      data: string;
+    }
   | { k: 'tool_result'; id: string; ok: boolean; output: string }
   | { k: 'tool_preview'; id: string; output: string }
+  /** Tek bir API adımının (isteğin) gerçek kullanımı — bağlam göstergesi için. */
+  | { k: 'usage'; usage: UsageLike }
   | { k: 'done'; usage?: UsageLike };
 export type ApprovalMode = 'manual' | 'auto-read' | 'auto-edit';
 
